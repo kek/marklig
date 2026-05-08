@@ -45,12 +45,15 @@ html, body, #root {
   padding: 32px max(48px, calc((100% - 720px) / 2));
 }
 
-/* Headings */
+/* Headings — spacing as padding (not margin) so CodeMirror's heightmap, which
+   measures .cm-line via offsetHeight, matches the actual rendered offset. With
+   margin, every heading shifts subsequent lines by margin-top below where CM
+   thinks they are, breaking click→position. */
 .cm-md-heading           { font-weight: 600; letter-spacing: -0.01em; }
-.cm-md-heading-1         { font-size: 28px; line-height: 1.3;  margin: 18px 0 8px; }
-.cm-md-heading-2         { font-size: 22px; line-height: 1.3;  margin: 16px 0 6px; }
-.cm-md-heading-3         { font-size: 18px; line-height: 1.35; margin: 14px 0 6px; }
-.cm-md-heading-4         { font-size: 16px; line-height: 1.4;  margin: 12px 0 4px; }
+.cm-md-heading-1         { font-size: 28px; line-height: 1.3;  padding: 18px 0 8px; }
+.cm-md-heading-2         { font-size: 22px; line-height: 1.3;  padding: 16px 0 6px; }
+.cm-md-heading-3         { font-size: 18px; line-height: 1.35; padding: 14px 0 6px; }
+.cm-md-heading-4         { font-size: 16px; line-height: 1.4;  padding: 12px 0 4px; }
 .cm-md-heading-5         { font-size: 15px; line-height: 1.4;  color: var(--muted); }
 .cm-md-heading-6         { font-size: 14px; line-height: 1.4;  color: var(--muted); }
 
@@ -257,9 +260,21 @@ html.theme-dark  { color-scheme: dark; }
   background: color-mix(in srgb, var(--code-bg) 50%, transparent);
 }
 
-/* Caret color — !important to win against CodeMirror's default theme.
-   CodeMirror 6 sets .cm-cursor border-left-color via its built-in theme, which
-   has high specificity through inline-style injection. */
+/* Caret color — CodeMirror 6's base theme sets `&light .cm-content { caret-color: black }`
+   and only switches to white under its own `cm-dark` class, which we don't apply.
+   Force the native caret to follow our --fg so the cursor is visible in both themes.
+   !important is required to outrank CM's `.cm-editor.cm-light .cm-content` (3 classes). */
+html[data-mode="edit"] .cm-editor .cm-content {
+  caret-color: var(--fg) !important;
+}
+/* Reading mode is read-only — hide the caret entirely. */
+html[data-mode="reading"] .cm-editor .cm-content,
+html:not([data-mode]) .cm-editor .cm-content {
+  caret-color: transparent !important;
+}
+
+/* For configurations that use drawSelection (a drawn .cm-cursor instead of the
+   native caret), keep the same color. Harmless when drawSelection is off. */
 .cm-editor .cm-cursor,
 .cm-editor .cm-cursor-primary,
 .cm-editor .cm-dropCursor,
