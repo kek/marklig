@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.2.0] - 2026-05-08 — Plan 2: Editing & file lifecycle
+
+Foundation Sub-spec A, Plan 2 of 3 complete. The viewer is now an editor: toggle between reading and editing, save, and the buffer auto-reloads when the file changes on disk.
+
+### Added
+
+- Edit mode with decorated source (markers visible, formatting applied per spec §2.2)
+- Mode toggle: toolbar button + `Cmd/Ctrl + E` shortcut, two-way synced
+- Reading-mode keymap: Space, Shift+Space, Page keys, arrows, Home/End, Cmd/Ctrl + arrow for top/bottom
+- Save: `Cmd/Ctrl + S` writes to the original path
+- Dirty tracking: window title bullet, toolbar dot indicator
+- Close-with-dirty prompt (Save / Discard / Cancel)
+- Drag-and-drop a `.md` file onto the window to open it (with dirty-discard prompt)
+- Rust file watcher (`notify` crate) on the open file's parent directory; self-write filter; reconciliation:
+  - Clean buffer → silent reload with "Reloaded from disk" notice
+  - Dirty buffer → modal prompt (Reload / Keep edits)
+  - File deleted/moved → orphan state with notice; dirty flag forced on
+- Diverged-state save warning ("Save anyway?") when user kept dirty edits after external change
+- Watcher switches to the new path when drag-drop opens a different file
+- Three Playwright e2e specs: open-and-render, edit-and-save, external-change
+
+### Plan 1 carryover items closed
+
+- Shiki token-level syntax coloring via async cache + StateEffect
+- Multi-line paragraph decoration in `inline.ts` and `links.ts`
+- Explicit `color-scheme: light/dark` on forced themes
+- `computeLineStarts` promoted to a shared util in `decorations/index.ts`
+
+### Not yet (Plan 3 — Polish & platform)
+
+- TOC sidebar
+- Recents menu
+- Crash recovery
+- Native menu inventory
+- Document zoom
+- Find/replace UI
+- HTML sanitization (DOMPurify) for export paths
+- GitHub Actions CI matrix
+- Visual regression corpus
+- Real app icon and packaging
+
 ## [0.1.0] - 2026-05-08 — Plan 1: Read-only viewer
 
 Foundation Sub-spec A, Plan 1 of 3 complete. The app boots, opens a Markdown file (via dialog or CLI argument), and renders it in beautiful, themed read-only mode.
