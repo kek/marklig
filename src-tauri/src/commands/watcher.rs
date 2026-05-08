@@ -1,5 +1,5 @@
-use notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
+use notify::{EventKind, RecursiveMode, Watcher};
+use notify_debouncer_full::{new_debouncer, DebouncedEvent};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -26,7 +26,7 @@ pub struct WatcherState {
 struct WatcherInner {
     target: PathBuf,
     self_write_ts: Option<Instant>,
-    _debouncer: notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+    _debouncer: notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>,
 }
 
 impl WatcherState {
@@ -53,27 +53,23 @@ pub fn watcher_start(
 
     let mut debouncer = new_debouncer(
         Duration::from_millis(150),
-        move |result: notify_debouncer_mini::DebounceEventResult| {
+        None,
+        move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
             let events = match result { Ok(ev) => ev, Err(_) => return };
             for ev in events {
-                if ev.path != target_for_handler {
+                let touches_target = ev.paths.iter().any(|p| p == &target_for_handler);
+                if !touches_target {
                     continue;
                 }
-                // Self-write filter: if we wrote within the window, suppress.
-                // We emit anyway and let the JS-side filter make the final call,
-                // because access to the Mutex from inside this closure would
-                // deadlock if the user's save-and-reload cycle is racing.
                 let kind = match ev.kind {
-                    DebouncedEventKind::Any | DebouncedEventKind::AnyContinuous => {
-                        WatcherEventKind::Modified
-                    }
+                    EventKind::Remove(_) => WatcherEventKind::Removed,
                     _ => WatcherEventKind::Modified,
                 };
                 let _ = app_for_handler.emit(
                     "viewer://file-changed",
                     WatcherEvent {
                         kind,
-                        path: ev.path.to_string_lossy().to_string(),
+                        path: target_for_handler.to_string_lossy().to_string(),
                     },
                 );
             }
