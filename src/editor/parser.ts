@@ -24,6 +24,13 @@ export function parseMarkdown(source: string): MdToken[] {
   return md.parse(source, {});
 }
 
+/**
+ * Render the markdown source to HTML. Currently consumed only by parser
+ * conformance snapshots; it is the seam Sub-spec C will use for the
+ * HTML/PDF export pipeline. Output should be passed through `sanitizeHtml`
+ * (src/export/sanitize.ts) before insertion into any DOM outside the
+ * CodeMirror surface.
+ */
 export function renderHtml(source: string): string {
   return md.render(source);
 }

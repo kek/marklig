@@ -29,3 +29,9 @@ export function watchSystemTheme(onChange: () => void): () => void {
   mq.addEventListener("change", listener);
   return () => mq.removeEventListener("change", listener);
 }
+
+/** Apply a theme and persist the choice. Use this for user-driven theme changes. */
+export function setActiveTheme(theme: Theme): void {
+  applyTheme(theme);
+  storeTheme(theme);
+}
