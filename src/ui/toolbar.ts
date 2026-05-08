@@ -8,6 +8,7 @@ export interface ToolbarOptions {
   modeExtensions: { reading: ModeExtensions; edit: ModeExtensions };
   initialMode: Mode;
   onModeChange?: (mode: Mode) => void;
+  onSidebarToggle?: () => void;
 }
 
 export interface ToolbarHandle {
@@ -33,11 +34,18 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
     opts.onModeChange?.(mode);
   });
 
+  const sidebar = document.createElement("button");
+  sidebar.type = "button";
+  sidebar.className = "viewer-toolbar-btn";
+  sidebar.textContent = "TOC";
+  sidebar.title = "Toggle table of contents";
+  sidebar.addEventListener("click", () => opts.onSidebarToggle?.());
+
   const dirty = document.createElement("span");
   dirty.className = "viewer-dirty-indicator";
   dirty.textContent = "";
 
-  bar.append(toggle, dirty);
+  bar.append(toggle, sidebar, dirty);
   parent.prepend(bar);
 
   function applyButtonLabel(): void {

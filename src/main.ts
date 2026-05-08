@@ -1,4 +1,7 @@
 import { createEditor, setMode } from "./editor/editor";
+import { EditorView } from "@codemirror/view";
+import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
+import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField } from "./editor/decorations";
 import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler } from "./editor/keymaps";
 import type { Mode } from "./editor/editor";
@@ -44,8 +47,12 @@ async function bootstrap(): Promise<void> {
 
   const initialDoc = await resolveInitialDoc();
 
+  const shell = document.createElement("div");
+  shell.className = "viewer-app-shell";
+  root.append(shell);
+
   const view = createEditor({
-    parent: root,
+    parent: shell,
     source: initialDoc?.source ?? defaultPlaceholder(),
   });
 
@@ -68,6 +75,30 @@ async function bootstrap(): Promise<void> {
 
   setMode(view, "reading", { decorations: readingSet, keymap: readingKeymap });
 
+  function countHeadings(source: string): number {
+    return (source.match(/^#{1,6} /gm) ?? []).length;
+  }
+
+  function jumpTo(offset: number): void {
+    view.dispatch({
+      selection: { anchor: offset, head: offset },
+      effects: EditorView.scrollIntoView(offset, { y: "start" }),
+    });
+    view.focus();
+  }
+
+  const initialHeadings = countHeadings(view.state.doc.toString());
+  const initialTocPath = initialDoc?.path ?? "";
+  const toc: TocSidebarHandle = mountTocSidebar({
+    view,
+    parent: shell,
+    initiallyVisible: shouldShowSidebar(initialTocPath, initialHeadings),
+    onActivate: (entry: TocEntry) => jumpTo(entry.from),
+  });
+
+  // Make the sidebar appear LEFT of the editor — insert before the editor's DOM.
+  shell.insertBefore(toc.element, view.dom);
+
   const modeExtensions = {
     reading: { decorations: readingSet, keymap: readingKeymap },
     edit:    { decorations: editingSet, keymap: editKeymap },
@@ -80,6 +111,11 @@ async function bootstrap(): Promise<void> {
     modeExtensions,
     initialMode: "reading",
     onModeChange: (m) => { currentMode = m; },
+    onSidebarToggle: () => {
+      const next = !toc.isVisible();
+      toc.setVisible(next);
+      recordExplicitToggle(next);
+    },
   });
 
   setModeToggleHandler(() => {
@@ -97,6 +133,17 @@ async function bootstrap(): Promise<void> {
     await setWindowTitle(currentPath, dirty);
   });
   window.addEventListener("beforeunload", () => unsubDirty());
+
+  let lastSourceForToc = view.state.doc.toString();
+  function pollTocRefresh(): void {
+    const cur = view.state.doc.toString();
+    if (cur !== lastSourceForToc) {
+      lastSourceForToc = cur;
+      toc.refresh();
+    }
+    requestAnimationFrame(pollTocRefresh);
+  }
+  requestAnimationFrame(pollTocRefresh);
 
   setSaveHandler(async () => {
     if (!currentPath) return;
