@@ -7,5 +7,6 @@ export default defineConfig({
     exclude: ["tests/e2e/**"],
     globals: false,
     reporters: ["default"],
+    setupFiles: ["tests/setup.ts"],
   },
 });

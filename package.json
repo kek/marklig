@@ -15,6 +15,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.3.0",
     "@codemirror/language": "^6.10.3",
     "@codemirror/state": "^6.4.1",
@@ -33,6 +34,7 @@
     "@playwright/test": "^1.48.0",
     "@tauri-apps/cli": "^2.1.0",
     "@types/dompurify": "^3.0.5",
+    "@types/jsdom": "^28.0.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.9.0",
     "jsdom": "^25.0.1",
