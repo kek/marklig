@@ -16,3 +16,7 @@ node_modules/
 dist/
 .vite/
 tsconfig.tsbuildinfo
+
+# Playwright test artifacts
+test-results/
+playwright-report/
