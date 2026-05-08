@@ -1,4 +1,88 @@
-const root = document.getElementById("root");
-if (root) {
-  root.textContent = "Viewer loading…";
+import { createEditor, compartments } from "./editor/editor";
+import { buildDecorationField } from "./editor/decorations";
+import { headingsProducer } from "./editor/decorations/headings";
+import { inlineProducer } from "./editor/decorations/inline";
+import { listsProducer } from "./editor/decorations/lists";
+import { linksProducer } from "./editor/decorations/links";
+import { imagesProducer } from "./editor/decorations/images";
+import { blockquotesProducer } from "./editor/decorations/blockquotes";
+import { tablesProducer } from "./editor/decorations/tables";
+import { codeblocksProducer, primeHighlighter } from "./editor/decorations/codeblocks";
+import { frontmatterProducer } from "./editor/decorations/frontmatter";
+import { footnotesProducer } from "./editor/decorations/footnotes";
+import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
+import {
+  applyTheme,
+  loadStoredTheme,
+  watchSystemTheme,
+} from "./editor/theme";
+import { readDoc, openFileViaDialog, type OpenedDoc } from "./shell/files";
+
+async function bootstrap(): Promise<void> {
+  applyTheme(loadStoredTheme());
+  watchSystemTheme(() => applyTheme(loadStoredTheme()));
+
+  await primeHighlighter([
+    "javascript", "typescript", "python", "go", "rust",
+    "java", "c", "cpp", "shell", "json", "yaml", "sql",
+    "html", "css", "markdown",
+  ]);
+
+  const root = document.getElementById("root");
+  if (!root) throw new Error("no #root");
+  root.innerHTML = "";
+
+  const initialDoc = await resolveInitialDoc();
+
+  const view = createEditor({
+    parent: root,
+    source: initialDoc?.source ?? defaultPlaceholder(),
+  });
+
+  view.dispatch({
+    effects: compartments.decorations.reconfigure(
+      buildDecorationField([
+        headingsProducer,
+        inlineProducer,
+        listsProducer,
+        linksProducer,
+        imagesProducer,
+        blockquotesProducer,
+        tablesProducer,
+        codeblocksProducer,
+        frontmatterProducer,
+        footnotesProducer,
+        readingWidgetsProducer,
+      ]),
+    ),
+  });
 }
+
+async function resolveInitialDoc(): Promise<OpenedDoc | null> {
+  const argPath = await firstMarkdownArg();
+  if (argPath) return await readDoc(argPath);
+  return await openFileViaDialog();
+}
+
+async function firstMarkdownArg(): Promise<string | null> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const argv = await invoke<string[]>("plugin:cli|argv").catch(() => null);
+    if (!argv) return null;
+    return argv.find((a) => /\.(md|markdown|mdx|mdown)$/i.test(a)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultPlaceholder(): string {
+  return "# Welcome to Viewer\n\nNo document opened. Use **File → Open** in Plan 3 once the menu lands.\n";
+}
+
+bootstrap().catch((err) => {
+  console.error("bootstrap failed", err);
+  const root = document.getElementById("root");
+  if (root) {
+    root.textContent = `Failed to start: ${String(err)}`;
+  }
+});
