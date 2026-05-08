@@ -222,6 +222,26 @@ html.theme-dark  { color-scheme: dark; }
   min-width: 0;
 }
 
+/* Reading-mode table widget */
+.cm-md-reading-table {
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-family: var(--serif);
+  font-size: 15px;
+}
+.cm-md-reading-table th,
+.cm-md-reading-table td {
+  border-bottom: 1px solid var(--rule);
+  padding: 6px 12px;
+  text-align: left;
+}
+.cm-md-reading-table th {
+  font-weight: 700;
+}
+.cm-md-reading-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--code-bg) 50%, transparent);
+}
+
 /* Caret color — explicit so it works in both themes */
 .cm-editor .cm-cursor,
 .cm-editor .cm-dropCursor {

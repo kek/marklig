@@ -85,4 +85,9 @@ describe("readingWidgetsProducer", () => {
     // No inline elides should land inside the fence body (positions 4-36)
     expect(inline.every((x) => x.from < 4 || x.from >= 36)).toBe(true);
   });
+
+  it("emits a table widget for GFM tables", () => {
+    const r = specs("| a | b |\n|---|---|\n| 1 | 2 |\n");
+    expect(r.some((x) => (x.spec as { widget?: unknown }).widget !== undefined && (x.spec as { block?: boolean }).block === true)).toBe(true);
+  });
 });

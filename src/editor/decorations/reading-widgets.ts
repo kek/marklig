@@ -4,6 +4,53 @@ import type { Range } from "@codemirror/state";
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
 
+class TableWidget extends WidgetType {
+  constructor(readonly source: string) { super(); }
+  override toDOM(): HTMLElement {
+    const tbl = document.createElement("table");
+    tbl.className = "cm-md-reading-table";
+    const lines = this.source.split("\n").filter((l) => l.trim().length > 0);
+    if (lines.length < 2) return tbl;
+
+    const cellsOf = (line: string): string[] => {
+      let trimmed = line.trim();
+      if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+      if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
+      return trimmed.split("|").map((c) => c.trim());
+    };
+
+    const headerCells = cellsOf(lines[0]);
+    // lines[1] is the separator like |---|---|
+    const bodyLines = lines.slice(2);
+
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const c of headerCells) {
+      const th = document.createElement("th");
+      th.textContent = c;
+      headRow.append(th);
+    }
+    thead.append(headRow);
+    tbl.append(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const bl of bodyLines) {
+      const cells = cellsOf(bl);
+      const tr = document.createElement("tr");
+      for (const c of cells) {
+        const td = document.createElement("td");
+        td.textContent = c;
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    tbl.append(tbody);
+
+    return tbl;
+  }
+  override eq(other: TableWidget): boolean { return other.source === this.source; }
+}
+
 class ImageWidget extends WidgetType {
   constructor(readonly src: string, readonly alt: string) { super(); }
   override toDOM(): HTMLElement {
@@ -155,6 +202,20 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
     const close = match.index + match[0].length;
     ranges.push(ELIDE_INLINE.range(open, open + 1));
     ranges.push(ELIDE_INLINE.range(close - 1, close));
+  }
+
+  // Tables: replace the entire table source with a rendered <table>.
+  const lineStartsAll = computeLineStarts(source);
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== "table_open" || !t.map) continue;
+    const tableFrom = lineStartsAll[t.map[0]];
+    const tableTo = lineStartsAll[t.map[1]] ?? source.length;
+    const tableSource = source.slice(tableFrom, tableTo);
+    ranges.push(
+      Decoration.replace({ widget: new TableWidget(tableSource), block: true })
+        .range(tableFrom, tableTo),
+    );
   }
 
   // Deduplicate overlapping inline ranges (e.g., a regex matching inside another).
