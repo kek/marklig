@@ -1,4 +1,5 @@
 import { Compartment, EditorState } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 
@@ -7,6 +8,11 @@ export type Mode = "reading" | "edit";
 export interface CreateEditorOptions {
   parent: HTMLElement;
   source: string;
+}
+
+export interface ModeExtensions {
+  decorations: Extension;
+  keymap: Extension;
 }
 
 const readOnlyCompartment = new Compartment();
@@ -26,12 +32,15 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
   return new EditorView({ state, parent: opts.parent });
 }
 
-export function setMode(view: EditorView, mode: Mode): void {
-  view.dispatch({
-    effects: readOnlyCompartment.reconfigure(
-      EditorState.readOnly.of(mode === "reading"),
-    ),
-  });
+export function setMode(view: EditorView, mode: Mode, ext?: ModeExtensions): void {
+  const effects = [
+    readOnlyCompartment.reconfigure(EditorState.readOnly.of(mode === "reading")),
+  ];
+  if (ext) {
+    effects.push(decorationsCompartment.reconfigure(ext.decorations));
+    effects.push(keymapCompartment.reconfigure(ext.keymap));
+  }
+  view.dispatch({ effects });
 }
 
 export const compartments = {

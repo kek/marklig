@@ -1,5 +1,6 @@
-import { createEditor, compartments } from "./editor/editor";
+import { createEditor, setMode } from "./editor/editor";
 import { buildDecorationField } from "./editor/decorations";
+import { readingKeymap } from "./editor/keymaps";
 import { headingsProducer } from "./editor/decorations/headings";
 import { inlineProducer } from "./editor/decorations/inline";
 import { listsProducer } from "./editor/decorations/lists";
@@ -39,23 +40,26 @@ async function bootstrap(): Promise<void> {
     source: initialDoc?.source ?? defaultPlaceholder(),
   });
 
-  view.dispatch({
-    effects: compartments.decorations.reconfigure(
-      buildDecorationField([
-        headingsProducer,
-        inlineProducer,
-        listsProducer,
-        linksProducer,
-        imagesProducer,
-        blockquotesProducer,
-        tablesProducer,
-        codeblocksProducer,
-        frontmatterProducer,
-        footnotesProducer,
-        readingWidgetsProducer,
-      ]),
-    ),
-  });
+  const editingProducers = [
+    headingsProducer,
+    inlineProducer,
+    listsProducer,
+    linksProducer,
+    imagesProducer,
+    blockquotesProducer,
+    tablesProducer,
+    codeblocksProducer,
+    frontmatterProducer,
+    footnotesProducer,
+  ];
+  const readingProducers = [...editingProducers, readingWidgetsProducer];
+
+  const editingSet = buildDecorationField(editingProducers);
+  const readingSet = buildDecorationField(readingProducers);
+
+  void editingSet; // used in Task 8/9 when edit mode is wired to the toolbar
+
+  setMode(view, "reading", { decorations: readingSet, keymap: readingKeymap });
 
   const unsubscribeHighlight = highlightCache.subscribe(() => {
     view.dispatch({ effects: highlightCacheEffect.of() });
