@@ -10,7 +10,7 @@ The Foundation sub-spec (A) shipped on 2026-05-08 across three implementation pl
 |---|---|---|
 | **A. Foundation** | Tauri shell, decorated-source editor, reading↔editing modes, themes, file lifecycle, TOC sidebar, recents, crash recovery, native menus, zoom, find/replace, CI matrix | ✅ Shipped 2026-05-08 |
 | **B. Rich content** | Math (KaTeX), Mermaid, image rendering, remote-image policy, full HTML sanitization story | ✅ Shipped 2026-05-08 |
-| **C. Export & print** | PDF, self-contained HTML, print pipeline | Not started |
+| **C. Export & print** | PDF, self-contained HTML, print pipeline | ✅ Shipped 2026-05-08 (PDF via OS print dialog; native print-to-PDF deferred) |
 | **D. OS integration** | File associations, drag-drop polish, OS-level Recents, native menu polish, optional folder/project tree, multi-window UX | Not started |
 | **E. Settings, updater, privacy** | Preferences UI, auto-update channel, network privacy toggles | Not started |
 | **F. A11y & i18n** | WCAG audit, screen-reader pass, i18n string extraction | Not started |
@@ -49,17 +49,15 @@ Shipped as a single iterative pass on top of Foundation rather than a fresh spec
 
 ---
 
-## Sub-spec C: Export & print
+## Sub-spec C: Export & print — shipped
 
-The document lives on disk as Markdown; users want to share it.
+**HTML export** (`src/export/html.ts` + `src/export/styles.ts`). File → Export → HTML… writes a self-contained `.html` file: full DOCTYPE, inlined export stylesheet (mirrors reading-mode typography but doesn't depend on CodeMirror), inlined KaTeX CSS via Vite `?inline`, and the rendered body. Math is pre-extracted via the same regex used in the in-app `math.ts` producer, rendered through `katex.renderToString`, swapped back as placeholders so markdown-it never tokenizes math source. Sanitized via the existing `sanitizeHtml`.
 
-**In scope:**
-- **PDF export.** Same beautiful rendering as on-screen reader. Likely via headless Chromium / Tauri webview print-to-PDF. Page breaks at sensible boundaries.
-- **HTML export.** Self-contained file (CSS inlined or alongside), suitable for sharing. Uses the documented `renderHtml` seam from `parser.ts` plus `sanitizeHtml` from `src/export/sanitize.ts`.
-- **Print.** Browser print dialog; same layout as PDF.
-- **Copy as HTML.** Selection → sanitized HTML on the clipboard.
+**Print.** `Cmd/Ctrl + P` renders the export HTML into a hidden same-process iframe, then calls `contentWindow.print()`. The same-document path is used (rather than `window.open`) because Tauri's webview doesn't reliably forward print events from popups. The export stylesheet's `@media print` block drops page padding, forces black-on-white, and adds `page-break-inside: avoid` for code/blockquotes. PDF export works through the OS print dialog's "Save as PDF" — a first-class native-PDF entry would need a Rust-side webview-to-PDF call, deferred.
 
-**Depends on:** Sub-spec B (so math/Mermaid render in exports too).
+**Copy as HTML.** `Cmd/Ctrl + Shift + C` writes a `ClipboardItem` with both `text/html` and a `text/plain` fallback (the latter for terminal/plain-text receivers).
+
+**Mermaid in exports** is not in this slice — Mermaid is async per-instance and would block the synchronous export. Fenced `mermaid` blocks export as their source for now.
 
 ---
 

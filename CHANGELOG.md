@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0] - 2026-05-08 — Sub-spec C: Export & print
+
+### Added
+
+- **HTML export.** File → Export → HTML… writes a self-contained `.html` file: full DOCTYPE, inlined export stylesheet (light + dark via `prefers-color-scheme`, print-friendly `@media print`), inlined KaTeX CSS for math, and the rendered body. Math (`$…$`, `$$…$$`) is rendered via KaTeX during the export pass; markdown-it never sees the math source so `*` inside an expression doesn't become `<em>`. `<script>` and event handlers are stripped through `sanitizeHtml`.
+- **Print** (`Cmd/Ctrl + P`). Renders the same export HTML into a hidden same-process iframe and triggers `iframe.contentWindow.print()`. Works on macOS / Linux (system print dialog → "Save as PDF" → file). The `@media print` block in the export stylesheet drops the page padding, black-on-white forces inheritance, and `page-break-inside: avoid` keeps code blocks/blockquotes together.
+- **Copy as HTML** (`Cmd/Ctrl + Shift + C`). `ClipboardItem` with both `text/html` and a `text/plain` fallback. Pasting into a rich-text receiver yields formatted output; pasting into a terminal yields the text content.
+
+### Bullet rendering fix
+
+- Reading-mode bullets were elided entirely — `- foo` rendered as `foo` with no marker. Bullet markers (`-` / `*` / `+`) now render as `•`; ordered list numbers stay visible (numbers carry semantic content).
+
+### Test surface
+
+- 114 unit tests across 25 files (was 104/24): 9 for `buildHtmlExport` (document shape, title escaping, math/KaTeX, currency disambiguation, sanitization, emphasis-vs-math isolation, multi-inline-math), 1 added for ordered-list non-elision.
+
+### Not yet
+
+- Dedicated "Export as PDF…" menu entry. Currently routed through the OS print dialog's "Save as PDF". A first-class PDF action would need a Rust-side webview-to-PDF call; deferred.
+- Mermaid in exports. Mermaid is async per-instance; rendering during a synchronous export pass would block. Fenced `mermaid` blocks export as their source until a future iteration.
+
 ## [0.4.0] - 2026-05-08 — Sub-spec B: Rich content
 
 Math, Mermaid, and the remote-image policy. Plus a few bugfixes from the Foundation pass that weren't caught until heavy use after shipping.
