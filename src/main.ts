@@ -1,6 +1,8 @@
 import { createEditor, setMode } from "./editor/editor";
 import { buildDecorationField } from "./editor/decorations";
-import { readingKeymap } from "./editor/keymaps";
+import { readingKeymap, editKeymap } from "./editor/keymaps";
+import { mountToolbar } from "./ui/toolbar";
+import { setWindowTitle } from "./ui/titlebar";
 import { headingsProducer } from "./editor/decorations/headings";
 import { inlineProducer } from "./editor/decorations/inline";
 import { listsProducer } from "./editor/decorations/lists";
@@ -57,9 +59,23 @@ async function bootstrap(): Promise<void> {
   const editingSet = buildDecorationField(editingProducers);
   const readingSet = buildDecorationField(readingProducers);
 
-  void editingSet; // used in Task 8/9 when edit mode is wired to the toolbar
-
   setMode(view, "reading", { decorations: readingSet, keymap: readingKeymap });
+
+  const modeExtensions = {
+    reading: { decorations: readingSet, keymap: readingKeymap },
+    edit:    { decorations: editingSet, keymap: editKeymap },
+  };
+
+  const toolbar = mountToolbar(root, {
+    view,
+    modeExtensions,
+    initialMode: "reading",
+  });
+
+  await setWindowTitle(initialDoc?.path ?? null, false);
+
+  // Silence the unused-toolbar warning until Task 11 wires dirty subscription.
+  void toolbar;
 
   const unsubscribeHighlight = highlightCache.subscribe(() => {
     view.dispatch({ effects: highlightCacheEffect.of() });
