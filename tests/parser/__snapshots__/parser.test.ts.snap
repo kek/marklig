@@ -1,0 +1,89 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderHtml conformance > renders code.md 1`] = `
+"<!-- tests/parser/fixtures/code.md -->
+<p>Some text.</p>
+<pre><code class="language-js">const x = 1;
+</code></pre>
+<p>A <code>inline</code> ref.</p>
+"
+`;
+
+exports[`renderHtml conformance > renders footnote.md 1`] = `
+"<!-- tests/parser/fixtures/footnote.md -->
+<p>Text<sup class="footnote-ref"><a href="#fn1" id="fnref1">[1]</a></sup> and another<sup class="footnote-ref"><a href="#fn2" id="fnref2">[2]</a></sup>.</p>
+<hr class="footnotes-sep">
+<section class="footnotes">
+<ol class="footnotes-list">
+<li id="fn1" class="footnote-item"><p>First note. <a href="#fnref1" class="footnote-backref">↩︎</a></p>
+</li>
+<li id="fn2" class="footnote-item"><p>A longer note that spans
+multiple lines. <a href="#fnref2" class="footnote-backref">↩︎</a></p>
+</li>
+</ol>
+</section>
+"
+`;
+
+exports[`renderHtml conformance > renders headings.md 1`] = `
+"<!-- tests/parser/fixtures/headings.md -->
+<h1>H1</h1>
+<h2>H2</h2>
+<h3>H3</h3>
+<h4>H4</h4>
+<h5>H5</h5>
+<h6>H6</h6>
+"
+`;
+
+exports[`renderHtml conformance > renders inline.md 1`] = `
+"<!-- tests/parser/fixtures/inline.md -->
+<p><strong>bold</strong> and <em>italic</em> and <em><strong>both</strong></em> and <code>code</code> and <s>strike</s>.</p>
+<p>A <a href="https://example.com">link</a> and a <a href="https://example.com/auto">https://example.com/auto</a>.</p>
+"
+`;
+
+exports[`renderHtml conformance > renders lists.md 1`] = `
+"<!-- tests/parser/fixtures/lists.md -->
+<ul>
+<li>one</li>
+<li>two
+<ul>
+<li>nested</li>
+</ul>
+</li>
+<li>three</li>
+</ul>
+<ol>
+<li>ordered</li>
+<li>items</li>
+</ol>
+<ul class="contains-task-list">
+<li class="task-list-item"><input class="task-list-item-checkbox" checked="" disabled="" type="checkbox"> done</li>
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="" type="checkbox"> todo</li>
+</ul>
+"
+`;
+
+exports[`renderHtml conformance > renders table.md 1`] = `
+"<!-- tests/parser/fixtures/table.md -->
+<table>
+<thead>
+<tr>
+<th>Col A</th>
+<th>Col B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>one</td>
+<td>two</td>
+</tr>
+<tr>
+<td>three</td>
+<td>four</td>
+</tr>
+</tbody>
+</table>
+"
+`;

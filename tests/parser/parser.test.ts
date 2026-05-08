@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseMarkdown } from "../../src/editor/parser";
+import { parseMarkdown, renderHtml } from "../../src/editor/parser";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function flattenTokens(tokens: any[]): any[] {
   const out: any[] = [];
@@ -48,4 +51,17 @@ describe("parseMarkdown", () => {
     const tokens = parseMarkdown(md);
     expect(tokens.some((t) => t.type === "dl_open")).toBe(true);
   });
+});
+
+describe("renderHtml conformance", () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const fixtureDir = join(__dirname, "fixtures");
+  const fixtures = readdirSync(fixtureDir).filter((f) => f.endsWith(".md"));
+
+  for (const fixture of fixtures) {
+    it(`renders ${fixture}`, () => {
+      const source = readFileSync(join(fixtureDir, fixture), "utf8");
+      expect(renderHtml(source)).toMatchSnapshot();
+    });
+  }
 });
