@@ -221,3 +221,14 @@ html.theme-dark  { color-scheme: dark; }
   flex: 1;
   min-width: 0;
 }
+
+/* Caret color — explicit so it works in both themes */
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left-color: var(--fg);
+}
+
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
