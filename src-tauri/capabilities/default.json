@@ -8,6 +8,6 @@
     "dialog:default",
     "fs:default",
     "store:default",
-    "menu:default"
+    "core:menu:default"
   ]
 }
