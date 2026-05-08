@@ -22,6 +22,7 @@ import {
 } from "./editor/theme";
 import { readDoc, openFileViaDialog, saveDoc, type OpenedDoc } from "./shell/files";
 import { createDirtyTracker } from "./shell/dirty";
+import { installCloseHandler } from "./shell/close";
 
 async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
@@ -100,6 +101,16 @@ async function bootstrap(): Promise<void> {
       console.error("save failed", err);
     }
   });
+
+  const stopCloseHandler = await installCloseHandler({
+    isDirty: () => dirtyTracker.isDirty(),
+    save: async () => {
+      if (!currentPath) throw new Error("No path to save to");
+      await saveDoc(currentPath, view.state.doc.toString());
+      dirtyTracker.reset();
+    },
+  });
+  window.addEventListener("beforeunload", () => stopCloseHandler());
 
   await setWindowTitle(initialDoc?.path ?? null, false);
 
