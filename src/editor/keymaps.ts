@@ -104,6 +104,7 @@ export const readingKeymap = keymap.of([
   saveBinding,
   sidebarToggleBinding,
   ...zoomBindings,
+  ...searchKeymap,
   ...readingBindings,
 ]);
 
