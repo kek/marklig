@@ -40,26 +40,54 @@ test("renders headings and code from a sample doc", async ({ page }) => {
   // Stub the Tauri invoke for read_text_file by intercepting the page load.
   await page.addInitScript(() => {
     const sample = `# Sample Document\n\nA paragraph with **bold**, *italic*, and \`code\`.\n\n## Lists\n\n- a\n- b\n\n## Code\n\n\`\`\`js\nconst x = 42;\n\`\`\`\n`;
-    // Mock @tauri-apps/api/core invoke before main.ts runs.
-    // transformCallback and unregisterCallback are needed by Channel (used in event listeners).
+
+    // Callback registry (mirrors the real Tauri internals).
     let cbId = 0;
-    const callbacks: Record<number, (msg: unknown) => void> = {};
+    const callbacks = new Map<number, (data: unknown) => void>();
+    function transformCallback(cb: (data: unknown) => void, once = false): number {
+      const id = ++cbId;
+      callbacks.set(id, once ? (data: unknown) => { callbacks.delete(id); cb(data); } : cb);
+      return id;
+    }
+    function unregisterCallback(id: number): void { callbacks.delete(id); }
+
+    // Event listener registry for plugin:event|listen.
+    const eventListeners = new Map<number, (data: unknown) => void>();
+
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
-      invoke: async (cmd: string) => {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
         if (cmd === "read_text_file") return sample;
         if (cmd === "plugin:cli|argv") return [];
         if (cmd === "plugin:dialog|open") return "/virtual/sample.md";
+        if (cmd === "plugin:dialog|ask") return false;
+        if (cmd === "plugin:dialog|message") return null;
+        if (cmd === "watcher_start" || cmd === "watcher_stop" || cmd === "watcher_mark_self_write") return null;
+        if (cmd.startsWith("plugin:window|")) return null;
+        if (cmd === "plugin:event|listen") {
+          const handlerId = args?.handler as number | undefined;
+          if (handlerId != null) eventListeners.set(handlerId, callbacks.get(handlerId) ?? (() => {}));
+          return handlerId ?? 0;
+        }
+        if (cmd === "plugin:event|unlisten") {
+          const handlerId = args?.id as number | undefined;
+          if (handlerId != null) { eventListeners.delete(handlerId); unregisterCallback(handlerId); }
+          return null;
+        }
+        if (cmd === "plugin:event|emit" || cmd === "plugin:event|emit_to") return null;
         return null;
       },
-      transformCallback: (cb: (msg: unknown) => void, once = false) => {
-        const id = ++cbId;
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        callbacks[id] = once ? (msg: unknown) => { delete callbacks[id]; cb(msg); } : cb;
-        return id;
+      transformCallback,
+      unregisterCallback,
+      metadata: {
+        currentWindow: { label: "main" },
+        currentWebview: { windowLabel: "main", label: "main" },
       },
-      unregisterCallback: (id: number) => {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        delete callbacks[id];
+    };
+
+    (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener: (id: number) => {
+        eventListeners.delete(id);
+        unregisterCallback(id);
       },
     };
   });
