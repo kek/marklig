@@ -185,11 +185,41 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
 
   const windowMenu = await Submenu.new({
     text: "Window",
-    items: [await PredefinedMenuItem.new({ item: "Minimize" })],
+    items: [
+      await PredefinedMenuItem.new({ item: "Minimize" }),
+      await PredefinedMenuItem.new({ item: "Maximize" }),
+      await PredefinedMenuItem.new({ item: "Fullscreen" }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await PredefinedMenuItem.new({ item: "BringAllToFront" }),
+    ],
+  });
+
+  const helpMenu = await Submenu.new({
+    text: "Help",
+    items: [],
+  });
+
+  // macOS consumes the first submenu as the application menu (the bold
+  // app-name slot), and never auto-injects About/Hide/Quit when a custom
+  // menu is set. Build it explicitly so Cmd+Q works and File/Help remain
+  // visible in their normal slots.
+  const appMenu = await Submenu.new({
+    text: "viewer",
+    items: [
+      await PredefinedMenuItem.new({ item: { About: null } }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await PredefinedMenuItem.new({ item: "Services" }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await PredefinedMenuItem.new({ item: "Hide" }),
+      await PredefinedMenuItem.new({ item: "HideOthers" }),
+      await PredefinedMenuItem.new({ item: "ShowAll" }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await PredefinedMenuItem.new({ item: "Quit" }),
+    ],
   });
 
   const menu = await Menu.new({
-    items: [fileMenu, editMenu, viewMenu, windowMenu],
+    items: [appMenu, fileMenu, editMenu, viewMenu, windowMenu, helpMenu],
   });
   await menu.setAsAppMenu();
   return menu;
