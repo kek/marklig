@@ -91,6 +91,17 @@ html, body, #root {
 .cm-md-deflist-term      { font-weight: 600; }
 .cm-md-deflist-def       { padding-left: 16px; }
 
+/* Edit-mode background subtle differentiation */
+html[data-mode="edit"] .cm-editor {
+  background: color-mix(in srgb, var(--bg) 92%, var(--accent) 8%);
+}
+html[data-mode="edit"] .cm-editor .cm-scroller {
+  background: transparent;
+}
+html.theme-dark[data-mode="edit"] .cm-editor {
+  background: color-mix(in srgb, var(--bg) 90%, var(--accent) 10%);
+}
+
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }

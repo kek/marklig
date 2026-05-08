@@ -99,6 +99,7 @@ async function bootstrap(): Promise<void> {
   const readingSet = buildDecorationField(readingProducers);
 
   setMode(view, "reading", { decorations: readingSet, keymap: readingKeymap });
+  document.documentElement.dataset.mode = "reading";
 
   function countHeadings(source: string): number {
     return (source.match(/^#{1,6} /gm) ?? []).length;
@@ -142,7 +143,10 @@ async function bootstrap(): Promise<void> {
     view,
     modeExtensions,
     initialMode: "reading",
-    onModeChange: (m) => { currentMode = m; },
+    onModeChange: (m) => {
+      currentMode = m;
+      document.documentElement.dataset.mode = m;
+    },
     onSidebarToggle: () => {
       const next = !toc.isVisible();
       toc.setVisible(next);
@@ -154,6 +158,7 @@ async function bootstrap(): Promise<void> {
     currentMode = currentMode === "reading" ? "edit" : "reading";
     setMode(view, currentMode, modeExtensions[currentMode]);
     toolbar.setMode(currentMode);
+    document.documentElement.dataset.mode = currentMode;
   });
 
   setZoomHandlers({
@@ -262,6 +267,7 @@ async function bootstrap(): Promise<void> {
       currentMode = currentMode === "reading" ? "edit" : "reading";
       setMode(view, currentMode, modeExtensions[currentMode]);
       toolbar.setMode(currentMode);
+      document.documentElement.dataset.mode = currentMode;
     },
     toggleSidebar: () => {
       const next = !toc.isVisible();
