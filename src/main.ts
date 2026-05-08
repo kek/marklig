@@ -162,8 +162,12 @@ async function bootstrap(): Promise<void> {
   async function reloadFromDisk(): Promise<void> {
     if (!currentPath) return;
     const doc = await readDoc(currentPath);
+    const savedScrollTop = view.scrollDOM.scrollTop;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: doc.source },
+    });
+    requestAnimationFrame(() => {
+      view.scrollDOM.scrollTop = savedScrollTop;
     });
     dirtyTracker.reset();
     diverged = false;
