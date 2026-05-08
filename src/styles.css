@@ -140,3 +140,30 @@ html.theme-dark  { color-scheme: dark; }
   font-size: 16px;
   line-height: 1;
 }
+
+.viewer-reconcile-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.viewer-reconcile-card {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 22px 26px;
+  max-width: 420px;
+  font-family: -apple-system, system-ui, sans-serif;
+}
+.viewer-reconcile-card h3 { margin: 0 0 8px; font-size: 15px; }
+.viewer-reconcile-card p  { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+.viewer-reconcile-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+.viewer-orphan-notice,
+.viewer-reloaded-notice {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: var(--code-bg); color: var(--fg);
+  padding: 8px 14px; border-radius: 6px; font-size: 12px;
+  font-family: -apple-system, system-ui, sans-serif;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.15);
+  z-index: 1001;
+}
