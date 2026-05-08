@@ -19,6 +19,8 @@ import { codeblocksProducer, primeHighlighter, highlightCache, highlightCacheEff
 import { frontmatterProducer } from "./editor/decorations/frontmatter";
 import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
+import { mathProducer } from "./editor/decorations/math";
+import "katex/dist/katex.min.css";
 import {
   applyTheme,
   loadStoredTheme,
@@ -93,7 +95,7 @@ async function bootstrap(): Promise<void> {
     frontmatterProducer,
     footnotesProducer,
   ];
-  const readingProducers = [...editingProducers, readingWidgetsProducer];
+  const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer];
 
   const editingSet = buildDecorationField(editingProducers);
   const readingSet = buildDecorationField(readingProducers);

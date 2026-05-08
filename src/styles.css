@@ -109,6 +109,21 @@ html.theme-dark[data-mode="edit"] .cm-editor {
   background: color-mix(in srgb, var(--bg) 90%, var(--accent) 10%);
 }
 
+/* Math (KaTeX) — block equations get vertical breathing room and centered
+   layout; inline math sits in the run of text. KaTeX's own stylesheet
+   (imported in main.ts) handles the typesetting itself. */
+.cm-md-math-block {
+  margin: 14px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.cm-md-math-inline { display: inline-block; }
+.cm-md-math-error {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }
