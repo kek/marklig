@@ -66,11 +66,21 @@ describe("readingWidgetsProducer", () => {
     expect(inline.some((x) => x.from === 4 && x.to === 5)).toBe(true);
   });
 
-  it("elides bullet list markers, keeping leading indent", () => {
+  it("replaces bullet marker char with a bullet widget, keeps leading indent and trailing space", () => {
     const r = specs("- one\n  - nested\n");
-    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
-    expect(inline.some((x) => x.from === 0 && x.to === 2)).toBe(true);
-    expect(inline.some((x) => x.from === 8 && x.to === 10)).toBe(true);
+    const widgets = r.filter(
+      (x) => (x.spec as { widget?: unknown }).widget !== undefined,
+    );
+    // Top-level "- " at offset 0 → replace just the "-" at [0,1)
+    expect(widgets.some((x) => x.from === 0 && x.to === 1)).toBe(true);
+    // Nested "  - " at offset 6 → replace just the "-" at [8,9)
+    expect(widgets.some((x) => x.from === 8 && x.to === 9)).toBe(true);
+  });
+
+  it("does not touch ordered list numbers (numbers are content)", () => {
+    const r = specs("1. first\n2. second\n");
+    // No ranges should overlap the "1." / "2." prefixes.
+    expect(r.every((x) => !(x.from === 0 || x.from === 9))).toBe(true);
   });
 
   it("elides blockquote `> ` prefix", () => {

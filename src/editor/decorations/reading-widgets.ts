@@ -103,6 +103,16 @@ function makeBrokenImagePlaceholder(src: string, alt: string): HTMLElement {
   return wrap;
 }
 
+class BulletWidget extends WidgetType {
+  override toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-md-reading-bullet";
+    span.textContent = "•"; // •
+    return span;
+  }
+  override eq(): boolean { return true; }
+}
+
 class LineElideWidget extends WidgetType {
   override toDOM(): HTMLElement {
     const span = document.createElement("span");
@@ -127,7 +137,6 @@ const FRONT_MATTER_RE = /^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1\r?\n/;
 const HEADING_PREFIX_RE = /^(#{1,6}) /gm;
 const BLOCKQUOTE_PREFIX_RE = /^(> )+/gm;
 const BULLET_LIST_RE = /^[ \t]*([-*+]) /gm;
-const ORDERED_LIST_RE = /^[ \t]*(\d+\.) /gm;
 const STRONG_RE = /(\*\*|__)(?=\S)([\s\S]*?\S)\1/g;
 const EM_RE = /(?<![*_])(\*|_)(?=\S)([^*_\n]+?)\1(?![*_])/g;
 const STRIKE_RE = /~~(?=\S)([\s\S]*?\S)~~/g;
@@ -198,16 +207,16 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
     if (match.index === undefined || inCode(match.index)) continue;
     ranges.push(ELIDE_INLINE.range(match.index, match.index + match[0].length));
   }
+  // Bullet lists: replace the marker char (-/*/+) with a real bullet glyph,
+  // keep the trailing space so the existing line indent reads naturally.
+  // Ordered lists: leave the number visible — it carries semantic meaning.
   for (const match of source.matchAll(BULLET_LIST_RE)) {
     if (match.index === undefined || inCode(match.index)) continue;
-    // Elide just the bullet character and trailing space, keep leading indent
     const bulletStart = match.index + match[0].indexOf(match[1]);
-    ranges.push(ELIDE_INLINE.range(bulletStart, bulletStart + match[1].length + 1));
-  }
-  for (const match of source.matchAll(ORDERED_LIST_RE)) {
-    if (match.index === undefined || inCode(match.index)) continue;
-    const numStart = match.index + match[0].indexOf(match[1]);
-    ranges.push(ELIDE_INLINE.range(numStart, numStart + match[1].length + 1));
+    ranges.push(
+      Decoration.replace({ widget: new BulletWidget() })
+        .range(bulletStart, bulletStart + match[1].length),
+    );
   }
 
   // Inline emphasis markers: hide just the marker pairs, keep the text.

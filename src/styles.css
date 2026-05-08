@@ -67,6 +67,7 @@ html, body, #root {
 /* Lists */
 .cm-md-list              { padding-left: 0; }
 .cm-md-list-task-done    { color: var(--muted); }
+.cm-md-reading-bullet    { color: var(--muted); display: inline-block; min-width: 1ch; }
 
 /* Links */
 .cm-md-link-text         { color: var(--link); text-decoration: underline;
