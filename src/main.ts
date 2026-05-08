@@ -32,6 +32,10 @@ import { recordRecent } from "./shell/recents";
 import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
+import { buildAndAttachMenu } from "./shell/menus";
+import { setActiveTheme } from "./editor/theme";
+import { loadRecents, clearRecents } from "./shell/recents";
+import { openSearchPanel } from "@codemirror/search";
 
 let recoveredDoc: { path: string; source: string } | null = null;
 
@@ -181,7 +185,7 @@ async function bootstrap(): Promise<void> {
   }
   requestAnimationFrame(pollTocRefresh);
 
-  setSaveHandler(async () => {
+  const triggerSave = async (): Promise<void> => {
     if (!currentPath) return;
     if (diverged) {
       const proceed = await ask(
@@ -203,7 +207,8 @@ async function bootstrap(): Promise<void> {
     } catch (err) {
       console.error("save failed", err);
     }
-  });
+  };
+  setSaveHandler(() => { void triggerSave(); });
 
   const stopCloseHandler = await installCloseHandler({
     isDirty: () => dirtyTracker.isDirty(),
@@ -214,6 +219,52 @@ async function bootstrap(): Promise<void> {
     },
   });
   window.addEventListener("beforeunload", () => stopCloseHandler());
+
+  async function loadAndApplyDoc(path: string): Promise<void> {
+    const doc = await readDoc(path);
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: doc.source },
+    });
+    currentPath = doc.path;
+    dirtyTracker.reset();
+    diverged = false;
+    await setWindowTitle(currentPath, false);
+    if (currentPath) {
+      await recordRecent(currentPath);
+      await startWatching(currentPath);
+    }
+  }
+
+  await buildAndAttachMenu({
+    openFile: async () => {
+      const doc = await openFileViaDialog();
+      if (doc) await loadAndApplyDoc(doc.path);
+    },
+    saveFile: () => { void triggerSave(); },
+    closeWindow: async () => {
+      const win = getCurrentWindow();
+      await win.close();
+    },
+    toggleMode: () => {
+      currentMode = currentMode === "reading" ? "edit" : "reading";
+      setMode(view, currentMode, modeExtensions[currentMode]);
+      toolbar.setMode(currentMode);
+    },
+    toggleSidebar: () => {
+      const next = !toc.isVisible();
+      toc.setVisible(next);
+      recordExplicitToggle(next);
+    },
+    setTheme: (t) => setActiveTheme(t),
+    zoomIn: () => { /* Task 20 wires this */ },
+    zoomOut: () => { /* Task 20 wires this */ },
+    zoomReset: () => { /* Task 20 wires this */ },
+    openFind: () => { openSearchPanel(view); },
+    openReplace: () => { openSearchPanel(view); },
+    recents: async () => await loadRecents(),
+    openRecent: async (path) => { await loadAndApplyDoc(path); },
+    clearRecents: async () => { await clearRecents(); },
+  });
 
   async function startWatching(path: string): Promise<void> {
     if (watcherHandle) {
