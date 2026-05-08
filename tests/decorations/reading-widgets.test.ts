@@ -38,4 +38,51 @@ describe("readingWidgetsProducer", () => {
     const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide-line"));
     expect(hides.length).toBe(3);
   });
+
+  it("elides heading prefix `# `", () => {
+    const r = specs("# Hello\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 0 && x.to === 2)).toBe(true);
+  });
+
+  it("elides bold marker pairs but keeps inner text", () => {
+    const r = specs("a **bold** b\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 2 && x.to === 4)).toBe(true);
+    expect(inline.some((x) => x.from === 8 && x.to === 10)).toBe(true);
+  });
+
+  it("elides italic asterisk markers", () => {
+    const r = specs("a *em* b\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 2 && x.to === 3)).toBe(true);
+    expect(inline.some((x) => x.from === 5 && x.to === 6)).toBe(true);
+  });
+
+  it("elides inline code backticks", () => {
+    const r = specs("a `c` b\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 2 && x.to === 3)).toBe(true);
+    expect(inline.some((x) => x.from === 4 && x.to === 5)).toBe(true);
+  });
+
+  it("elides bullet list markers, keeping leading indent", () => {
+    const r = specs("- one\n  - nested\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 0 && x.to === 2)).toBe(true);
+    expect(inline.some((x) => x.from === 8 && x.to === 10)).toBe(true);
+  });
+
+  it("elides blockquote `> ` prefix", () => {
+    const r = specs("> quoted\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 0 && x.to === 2)).toBe(true);
+  });
+
+  it("does not elide markers inside fenced code blocks", () => {
+    const r = specs("```\n# not a heading\n**not bold**\n```\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    // No inline elides should land inside the fence body (positions 4-36)
+    expect(inline.every((x) => x.from < 4 || x.from >= 36)).toBe(true);
+  });
 });
