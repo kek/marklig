@@ -1,0 +1,18 @@
+# Brainstorming companion working files (not for version control)
+.superpowers/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Tauri / Rust build output
+src-tauri/target/
+src-tauri/gen/
+target/
+
+# Frontend build output
+node_modules/
+dist/
+.vite/
+tsconfig.tsbuildinfo
