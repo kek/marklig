@@ -7,24 +7,22 @@ export interface CloseHandlerOptions {
 }
 
 /**
- * Wires a close-requested handler that prompts before discarding unsaved changes.
- * Returns an unsubscribe function.
+ * Wires a close-requested handler that prompts before discarding unsaved
+ * changes. Returns an unsubscribe function.
  *
- * When the buffer is clean we explicitly call win.destroy() so Tauri 2 always
- * sees a concrete decision rather than an unresolved async callback — some
- * Tauri 2 builds treat a resolved-but-decision-pending handler as a permanent
- * block.  When dirty we synchronously preventDefault() before any awaits so
- * the block is set before we go async.
+ * Tauri 2's `onCloseRequested` wrapper already calls `destroy()` for us when
+ * the handler returns without `event.preventDefault()`. Our handler MUST NOT
+ * also call destroy on the clean path — that races with the wrapper's destroy
+ * and on some platforms cancels the close entirely.
  */
 export async function installCloseHandler(opts: CloseHandlerOptions): Promise<() => void> {
   const win = getCurrentWindow();
   const stop = await win.onCloseRequested(async (event) => {
     if (!opts.isDirty()) {
-      // Clean buffer — explicitly destroy so Tauri 2 sees a real decision.
-      await win.destroy();
+      // Clean — let the wrapper destroy the window. Don't touch event, don't destroy.
       return;
     }
-    // Dirty buffer — block synchronously before any awaits, then prompt.
+    // Dirty — block synchronously before any awaits, then prompt.
     event.preventDefault();
     const choice = await promptSaveDiscardCancel();
     if (choice === "cancel") return;

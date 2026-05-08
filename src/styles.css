@@ -36,10 +36,14 @@ html, body, #root {
 .cm-editor .cm-scroller {
   font-family: var(--serif);
   font-size: 16px;
+}
+/* Padding lives on .cm-content (not .cm-scroller) so CodeMirror's click→position
+   mapping sees the same geometry it lays out against. */
+.cm-editor .cm-content {
+  color: var(--fg);
+  line-height: 1.65;
   padding: 32px max(48px, calc((100% - 720px) / 2));
 }
-.cm-editor .cm-content { color: var(--fg); line-height: 1.65; }
-.cm-editor .cm-line { line-height: 1.65; }
 
 /* Headings */
 .cm-md-heading           { font-weight: 600; letter-spacing: -0.01em; }
@@ -253,10 +257,16 @@ html.theme-dark  { color-scheme: dark; }
   background: color-mix(in srgb, var(--code-bg) 50%, transparent);
 }
 
-/* Caret color — explicit so it works in both themes */
+/* Caret color — !important to win against CodeMirror's default theme.
+   CodeMirror 6 sets .cm-cursor border-left-color via its built-in theme, which
+   has high specificity through inline-style injection. */
 .cm-editor .cm-cursor,
-.cm-editor .cm-dropCursor {
-  border-left-color: var(--fg);
+.cm-editor .cm-cursor-primary,
+.cm-editor .cm-dropCursor,
+.cm-editor.cm-focused .cm-cursor,
+.cm-editor.cm-focused .cm-cursor-primary {
+  border-left-color: var(--fg) !important;
+  border-left-width: 1.5px !important;
 }
 
 .cm-editor .cm-selectionBackground,
