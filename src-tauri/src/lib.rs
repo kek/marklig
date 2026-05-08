@@ -14,6 +14,9 @@ pub fn run() {
             commands::watcher::watcher_start,
             commands::watcher::watcher_stop,
             commands::watcher::watcher_mark_self_write,
+            commands::files::write_recovery,
+            commands::files::read_all_recovery,
+            commands::files::clear_recovery,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
