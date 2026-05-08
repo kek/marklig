@@ -18,3 +18,5 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 thiserror = "1"
+notify = "6"
+notify-debouncer-mini = "0.4"
