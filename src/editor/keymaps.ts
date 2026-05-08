@@ -17,6 +17,17 @@ const modeToggleBinding: KeyBinding = {
   },
 };
 
+let saveHandler: () => void = () => {};
+export function setSaveHandler(handler: () => void): void {
+  saveHandler = handler;
+}
+
+const saveBinding: KeyBinding = {
+  key: "Mod-s",
+  preventDefault: true,
+  run: () => { saveHandler(); return true; },
+};
+
 const PAGE_OVERLAP_LINES = 3;
 
 function pageScroll(view: EditorView, direction: 1 | -1): boolean {
@@ -61,12 +72,13 @@ const readingBindings: KeyBinding[] = [
   },
 ];
 
-export const readingKeymap = keymap.of([modeToggleBinding, ...readingBindings]);
+export const readingKeymap = keymap.of([modeToggleBinding, saveBinding, ...readingBindings]);
 
 export const editKeymap = [
   history(),
   keymap.of([
     modeToggleBinding,
+    saveBinding,
     ...defaultKeymap,
     ...historyKeymap,
     ...searchKeymap,

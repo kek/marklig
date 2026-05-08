@@ -22,3 +22,7 @@ export async function readDoc(path: string): Promise<OpenedDoc> {
   const source = await invoke<string>("read_text_file", { path });
   return { path, source };
 }
+
+export async function saveDoc(path: string, contents: string): Promise<void> {
+  await invoke("write_text_file", { path, contents });
+}

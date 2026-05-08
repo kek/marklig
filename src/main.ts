@@ -1,6 +1,6 @@
 import { createEditor, setMode } from "./editor/editor";
 import { buildDecorationField } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler } from "./editor/keymaps";
 import type { Mode } from "./editor/editor";
 import { mountToolbar } from "./ui/toolbar";
 import { setWindowTitle } from "./ui/titlebar";
@@ -20,7 +20,8 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, type OpenedDoc } from "./shell/files";
+import { createDirtyTracker } from "./shell/dirty";
 
 async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
@@ -80,6 +81,24 @@ async function bootstrap(): Promise<void> {
     currentMode = currentMode === "reading" ? "edit" : "reading";
     setMode(view, currentMode, modeExtensions[currentMode]);
     toolbar.setMode(currentMode);
+  });
+
+  let currentPath: string | null = initialDoc?.path ?? null;
+  const dirtyTracker = createDirtyTracker(view);
+  const unsubDirty = dirtyTracker.subscribe(async (dirty) => {
+    toolbar.setDirty(dirty);
+    await setWindowTitle(currentPath, dirty);
+  });
+  window.addEventListener("beforeunload", () => unsubDirty());
+
+  setSaveHandler(async () => {
+    if (!currentPath) return;
+    try {
+      await saveDoc(currentPath, view.state.doc.toString());
+      dirtyTracker.reset();
+    } catch (err) {
+      console.error("save failed", err);
+    }
   });
 
   await setWindowTitle(initialDoc?.path ?? null, false);
