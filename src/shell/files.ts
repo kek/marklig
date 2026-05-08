@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 export interface OpenedDoc {
   path: string;
@@ -25,4 +25,20 @@ export async function readDoc(path: string): Promise<OpenedDoc> {
 
 export async function saveDoc(path: string, contents: string): Promise<void> {
   await invoke("write_text_file", { path, contents });
+}
+
+/** Prompt for an HTML save destination and write the contents. Returns the
+ * destination path on success, null if the user cancels. */
+export async function saveHtmlExport(
+  contents: string,
+  defaultName: string,
+): Promise<string | null> {
+  const dest = await save({
+    title: "Export as HTML",
+    defaultPath: defaultName,
+    filters: [{ name: "HTML", extensions: ["html", "htm"] }],
+  });
+  if (typeof dest !== "string") return null;
+  await invoke("write_text_file", { path: dest, contents });
+  return dest;
 }

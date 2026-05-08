@@ -28,7 +28,8 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, type OpenedDoc } from "./shell/files";
+import { buildHtmlExport } from "./export/html";
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
 import { installWatcher, type WatcherHandle } from "./shell/watcher";
@@ -288,6 +289,27 @@ async function bootstrap(): Promise<void> {
     recents: async () => await loadRecents(),
     openRecent: async (path) => { await loadAndApplyDoc(path); },
     clearRecents: async () => { await clearRecents(); },
+    exportHtml: async () => {
+      const html = await buildHtmlExport(view.state.doc.toString(), {
+        title: documentTitleFromPath(currentPath),
+      });
+      const defaultName = exportFileNameFromPath(currentPath, "html");
+      await saveHtmlExport(html, defaultName);
+    },
+    printDocument: () => {
+      void (async () => {
+        const html = await buildHtmlExport(view.state.doc.toString(), {
+          title: documentTitleFromPath(currentPath),
+        });
+        openPrintWindow(html);
+      })();
+    },
+    copyAsHtml: async () => {
+      const html = await buildHtmlExport(view.state.doc.toString(), {
+        title: documentTitleFromPath(currentPath),
+      });
+      await writeClipboardHtml(html);
+    },
   });
 
   async function startWatching(path: string): Promise<void> {
@@ -399,6 +421,63 @@ async function firstMarkdownArg(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function documentTitleFromPath(path: string | null): string {
+  if (!path) return "Markdown export";
+  const base = path.split(/[\\/]/).pop() ?? path;
+  return base.replace(/\.(md|markdown|mdx|mdown)$/i, "");
+}
+
+function exportFileNameFromPath(path: string | null, ext: string): string {
+  return `${documentTitleFromPath(path)}.${ext}`;
+}
+
+function openPrintWindow(html: string): void {
+  // Same-process iframe — Tauri's webview doesn't reliably forward window.print()
+  // from a popup, but a same-document iframe.contentWindow.print() does. The
+  // iframe is removed after the print dialog closes.
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+  document.body.append(frame);
+  const doc = frame.contentDocument;
+  if (!doc) { frame.remove(); return; }
+  doc.open();
+  doc.write(html);
+  doc.close();
+  const cleanup = () => {
+    frame.contentWindow?.removeEventListener("afterprint", cleanup);
+    frame.remove();
+  };
+  // Fonts/CSS need a tick to apply before print measures layout.
+  requestAnimationFrame(() => {
+    frame.contentWindow?.addEventListener("afterprint", cleanup);
+    frame.contentWindow?.focus();
+    frame.contentWindow?.print();
+  });
+}
+
+async function writeClipboardHtml(html: string): Promise<void> {
+  // Modern clipboard API: write both text/html and a plain-text fallback.
+  // Some receivers (terminals, plain-text editors) only consume text/plain.
+  const plain = stripTags(html);
+  const item = new ClipboardItem({
+    "text/html": new Blob([html], { type: "text/html" }),
+    "text/plain": new Blob([plain], { type: "text/plain" }),
+  });
+  await navigator.clipboard.write([item]);
+}
+
+function stripTags(html: string): string {
+  const tmp = document.createElement("template");
+  tmp.innerHTML = html;
+  return tmp.content.textContent ?? "";
 }
 
 function defaultPlaceholder(): string {

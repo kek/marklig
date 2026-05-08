@@ -21,6 +21,9 @@ export interface MenuHandlers {
   recents: () => Promise<string[]>;
   openRecent: (path: string) => Promise<void>;
   clearRecents: () => Promise<void>;
+  exportHtml: () => Promise<void>;
+  printDocument: () => void;
+  copyAsHtml: () => Promise<void>;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
@@ -83,6 +86,23 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         },
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
+      await Submenu.new({
+        text: "Export",
+        items: [
+          await MenuItem.new({
+            id: "export-html",
+            text: "HTML…",
+            action: () => { void handlers.exportHtml(); },
+          }),
+        ],
+      }),
+      await MenuItem.new({
+        id: "print",
+        text: "Print…",
+        accelerator: "CmdOrCtrl+P",
+        action: () => handlers.printDocument(),
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "close",
         text: "Close Window",
@@ -116,6 +136,13 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         text: "Find and Replace…",
         accelerator: "CmdOrCtrl+Shift+F",
         action: () => handlers.openReplace(),
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        id: "copy-as-html",
+        text: "Copy as HTML",
+        accelerator: "CmdOrCtrl+Shift+C",
+        action: () => { void handlers.copyAsHtml(); },
       }),
     ],
   });
