@@ -160,6 +160,30 @@ html.theme-dark[data-mode="edit"] .cm-editor {
   color: var(--muted);
 }
 
+/* Remote-image policy placeholder. Bordered box with alt + URL — surfaces what
+   the document points to without making a network request. The 'broken' variant
+   is used for images that failed to load when the policy allows fetching. */
+.cm-md-reading-image-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--rule);
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: 13px;
+}
+.cm-md-reading-image-placeholder-label { color: var(--fg); font-weight: 500; }
+.cm-md-reading-image-placeholder-url {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+.cm-md-reading-image-broken { border-style: solid; border-color: var(--accent); }
+
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }

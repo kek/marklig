@@ -21,6 +21,7 @@ import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
+import { loadSettings } from "./shell/settings";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
@@ -46,6 +47,7 @@ let recoveredDoc: { path: string; source: string } | null = null;
 async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
   watchSystemTheme(() => applyTheme(loadStoredTheme()));
+  await loadSettings();
 
   await primeHighlighter([
     "javascript", "typescript", "python", "go", "rust",

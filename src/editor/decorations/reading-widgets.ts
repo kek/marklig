@@ -3,6 +3,7 @@ import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { getRemoteImagePolicy, shouldRenderImage } from "../../shell/settings";
 
 class TableWidget extends WidgetType {
   constructor(readonly source: string) { super(); }
@@ -54,17 +55,52 @@ class TableWidget extends WidgetType {
 class ImageWidget extends WidgetType {
   constructor(readonly src: string, readonly alt: string) { super(); }
   override toDOM(): HTMLElement {
+    const policy = getRemoteImagePolicy();
+    if (!shouldRenderImage(this.src, policy)) {
+      return makeRemoteImagePlaceholder(this.src, this.alt, policy);
+    }
     const img = document.createElement("img");
     img.src = this.src;
     img.alt = this.alt;
     img.className = "cm-md-reading-image";
     img.loading = "lazy";
     img.decoding = "async";
+    img.addEventListener("error", () => {
+      const broken = makeBrokenImagePlaceholder(this.src, this.alt);
+      img.replaceWith(broken);
+    });
     return img;
   }
   override eq(other: ImageWidget): boolean {
     return other.src === this.src && other.alt === this.alt;
   }
+}
+
+function makeRemoteImagePlaceholder(src: string, alt: string, policy: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "cm-md-reading-image-placeholder";
+  wrap.dataset.policy = policy;
+  const label = document.createElement("div");
+  label.className = "cm-md-reading-image-placeholder-label";
+  label.textContent = alt ? `Remote image: ${alt}` : "Remote image";
+  const url = document.createElement("div");
+  url.className = "cm-md-reading-image-placeholder-url";
+  url.textContent = src;
+  wrap.append(label, url);
+  return wrap;
+}
+
+function makeBrokenImagePlaceholder(src: string, alt: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "cm-md-reading-image-placeholder cm-md-reading-image-broken";
+  const label = document.createElement("div");
+  label.className = "cm-md-reading-image-placeholder-label";
+  label.textContent = alt ? `Broken image: ${alt}` : "Broken image";
+  const url = document.createElement("div");
+  url.className = "cm-md-reading-image-placeholder-url";
+  url.textContent = src;
+  wrap.append(label, url);
+  return wrap;
 }
 
 class LineElideWidget extends WidgetType {
