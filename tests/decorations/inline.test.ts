@@ -45,4 +45,14 @@ describe("inlineProducer", () => {
     expect(r).toContainEqual(expect.objectContaining({ class: "cm-md-strong" }));
     expect(r).toContainEqual(expect.objectContaining({ class: "cm-md-em" }));
   });
+
+  it("decorates emphasis on continuation lines of a wrapped paragraph", () => {
+    // markdown-it puts both lines of soft-wrapped prose into a single inline
+    // token with map [0, 2]. The producer must walk both lines to find
+    // *italic* on line 2.
+    const source = "first line **bold**\nsecond line *italic*\n";
+    const r = classesOf(source);
+    expect(r).toContainEqual(expect.objectContaining({ class: "cm-md-strong", from: 11, to: 19 }));
+    expect(r).toContainEqual(expect.objectContaining({ class: "cm-md-em", from: 32, to: 40 }));
+  });
 });

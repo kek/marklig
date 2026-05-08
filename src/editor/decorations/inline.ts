@@ -3,6 +3,7 @@ import type { Range } from "@codemirror/state";
 import type Token from "markdown-it/lib/token.mjs";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 export const inlineProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
@@ -10,10 +11,11 @@ export const inlineProducer: DecorationProducer = ({ source, tokens }) => {
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type !== "inline" || !t.children || !t.map) continue;
-    const lineStart = absoluteOffsetOfLine(source, t.map[0]);
-    const lineEnd = source.indexOf("\n", lineStart);
-    const lineSource = source.slice(lineStart, lineEnd >= 0 ? lineEnd + 1 : undefined);
-    walkInline(t.children, lineStart, lineSource, ranges);
+    const blockStart = absoluteOffsetOfLine(source, t.map[0]);
+    const lineStarts = computeLineStarts(source);
+    const blockEnd = lineStarts[t.map[1]] ?? source.length;
+    const blockSource = source.slice(blockStart, blockEnd);
+    walkInline(t.children, blockStart, blockSource, ranges);
   }
 
   ranges.sort((a, b) => a.from - b.from || a.to - b.to);
