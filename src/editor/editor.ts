@@ -17,6 +17,7 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
   const state = EditorState.create({
     doc: opts.source,
     extensions: [
+      EditorView.lineWrapping,
       readOnlyCompartment.of(EditorState.readOnly.of(true)),
       decorationsCompartment.of([]),
       keymapCompartment.of(keymap.of(defaultKeymap)),
