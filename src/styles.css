@@ -1,12 +1,97 @@
 :root {
   color-scheme: light dark;
+  --bg: #fdfdfa;
+  --fg: #1a1a1a;
+  --muted: #888;
+  --rule: #e5e2d8;
+  --code-bg: #efece4;
+  --link: #2c5d8a;
+  --accent: #b03060;
+  --serif: "Iowan Old Style", "Charter", Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+}
+
+html.theme-dark {
+  color-scheme: dark;
+  --bg: #15161a;
+  --fg: #e6e3da;
+  --muted: #888;
+  --rule: #2a2c33;
+  --code-bg: #20232b;
+  --link: #7fb3e8;
+  --accent: #f08bb6;
 }
 
 html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 }
+
+/* CodeMirror reset — we control all visuals through .cm-md-* classes. */
+.cm-editor { background: var(--bg); height: 100%; }
+.cm-editor .cm-scroller {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.65;
+  padding: 32px max(48px, calc((100% - 720px) / 2));
+}
+.cm-editor .cm-content { color: var(--fg); }
+
+/* Headings */
+.cm-md-heading           { font-weight: 600; letter-spacing: -0.01em; }
+.cm-md-heading-1         { font-size: 28px; margin: 18px 0 8px; }
+.cm-md-heading-2         { font-size: 22px; margin: 16px 0 6px; }
+.cm-md-heading-3         { font-size: 18px; margin: 14px 0 6px; }
+.cm-md-heading-4         { font-size: 16px; margin: 12px 0 4px; }
+.cm-md-heading-5         { font-size: 15px; color: var(--muted); }
+.cm-md-heading-6         { font-size: 14px; color: var(--muted); }
+
+/* Inline */
+.cm-md-strong            { font-weight: 700; }
+.cm-md-em                { font-style: italic; }
+.cm-md-strike            { text-decoration: line-through; text-decoration-color: var(--muted); }
+.cm-md-code-inline       { font-family: var(--mono); font-size: 0.9em;
+                            background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+
+/* Lists */
+.cm-md-list              { padding-left: 0; }
+.cm-md-list-task-done    { color: var(--muted); }
+
+/* Links */
+.cm-md-link-text         { color: var(--link); text-decoration: underline;
+                            text-decoration-color: rgba(44,93,138,0.4); text-underline-offset: 2px; }
+.cm-md-link-url          { color: var(--muted); font-family: var(--mono); font-size: 0.85em; }
+.cm-md-link-auto         { color: var(--link); text-decoration: underline; }
+.cm-md-image             { color: var(--muted); font-family: var(--mono); font-size: 0.9em; }
+
+/* Blockquotes */
+.cm-md-blockquote        { border-left: 3px solid var(--rule); padding-left: 12px;
+                            color: var(--muted); font-style: italic; }
+
+/* Tables — line-level only in Plan 1; richer table layout in Plan 3. */
+.cm-md-table             { font-family: var(--mono); font-size: 0.9em; }
+.cm-md-table-header      { font-weight: 700; }
+.cm-md-table-separator   { color: var(--muted); }
+
+/* Code blocks */
+.cm-md-code-fence        { font-family: var(--mono); font-size: 0.85em; color: var(--muted); }
+.cm-md-code-body         { font-family: var(--mono); font-size: 0.9em; background: var(--code-bg); }
+
+/* Front matter */
+.cm-md-frontmatter       { font-family: var(--mono); font-size: 0.8em; color: var(--muted);
+                            background: var(--code-bg); }
+
+/* Footnotes / deflist */
+.cm-md-footnote-ref,
+.cm-md-footnote-def      { color: var(--link); font-size: 0.85em; }
+.cm-md-deflist-term      { font-weight: 600; }
+.cm-md-deflist-def       { padding-left: 16px; }
+
+/* Reading-mode widget elides */
+.cm-md-reading-elide      { display: none; }
+.cm-md-reading-elide-line { display: none; }
+.cm-md-reading-image      { max-width: 100%; height: auto; display: block; margin: 16px 0; }
