@@ -95,3 +95,22 @@ html, body, #root {
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }
 .cm-md-reading-image      { max-width: 100%; height: auto; display: block; margin: 16px 0; }
+
+/* Explicit color-scheme on forced themes — keeps native UI (scrollbars,
+   form controls) in sync with the user's choice rather than the OS preference. */
+html.theme-light { color-scheme: light; }
+html.theme-dark  { color-scheme: dark; }
+
+/* Shiki github-light token palette. The class names are derived from the
+   token's hex color (e.g. cm-md-token-005cc5). github-dark uses the same
+   class names — slight palette differences are acceptable for the foundation;
+   Plan 3 may emit dark-theme-specific class variants. */
+.cm-md-token-005cc5 { color: #005cc5; }
+.cm-md-token-d73a49 { color: #d73a49; }
+.cm-md-token-032f62 { color: #032f62; }
+.cm-md-token-6f42c1 { color: #6f42c1; }
+.cm-md-token-22863a { color: #22863a; }
+.cm-md-token-24292e { color: var(--fg); }
+.cm-md-token-6a737d { color: var(--muted); font-style: italic; }
+.cm-md-token-e36209 { color: #e36209; }
+.cm-md-token-b31d28 { color: #b31d28; }
