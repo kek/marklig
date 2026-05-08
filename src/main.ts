@@ -23,6 +23,8 @@ import {
 import { readDoc, openFileViaDialog, saveDoc, type OpenedDoc } from "./shell/files";
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
@@ -111,6 +113,35 @@ async function bootstrap(): Promise<void> {
     },
   });
   window.addEventListener("beforeunload", () => stopCloseHandler());
+
+  const dropWindow = getCurrentWindow();
+  const unsubDrop = await dropWindow.onDragDropEvent(async (event) => {
+    if (event.payload.type !== "drop") return;
+    const dropped = event.payload.paths;
+    const md = dropped.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+    if (!md) return;
+
+    if (dirtyTracker.isDirty()) {
+      const proceed = await ask(
+        "Discard your unsaved changes and open the dropped file?",
+        {
+          title: "Unsaved changes",
+          okLabel: "Discard and open",
+          cancelLabel: "Cancel",
+        },
+      );
+      if (!proceed) return;
+    }
+
+    const doc = await readDoc(md);
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: doc.source },
+    });
+    currentPath = doc.path;
+    dirtyTracker.reset();
+    await setWindowTitle(currentPath, false);
+  });
+  window.addEventListener("beforeunload", () => unsubDrop());
 
   await setWindowTitle(initialDoc?.path ?? null, false);
 
