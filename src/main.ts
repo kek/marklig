@@ -198,6 +198,7 @@ async function bootstrap(): Promise<void> {
     });
     currentPath = doc.path;
     dirtyTracker.reset();
+    diverged = false;
     await setWindowTitle(currentPath, false);
     if (currentPath) await startWatching(currentPath);
   });
