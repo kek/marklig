@@ -3,7 +3,8 @@ import { EditorView } from "@codemirror/view";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler } from "./editor/keymaps";
+import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar } from "./ui/toolbar";
 import { setWindowTitle } from "./ui/titlebar";
@@ -155,6 +156,18 @@ async function bootstrap(): Promise<void> {
     toolbar.setMode(currentMode);
   });
 
+  setZoomHandlers({
+    in: () => zoomByFn(view, +1),
+    out: () => zoomByFn(view, -1),
+    reset: () => zoomResetFn(view),
+  });
+
+  setSidebarToggleHandler(() => {
+    const next = !toc.isVisible();
+    toc.setVisible(next);
+    recordExplicitToggle(next);
+  });
+
   let currentPath: string | null = initialDoc?.path ?? null;
   if (currentPath) await recordRecent(currentPath);
   let watcherHandle: WatcherHandle | null = null;
@@ -256,9 +269,9 @@ async function bootstrap(): Promise<void> {
       recordExplicitToggle(next);
     },
     setTheme: (t) => setActiveTheme(t),
-    zoomIn: () => { /* Task 20 wires this */ },
-    zoomOut: () => { /* Task 20 wires this */ },
-    zoomReset: () => { /* Task 20 wires this */ },
+    zoomIn: () => zoomByFn(view, +1),
+    zoomOut: () => zoomByFn(view, -1),
+    zoomReset: () => zoomResetFn(view),
     openFind: () => { openSearchPanel(view); },
     openReplace: () => { openSearchPanel(view); },
     recents: async () => await loadRecents(),

@@ -28,6 +28,33 @@ const saveBinding: KeyBinding = {
   run: () => { saveHandler(); return true; },
 };
 
+let zoomInHandler: () => void = () => {};
+let zoomOutHandler: () => void = () => {};
+let zoomResetHandler: () => void = () => {};
+export function setZoomHandlers(handlers: { in: () => void; out: () => void; reset: () => void }): void {
+  zoomInHandler = handlers.in;
+  zoomOutHandler = handlers.out;
+  zoomResetHandler = handlers.reset;
+}
+
+let sidebarToggleHandler: () => void = () => {};
+export function setSidebarToggleHandler(handler: () => void): void {
+  sidebarToggleHandler = handler;
+}
+
+const zoomBindings: KeyBinding[] = [
+  { key: "Mod-=", preventDefault: true, run: () => { zoomInHandler(); return true; } },
+  { key: "Mod-+", preventDefault: true, run: () => { zoomInHandler(); return true; } },
+  { key: "Mod--", preventDefault: true, run: () => { zoomOutHandler(); return true; } },
+  { key: "Mod-0", preventDefault: true, run: () => { zoomResetHandler(); return true; } },
+];
+
+const sidebarToggleBinding: KeyBinding = {
+  key: "Mod-Shift-o",
+  preventDefault: true,
+  run: () => { sidebarToggleHandler(); return true; },
+};
+
 const PAGE_OVERLAP_LINES = 3;
 
 function pageScroll(view: EditorView, direction: 1 | -1): boolean {
@@ -72,13 +99,21 @@ const readingBindings: KeyBinding[] = [
   },
 ];
 
-export const readingKeymap = keymap.of([modeToggleBinding, saveBinding, ...readingBindings]);
+export const readingKeymap = keymap.of([
+  modeToggleBinding,
+  saveBinding,
+  sidebarToggleBinding,
+  ...zoomBindings,
+  ...readingBindings,
+]);
 
 export const editKeymap = [
   history(),
   keymap.of([
     modeToggleBinding,
     saveBinding,
+    sidebarToggleBinding,
+    ...zoomBindings,
     ...defaultKeymap,
     ...historyKeymap,
     ...searchKeymap,
