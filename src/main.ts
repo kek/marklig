@@ -99,6 +99,13 @@ async function bootstrap(): Promise<void> {
   // Make the sidebar appear LEFT of the editor — insert before the editor's DOM.
   shell.insertBefore(toc.element, view.dom);
 
+  // Scroll-sync: highlight the entry whose heading is at or above the topmost visible offset.
+  view.scrollDOM.addEventListener("scroll", () => {
+    const rect = view.scrollDOM.getBoundingClientRect();
+    const offset = view.posAtCoords({ x: rect.left + 10, y: rect.top + 10 });
+    if (offset !== null) toc.setActive(offset);
+  }, { passive: true });
+
   const modeExtensions = {
     reading: { decorations: readingSet, keymap: readingKeymap },
     edit:    { decorations: editingSet, keymap: editKeymap },
