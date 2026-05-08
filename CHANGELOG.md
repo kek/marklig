@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0] - 2026-05-08 — Sub-spec B: Rich content
+
+Math, Mermaid, and the remote-image policy. Plus a few bugfixes from the Foundation pass that weren't caught until heavy use after shipping.
+
+### Added
+
+- **Math (KaTeX).** Inline `$…$` and block `$$…$$` rendered in reading mode. KaTeX errors fall back to literal source. Currency-like text (`$5`) and escaped `\$` are not tokenized.
+- **Mermaid diagrams.** Fenced code blocks tagged `mermaid` render as SVG in reading mode. Mermaid is dynamically imported on first use, so the initial bundle is unaffected (~3 KB delta). Render failures show the source verbatim above the error message rather than throwing.
+- **Remote-image policy.** `load` / `placeholder` / `off` setting (default `placeholder`). Local images always render; remote images render only when explicitly allowed. Persists via the Tauri store. Broken images (in `load` mode) get a styled placeholder via `onerror`.
+- **HTML / SVG sanitization on every innerHTML path.** KaTeX HTML output through `sanitizeHtml`; Mermaid SVG output through a new `sanitizeSvg` (DOMPurify with svg + svgFilters profiles to keep markup intact while stripping `<script>` and event handlers).
+
+### Fixed (Foundation polish)
+
+- Caret invisible in dark mode — CodeMirror's base theme set `caret-color: black` under its `.cm-light` class (always active without a `.cm-dark` flip). Now explicit per `data-mode`: `--fg` in edit, transparent in reading (read-only — no caret needed).
+- Click-to-position drifted by N lines on documents with multiple headings — heading line spacing was using `margin`, but CM's heightmap measures `.cm-line` via `offsetHeight`/`getBoundingClientRect`, neither of which include vertical margins. Switched to `padding`.
+- macOS lost File / Help / Cmd-Q after the first file selection — `setAsAppMenu` consumes the first submenu as the bold-app-name slot, and never auto-injects About/Hide/Quit. Added an explicit "viewer" application submenu and a Help submenu.
+
+### Test surface
+
+- 104 unit tests across 24 files (was 89/22): math producer (8), mermaid producer (5), settings/URL classification (10), `sanitizeSvg` (3), plus the existing 78.
+
 ## [0.3.0] - 2026-05-08 — Plan 3: Polish & platform — Foundation complete
 
 Foundation Sub-spec A complete. The viewer meets every Definition of Done criterion in spec §12 on macOS, Windows, and Linux.

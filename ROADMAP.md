@@ -9,7 +9,7 @@ The Foundation sub-spec (A) shipped on 2026-05-08 across three implementation pl
 | Sub-spec | Scope | Status |
 |---|---|---|
 | **A. Foundation** | Tauri shell, decorated-source editor, reading↔editing modes, themes, file lifecycle, TOC sidebar, recents, crash recovery, native menus, zoom, find/replace, CI matrix | ✅ Shipped 2026-05-08 |
-| **B. Rich content** | Math (KaTeX), Mermaid, image rendering, remote-image policy, full HTML sanitization story | Not started |
+| **B. Rich content** | Math (KaTeX), Mermaid, image rendering, remote-image policy, full HTML sanitization story | ✅ Shipped 2026-05-08 |
 | **C. Export & print** | PDF, self-contained HTML, print pipeline | Not started |
 | **D. OS integration** | File associations, drag-drop polish, OS-level Recents, native menu polish, optional folder/project tree, multi-window UX | Not started |
 | **E. Settings, updater, privacy** | Preferences UI, auto-update channel, network privacy toggles | Not started |
@@ -33,17 +33,19 @@ Three sequential implementation plans, executed via subagent-driven-development.
 
 ---
 
-## Sub-spec B: Rich content
+## Sub-spec B: Rich content — shipped
 
-Adds the document constructs that need their own rendering subsystem. Builds on the decoration-plugin contract from A.
+Shipped as a single iterative pass on top of Foundation rather than a fresh spec → plans cycle, since each piece followed the established decoration-producer contract from A.
 
-**In scope:**
-- **Math.** Inline `$…$` and block `$$…$$` LaTeX rendered via KaTeX. Reading-mode widget decoration produces typeset math; edit mode shows source.
-- **Mermaid diagrams.** Fenced code blocks with `mermaid` language tag render as live diagrams in reading mode. Failure shows a non-fatal error in place of the diagram with the source visible.
-- **Image rendering policy.** Remote images (HTTP/HTTPS) — load / placeholder / off setting (default placeholder). Sandboxed image fetches (Tauri scope rules). Broken-image placeholder.
-- **Full HTML sanitization.** DOMPurify on every rendering path that uses `innerHTML` (none in A; B introduces some via Mermaid SVG and KaTeX HTML output). Confirm the rendering path remains text-and-widget on the editor side; sanitize only when injecting external HTML.
+**Math (KaTeX).** Inline `$…$` and block `$$…$$` rendered in reading mode via `decorations/math.ts`. Two widgets (`InlineMathWidget`, `BlockMathWidget`) call `katex.renderToString(..., { throwOnError: false })`. Currency-like `$5` and escaped `\$` are excluded by negative lookbehinds. Block math wins over inline disambiguation so `$$x$$` doesn't double-tokenize.
 
-**Likely shape:** 1 spec → 2 plans (B1 math + Mermaid; B2 image policy + sanitization hardening).
+**Mermaid diagrams.** Fenced blocks tagged `mermaid` are replaced with an async-rendered SVG widget (`decorations/mermaid.ts`). Mermaid is loaded via `import("mermaid")` on first use — the package is ~1 MB, but lives in its own chunk. Render results are cached by source string; completion fires a `mermaidCacheEffect` that triggers decoration recompute (mirrors the Shiki async cache pattern from `codeblocks.ts`). Failures render the source verbatim above the error message rather than throwing.
+
+**Remote-image policy.** New `shell/settings.ts` owns `remoteImagePolicy` (`load` | `placeholder` | `off`, default `placeholder`). `ImageWidget` consults it: local images always render; remote images render only when policy is `load`. Otherwise a bordered placeholder shows alt + URL. `load` mode adds an `onerror` handler that swaps in a broken-image placeholder. Settings persist via the Tauri store; no UI yet — Sub-spec E adds the prefs window.
+
+**Sanitization hardening.** Both new innerHTML paths go through DOMPurify. KaTeX HTML output → existing `sanitizeHtml`. Mermaid SVG output → new `sanitizeSvg` with `USE_PROFILES: { svg: true, svgFilters: true, html: true }` to keep SVG markup (including `foreignObject` for HTML labels) while still stripping `<script>` and event handlers. Reading-mode rendering itself remains text + widget on the editor side, so the architectural guarantee from A still holds.
+
+**Test surface:** 104 unit tests across 24 files (was 89/22). Math producer (8), Mermaid producer (5), settings/URL classification (10), `sanitizeSvg` (3).
 
 ---
 
