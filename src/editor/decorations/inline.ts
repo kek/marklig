@@ -7,12 +7,12 @@ import { computeLineStarts } from "./index";
 
 export const inlineProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
+  const lineStarts = computeLineStarts(source);
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type !== "inline" || !t.children || !t.map) continue;
-    const blockStart = absoluteOffsetOfLine(source, t.map[0]);
-    const lineStarts = computeLineStarts(source);
+    const blockStart = lineStarts[t.map[0]];
     const blockEnd = lineStarts[t.map[1]] ?? source.length;
     const blockSource = source.slice(blockStart, blockEnd);
     walkInline(t.children, blockStart, blockSource, ranges);
@@ -70,12 +70,3 @@ function walkInline(
   }
 }
 
-function absoluteOffsetOfLine(source: string, lineIndex: number): number {
-  let i = 0;
-  let line = 0;
-  while (line < lineIndex && i < source.length) {
-    if (source.charCodeAt(i) === 10) line++;
-    i++;
-  }
-  return i;
-}
