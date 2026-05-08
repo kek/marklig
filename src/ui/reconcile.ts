@@ -45,7 +45,7 @@ export function promptReconcile(): Promise<ReconcileChoice> {
 
     overlay.append(card);
     document.body.append(overlay);
-    reload.focus();
+    keep.focus();
   });
 }
 
