@@ -24,3 +24,9 @@ pub fn read_text_file(path: String) -> Result<String, FileError> {
     let bytes = std::fs::read(&pb).map_err(|e| FileError::Io(e.to_string()))?;
     String::from_utf8(bytes).map_err(|e| FileError::NotUtf8(e.to_string()))
 }
+
+#[tauri::command]
+pub fn write_text_file(path: String, contents: String) -> Result<(), FileError> {
+    let pb = std::path::PathBuf::from(&path);
+    std::fs::write(&pb, contents.as_bytes()).map_err(|e| FileError::Io(e.to_string()))
+}
