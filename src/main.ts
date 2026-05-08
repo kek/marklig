@@ -28,6 +28,7 @@ import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
 import { installWatcher, type WatcherHandle } from "./shell/watcher";
 import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
+import { recordRecent } from "./shell/recents";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 
@@ -132,6 +133,7 @@ async function bootstrap(): Promise<void> {
   });
 
   let currentPath: string | null = initialDoc?.path ?? null;
+  if (currentPath) await recordRecent(currentPath);
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
@@ -258,7 +260,10 @@ async function bootstrap(): Promise<void> {
     dirtyTracker.reset();
     diverged = false;
     await setWindowTitle(currentPath, false);
-    if (currentPath) await startWatching(currentPath);
+    if (currentPath) {
+      await recordRecent(currentPath);
+      await startWatching(currentPath);
+    }
   });
   window.addEventListener("beforeunload", () => unsubDrop());
 
