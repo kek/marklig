@@ -45,3 +45,11 @@ export function buildDecorationField(
 
 export type { DecorationSet };
 export { Decoration };
+
+export function computeLineStarts(source: string): number[] {
+  const out: number[] = [0];
+  for (let i = 0; i < source.length; i++) {
+    if (source.charCodeAt(i) === 10 /* \n */) out.push(i + 1);
+  }
+  return out;
+}

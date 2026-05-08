@@ -2,6 +2,7 @@ import { Decoration } from "@codemirror/view";
 import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 export const tablesProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
@@ -22,9 +23,3 @@ export const tablesProducer: DecorationProducer = ({ source, tokens }) => {
 
   return Decoration.set(ranges, true);
 };
-
-function computeLineStarts(s: string): number[] {
-  const out = [0];
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) out.push(i + 1);
-  return out;
-}

@@ -2,6 +2,7 @@ import { Decoration } from "@codemirror/view";
 import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 const FOOTNOTE_REF_RE = /\[\^[^\]]+\]/g;
 const FOOTNOTE_DEF_RE = /^\[\^[^\]]+\]:/m;
@@ -54,12 +55,6 @@ export const footnotesProducer: DecorationProducer = ({ source, tokens }) => {
   });
   return Decoration.set(dedup, true);
 };
-
-function computeLineStarts(s: string): number[] {
-  const out = [0];
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) out.push(i + 1);
-  return out;
-}
 
 function lineFor(lineStarts: number[], offset: number): number {
   let lo = 0, hi = lineStarts.length - 1;

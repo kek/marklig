@@ -2,9 +2,10 @@ import { Decoration } from "@codemirror/view";
 import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 export const headingsProducer: DecorationProducer = ({ source, tokens }) => {
-  const lines = lineStarts(source);
+  const lines = computeLineStarts(source);
   const ranges: Range<Decoration>[] = [];
 
   for (let i = 0; i < tokens.length; i++) {
@@ -22,11 +23,3 @@ export const headingsProducer: DecorationProducer = ({ source, tokens }) => {
 
   return Decoration.set(ranges, /* sort */ true);
 };
-
-function lineStarts(source: string): number[] {
-  const out: number[] = [0];
-  for (let i = 0; i < source.length; i++) {
-    if (source.charCodeAt(i) === 10 /* \n */) out.push(i + 1);
-  }
-  return out;
-}

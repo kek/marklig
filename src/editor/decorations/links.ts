@@ -3,6 +3,7 @@ import type { Range } from "@codemirror/state";
 import type Token from "markdown-it/lib/token.mjs";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 export const linksProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
@@ -100,11 +101,5 @@ function collectTextUntilClose(children: Token[], start: number, close: string):
     if (children[i].type === close) break;
     if (children[i].type === "text") out += children[i].content;
   }
-  return out;
-}
-
-function computeLineStarts(s: string): number[] {
-  const out = [0];
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) out.push(i + 1);
   return out;
 }

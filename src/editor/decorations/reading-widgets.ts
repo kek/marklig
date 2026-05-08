@@ -2,6 +2,7 @@ import { Decoration, WidgetType } from "@codemirror/view";
 import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 class ImageWidget extends WidgetType {
   constructor(readonly src: string, readonly alt: string) { super(); }
@@ -170,9 +171,3 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
   }
   return Decoration.set(dedup, true);
 };
-
-function computeLineStarts(s: string): number[] {
-  const out = [0];
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) out.push(i + 1);
-  return out;
-}

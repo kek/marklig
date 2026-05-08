@@ -3,6 +3,7 @@ import type { Range } from "@codemirror/state";
 import { createHighlighter, type Highlighter } from "shiki";
 
 import type { DecorationProducer } from "./index";
+import { computeLineStarts } from "./index";
 
 let highlighter: Highlighter | null = null;
 const loadedLangs = new Set<string>();
@@ -60,9 +61,3 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
   ranges.sort((a, b) => a.from - b.from);
   return Decoration.set(ranges, true);
 };
-
-function computeLineStarts(s: string): number[] {
-  const out = [0];
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) out.push(i + 1);
-  return out;
-}
