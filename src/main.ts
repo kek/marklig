@@ -29,8 +29,11 @@ import { installCloseHandler } from "./shell/close";
 import { installWatcher, type WatcherHandle } from "./shell/watcher";
 import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
 import { recordRecent } from "./shell/recents";
+import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
+
+let recoveredDoc: { path: string; source: string } | null = null;
 
 async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
@@ -45,6 +48,22 @@ async function bootstrap(): Promise<void> {
   const root = document.getElementById("root");
   if (!root) throw new Error("no #root");
   root.innerHTML = "";
+
+  async function maybeRestoreFromRecovery(): Promise<void> {
+    const entries = await readAllRecovery();
+    if (entries.length === 0) return;
+    const entry = entries[0];
+    const restore = await ask(
+      `Restore unsaved changes to ${entry.originalPath}?`,
+      { title: "Recover unsaved work", okLabel: "Restore", cancelLabel: "Discard" },
+    );
+    if (restore) {
+      recoveredDoc = { path: entry.originalPath, source: entry.contents };
+    }
+    await clearRecovery(entry.originalPath);
+  }
+
+  await maybeRestoreFromRecovery();
 
   const initialDoc = await resolveInitialDoc();
 
@@ -143,6 +162,14 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => unsubDirty());
 
+  const stopRecovery = startRecoveryLoop({
+    intervalMs: 5000,
+    isDirty: () => dirtyTracker.isDirty(),
+    currentPath: () => currentPath,
+    currentContents: () => view.state.doc.toString(),
+  });
+  window.addEventListener("beforeunload", () => stopRecovery());
+
   let lastSourceForToc = view.state.doc.toString();
   function pollTocRefresh(): void {
     const cur = view.state.doc.toString();
@@ -172,6 +199,7 @@ async function bootstrap(): Promise<void> {
       await saveDoc(currentPath, view.state.doc.toString());
       dirtyTracker.reset();
       diverged = false;
+      await clearRecovery(currentPath);
     } catch (err) {
       console.error("save failed", err);
     }
@@ -276,6 +304,7 @@ async function bootstrap(): Promise<void> {
 }
 
 async function resolveInitialDoc(): Promise<OpenedDoc | null> {
+  if (recoveredDoc) return recoveredDoc;
   const argPath = await firstMarkdownArg();
   if (argPath) return await readDoc(argPath);
   return await openFileViaDialog();
