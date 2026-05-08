@@ -4,6 +4,7 @@ import katex from "katex";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { sanitizeHtml } from "../../export/sanitize";
 
 class InlineMathWidget extends WidgetType {
   constructor(readonly expr: string) { super(); }
@@ -11,11 +12,11 @@ class InlineMathWidget extends WidgetType {
     const span = document.createElement("span");
     span.className = "cm-md-math-inline";
     try {
-      span.innerHTML = katex.renderToString(this.expr, {
+      span.innerHTML = sanitizeHtml(katex.renderToString(this.expr, {
         displayMode: false,
         throwOnError: false,
         output: "html",
-      });
+      }));
     } catch {
       span.textContent = `$${this.expr}$`;
       span.classList.add("cm-md-math-error");
@@ -31,11 +32,11 @@ class BlockMathWidget extends WidgetType {
     const div = document.createElement("div");
     div.className = "cm-md-math-block";
     try {
-      div.innerHTML = katex.renderToString(this.expr, {
+      div.innerHTML = sanitizeHtml(katex.renderToString(this.expr, {
         displayMode: true,
         throwOnError: false,
         output: "html",
-      });
+      }));
     } catch {
       div.textContent = `$$${this.expr}$$`;
       div.classList.add("cm-md-math-error");

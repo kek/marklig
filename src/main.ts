@@ -20,6 +20,7 @@ import { frontmatterProducer } from "./editor/decorations/frontmatter";
 import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
+import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
@@ -95,7 +96,7 @@ async function bootstrap(): Promise<void> {
     frontmatterProducer,
     footnotesProducer,
   ];
-  const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer];
+  const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer, mermaidProducer];
 
   const editingSet = buildDecorationField(editingProducers);
   const readingSet = buildDecorationField(readingProducers);
@@ -373,6 +374,11 @@ async function bootstrap(): Promise<void> {
     view.dispatch({ effects: highlightCacheEffect.of() });
   });
   window.addEventListener("beforeunload", () => unsubscribeHighlight());
+
+  const unsubscribeMermaid = mermaidCache.subscribe(() => {
+    view.dispatch({ effects: mermaidCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeMermaid());
 }
 
 async function resolveInitialDoc(): Promise<OpenedDoc | null> {

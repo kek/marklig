@@ -4,6 +4,7 @@ import type { Extension, EditorState, Range } from "@codemirror/state";
 import { EditorView, Decoration } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { highlightCacheEffect } from "./codeblocks";
+import { mermaidCacheEffect } from "./mermaid";
 
 import { parseMarkdown, type MdToken } from "../parser";
 
@@ -39,6 +40,7 @@ export function buildDecorationField(
     update(prev, tr) {
       for (const e of tr.effects) {
         if (e.is(highlightCacheEffect)) return compute(tr.state);
+        if (e.is(mermaidCacheEffect)) return compute(tr.state);
       }
       if (!tr.docChanged) return prev;
       return compute(tr.state);

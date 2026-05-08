@@ -10,3 +10,14 @@ export function sanitizeHtml(html: string): string {
     FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
   });
 }
+
+// Mermaid output is SVG (occasionally with foreignObject for HTML labels).
+// Default DOMPurify config drops most SVG attributes; svg+svgFilters profiles
+// keep the markup intact while still stripping <script>/event handlers.
+export function sanitizeSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    FORBID_TAGS: ["script"],
+    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
+  });
+}

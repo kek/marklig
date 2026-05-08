@@ -124,6 +124,42 @@ html.theme-dark[data-mode="edit"] .cm-editor {
   font-size: 0.9em;
 }
 
+/* Mermaid diagrams. The widget renders an SVG inline; while loading, a small
+   placeholder. On error, the source is shown verbatim above the message so the
+   author can see what failed without flipping to edit mode. */
+.cm-md-mermaid {
+  margin: 14px 0;
+  display: flex;
+  justify-content: center;
+}
+.cm-md-mermaid svg { max-width: 100%; height: auto; }
+.cm-md-mermaid-loading {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.9em;
+  font-style: italic;
+}
+.cm-md-mermaid-error {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  padding: 10px 12px;
+}
+.cm-md-mermaid-error-message {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+.cm-md-mermaid-source {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }
