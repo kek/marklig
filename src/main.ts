@@ -7,7 +7,7 @@ import { linksProducer } from "./editor/decorations/links";
 import { imagesProducer } from "./editor/decorations/images";
 import { blockquotesProducer } from "./editor/decorations/blockquotes";
 import { tablesProducer } from "./editor/decorations/tables";
-import { codeblocksProducer, primeHighlighter } from "./editor/decorations/codeblocks";
+import { codeblocksProducer, primeHighlighter, highlightCache, highlightCacheEffect } from "./editor/decorations/codeblocks";
 import { frontmatterProducer } from "./editor/decorations/frontmatter";
 import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
@@ -56,6 +56,11 @@ async function bootstrap(): Promise<void> {
       ]),
     ),
   });
+
+  const unsubscribeHighlight = highlightCache.subscribe(() => {
+    view.dispatch({ effects: highlightCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeHighlight());
 }
 
 async function resolveInitialDoc(): Promise<OpenedDoc | null> {

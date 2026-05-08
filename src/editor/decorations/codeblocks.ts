@@ -1,6 +1,7 @@
 import { Decoration } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
 import type { Range } from "@codemirror/state";
-import { createHighlighter, type Highlighter } from "shiki";
+import { createHighlighter, type Highlighter, type ThemedToken } from "shiki";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
@@ -26,6 +27,45 @@ export async function primeHighlighter(langs: string[] = []): Promise<void> {
   }
 }
 
+export interface HighlightEntry {
+  /** Per-line array of tokens; offsets within each line are derived in the producer. */
+  lines: ThemedToken[][];
+}
+
+class HighlightCache {
+  private map = new Map<string, HighlightEntry>();
+  private listeners = new Set<() => void>();
+
+  get(content: string): HighlightEntry | undefined {
+    return this.map.get(content);
+  }
+
+  set(content: string, entry: HighlightEntry): void {
+    this.map.set(content, entry);
+    for (const l of this.listeners) l();
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  async compute(lang: string, content: string): Promise<HighlightEntry> {
+    if (!highlighter) throw new Error("highlighter not primed");
+    const safeLang = loadedLangs.has(lang) ? lang : "text";
+    const result = highlighter.codeToTokens(content, {
+      lang: safeLang as never,
+      themes: { light: "github-light", dark: "github-dark" },
+    });
+    return { lines: result.tokens };
+  }
+}
+
+export const highlightCache = new HighlightCache();
+
+/** State effect dispatched when a fence's highlight result lands in the cache. */
+export const highlightCacheEffect = StateEffect.define<void>();
+
 export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
   const lineStarts = computeLineStarts(source);
@@ -36,28 +76,63 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
     const startLine = t.map[0];
     const endLine = t.map[1];
     const lang = (t.info || "text").trim() || "text";
+    const fenceContent = t.content;
 
-    // Open fence (the line with ```lang)
+    // Line-level classes (from Plan 1).
     ranges.push(
       Decoration.line({ class: "cm-md-code-fence cm-md-code-fence-open" })
         .range(lineStarts[startLine]),
     );
-    // Body lines (between open and close fence)
     for (let line = startLine + 1; line < endLine - 1; line++) {
       ranges.push(
         Decoration.line({ class: `cm-md-code-body cm-md-code-lang-${lang}` })
           .range(lineStarts[line]),
       );
     }
-    // Close fence
     if (endLine - 1 > startLine) {
       ranges.push(
         Decoration.line({ class: "cm-md-code-fence cm-md-code-fence-close" })
           .range(lineStarts[endLine - 1]),
       );
     }
+
+    // Token-level Shiki marks: cache hit → emit; miss → fire-and-forget compute.
+    const cached = highlightCache.get(fenceContent);
+    if (cached) {
+      const bodyStartLine = startLine + 1;
+      for (let li = 0; li < cached.lines.length; li++) {
+        const line = cached.lines[li];
+        const lineFrom = lineStarts[bodyStartLine + li];
+        if (lineFrom === undefined) break;
+        let cursor = lineFrom;
+        for (const tok of line) {
+          const cls = colorClass(tok);
+          if (cls && tok.content.length > 0) {
+            ranges.push(
+              Decoration.mark({ class: cls })
+                .range(cursor, cursor + tok.content.length),
+            );
+          }
+          cursor += tok.content.length;
+        }
+      }
+    } else if (highlighter && loadedLangs.has(lang)) {
+      void highlightCache.compute(lang, fenceContent).then((entry) => {
+        highlightCache.set(fenceContent, entry);
+      });
+    }
   }
 
   ranges.sort((a, b) => a.from - b.from);
   return Decoration.set(ranges, true);
 };
+
+function colorClass(tok: ThemedToken): string | null {
+  // Single-theme mode populates tok.color; multi-theme mode populates tok.htmlStyle.
+  const hex: string | undefined =
+    tok.color ??
+    (tok.htmlStyle as Record<string, string> | undefined)?.["color"];
+  if (!hex) return null;
+  const slug = hex.toLowerCase().replace(/^#/, "");
+  return `cm-md-token-${slug}`;
+}
