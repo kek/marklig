@@ -1,6 +1,7 @@
 import { createEditor, setMode } from "./editor/editor";
 import { buildDecorationField } from "./editor/decorations";
-import { readingKeymap, editKeymap } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler } from "./editor/keymaps";
+import type { Mode } from "./editor/editor";
 import { mountToolbar } from "./ui/toolbar";
 import { setWindowTitle } from "./ui/titlebar";
 import { headingsProducer } from "./editor/decorations/headings";
@@ -66,16 +67,22 @@ async function bootstrap(): Promise<void> {
     edit:    { decorations: editingSet, keymap: editKeymap },
   };
 
+  let currentMode: Mode = "reading";
+
   const toolbar = mountToolbar(root, {
     view,
     modeExtensions,
     initialMode: "reading",
+    onModeChange: (m) => { currentMode = m; },
+  });
+
+  setModeToggleHandler(() => {
+    currentMode = currentMode === "reading" ? "edit" : "reading";
+    setMode(view, currentMode, modeExtensions[currentMode]);
+    toolbar.setMode(currentMode);
   });
 
   await setWindowTitle(initialDoc?.path ?? null, false);
-
-  // Silence the unused-toolbar warning until Task 11 wires dirty subscription.
-  void toolbar;
 
   const unsubscribeHighlight = highlightCache.subscribe(() => {
     view.dispatch({ effects: highlightCacheEffect.of() });

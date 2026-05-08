@@ -3,6 +3,20 @@ import type { KeyBinding } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
 
+let modeToggleHandler: () => void = () => {};
+export function setModeToggleHandler(handler: () => void): void {
+  modeToggleHandler = handler;
+}
+
+const modeToggleBinding: KeyBinding = {
+  key: "Mod-e",
+  preventDefault: true,
+  run: () => {
+    modeToggleHandler();
+    return true;
+  },
+};
+
 const PAGE_OVERLAP_LINES = 3;
 
 function pageScroll(view: EditorView, direction: 1 | -1): boolean {
@@ -47,11 +61,12 @@ const readingBindings: KeyBinding[] = [
   },
 ];
 
-export const readingKeymap = keymap.of(readingBindings);
+export const readingKeymap = keymap.of([modeToggleBinding, ...readingBindings]);
 
 export const editKeymap = [
   history(),
   keymap.of([
+    modeToggleBinding,
     ...defaultKeymap,
     ...historyKeymap,
     ...searchKeymap,
