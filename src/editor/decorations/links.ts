@@ -12,11 +12,11 @@ export const linksProducer: DecorationProducer = ({ source, tokens }) => {
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type !== "inline" || !t.children || !t.map) continue;
-    const lineStart = lineStarts[t.map[0]];
-    const lineEnd = lineStarts[t.map[0] + 1] ?? source.length;
-    const lineSource = source.slice(lineStart, lineEnd);
+    const blockStart = lineStarts[t.map[0]];
+    const blockEnd = lineStarts[t.map[1]] ?? source.length;
+    const blockSource = source.slice(blockStart, blockEnd);
 
-    walkLinkChildren(t.children, lineStart, lineSource, ranges);
+    walkLinkChildren(t.children, blockStart, blockSource, ranges);
   }
 
   ranges.sort((a, b) => a.from - b.from || a.to - b.to);

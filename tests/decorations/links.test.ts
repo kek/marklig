@@ -33,4 +33,12 @@ describe("linksProducer", () => {
     const auto = r.find((x) => x.class === "cm-md-link-auto");
     expect(auto).toBeDefined();
   });
+
+  it("decorates links on continuation lines of a wrapped paragraph", () => {
+    const src = "first line\nsee [docs](https://example.com) on line 2\n";
+    const r = ranges(src);
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-text", from: 15, to: 21 }),
+    );
+  });
 });
