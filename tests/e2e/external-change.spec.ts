@@ -91,6 +91,32 @@ test("clean buffer auto-reloads on external change", async ({ page }) => {
       // Window commands — no-op / return sensible defaults
       if (cmd.startsWith("plugin:window|")) return null;
 
+      // Menu plugin — new() returns [rid, id]; everything else no-op
+      if (cmd === "plugin:menu|new") return [1, "mock-id"];
+      if (cmd.startsWith("plugin:menu|")) return null;
+
+      // Store plugin — must return proper shapes to avoid destructuring errors
+      if (cmd === "plugin:store|load") return 1;
+      if (cmd === "plugin:store|get_store") return null;
+      if (cmd === "plugin:store|get") return [null, false];
+      if (cmd === "plugin:store|has") return false;
+      if (cmd === "plugin:store|set") return null;
+      if (cmd === "plugin:store|save") return null;
+      if (cmd === "plugin:store|delete") return false;
+      if (cmd === "plugin:store|clear") return null;
+      if (cmd === "plugin:store|reset") return null;
+      if (cmd === "plugin:store|keys") return [];
+      if (cmd === "plugin:store|values") return [];
+      if (cmd === "plugin:store|entries") return [];
+      if (cmd === "plugin:store|length") return 0;
+      if (cmd === "plugin:store|reload") return null;
+      if (cmd.startsWith("plugin:store|")) return null;
+
+      // Recovery — no-op so the recovery prompt doesn't fire
+      if (cmd === "read_all_recovery") return [];
+      if (cmd === "clear_recovery") return null;
+      if (cmd === "write_recovery") return null;
+
       // Event plugin: listen — register callback and track by event name
       if (cmd === "plugin:event|listen") {
         const handlerId = args?.handler as number | undefined;

@@ -63,6 +63,33 @@ test("renders headings and code from a sample doc", async ({ page }) => {
         if (cmd === "plugin:dialog|message") return null;
         if (cmd === "watcher_start" || cmd === "watcher_stop" || cmd === "watcher_mark_self_write") return null;
         if (cmd.startsWith("plugin:window|")) return null;
+
+        // Menu plugin — new() returns [rid, id]; everything else no-op
+        if (cmd === "plugin:menu|new") return [1, "mock-id"];
+        if (cmd.startsWith("plugin:menu|")) return null;
+
+        // Store plugin — must return proper shapes to avoid destructuring errors
+        if (cmd === "plugin:store|load") return 1;
+        if (cmd === "plugin:store|get_store") return null;
+        if (cmd === "plugin:store|get") return [null, false];
+        if (cmd === "plugin:store|has") return false;
+        if (cmd === "plugin:store|set") return null;
+        if (cmd === "plugin:store|save") return null;
+        if (cmd === "plugin:store|delete") return false;
+        if (cmd === "plugin:store|clear") return null;
+        if (cmd === "plugin:store|reset") return null;
+        if (cmd === "plugin:store|keys") return [];
+        if (cmd === "plugin:store|values") return [];
+        if (cmd === "plugin:store|entries") return [];
+        if (cmd === "plugin:store|length") return 0;
+        if (cmd === "plugin:store|reload") return null;
+        if (cmd.startsWith("plugin:store|")) return null;
+
+        // Recovery — no-op so the recovery prompt doesn't fire
+        if (cmd === "read_all_recovery") return [];
+        if (cmd === "clear_recovery") return null;
+        if (cmd === "write_recovery") return null;
+
         if (cmd === "plugin:event|listen") {
           const handlerId = args?.handler as number | undefined;
           if (handlerId != null) eventListeners.set(handlerId, callbacks.get(handlerId) ?? (() => {}));
