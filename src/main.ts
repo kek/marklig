@@ -23,6 +23,8 @@ import {
 import { readDoc, openFileViaDialog, saveDoc, type OpenedDoc } from "./shell/files";
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
+import { installWatcher, type WatcherHandle } from "./shell/watcher";
+import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 
@@ -87,6 +89,8 @@ async function bootstrap(): Promise<void> {
   });
 
   let currentPath: string | null = initialDoc?.path ?? null;
+  let watcherHandle: WatcherHandle | null = null;
+  let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
   const unsubDirty = dirtyTracker.subscribe(async (dirty) => {
     toolbar.setDirty(dirty);
@@ -96,9 +100,22 @@ async function bootstrap(): Promise<void> {
 
   setSaveHandler(async () => {
     if (!currentPath) return;
+    if (diverged) {
+      const proceed = await ask(
+        "Saving will overwrite the changes that were made on disk.",
+        {
+          title: "Diverged",
+          okLabel: "Save anyway",
+          cancelLabel: "Cancel",
+        },
+      );
+      if (!proceed) return;
+    }
+    if (watcherHandle) await watcherHandle.markSelfWrite();
     try {
       await saveDoc(currentPath, view.state.doc.toString());
       dirtyTracker.reset();
+      diverged = false;
     } catch (err) {
       console.error("save failed", err);
     }
@@ -113,6 +130,48 @@ async function bootstrap(): Promise<void> {
     },
   });
   window.addEventListener("beforeunload", () => stopCloseHandler());
+
+  async function startWatching(path: string): Promise<void> {
+    if (watcherHandle) {
+      await watcherHandle.stop();
+      watcherHandle = null;
+    }
+    watcherHandle = await installWatcher({
+      path,
+      async onModified() {
+        if (dirtyTracker.isDirty()) {
+          const choice = await promptReconcile();
+          if (choice === "reload") {
+            await reloadFromDisk();
+          } else {
+            diverged = true;
+          }
+        } else {
+          await reloadFromDisk();
+          showReloadedNotice();
+        }
+      },
+      onRemoved() {
+        showOrphanNotice();
+        currentPath = null;
+        void setWindowTitle(null, true);
+      },
+    });
+  }
+
+  async function reloadFromDisk(): Promise<void> {
+    if (!currentPath) return;
+    const doc = await readDoc(currentPath);
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: doc.source },
+    });
+    dirtyTracker.reset();
+    diverged = false;
+  }
+
+  if (currentPath) {
+    await startWatching(currentPath);
+  }
 
   const dropWindow = getCurrentWindow();
   const unsubDrop = await dropWindow.onDragDropEvent(async (event) => {
@@ -140,6 +199,7 @@ async function bootstrap(): Promise<void> {
     currentPath = doc.path;
     dirtyTracker.reset();
     await setWindowTitle(currentPath, false);
+    if (currentPath) await startWatching(currentPath);
   });
   window.addEventListener("beforeunload", () => unsubDrop());
 
