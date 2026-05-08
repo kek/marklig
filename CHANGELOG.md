@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.3.0] - 2026-05-08 — Plan 3: Polish & platform — Foundation complete
+
+Foundation Sub-spec A complete. The viewer meets every Definition of Done criterion in spec §12 on macOS, Windows, and Linux.
+
+### Added
+
+- Togglable TOC sidebar (auto-on for 3+ headings, persisted thereafter; click to jump; scroll-syncs the active heading; `Cmd/Ctrl + Shift + O` toggle)
+- Recents menu (last 10, dedupe-on-record, "Clear Menu" entry)
+- Crash recovery (5s dirty-buffer dump to `<app-data>/recovery/`; startup prompt to restore)
+- Native menu inventory: File / Edit / View / Window with every item working — no stubs, no greyed-out submenus
+- Document zoom: `Cmd/Ctrl + 0/+/-` with min 10px, max 32px
+- Find/replace: `Cmd/Ctrl + F` panel works in both reading and edit modes
+- DOMPurify-based `sanitizeHtml` seam for Sub-spec C export paths
+- Real iconset (replaces Plan 1 placeholder; `tauri build` no longer blocked)
+- GitHub Actions CI matrix (Ubuntu / macOS / Windows: tsc, vitest, cargo check, playwright e2e, tauri build)
+- Visual regression Playwright corpus (light + dark theme baselines)
+
+### Plan 1 + Plan 2 carryover items closed
+
+- Switched watcher to `notify-debouncer-full` so file-removed events emit (orphan path now reachable)
+- Preserve scroll position on external reload
+- Reconcile modal default focus on "Keep my edits" (safe action)
+- `frontmatter.ts` and `inline.ts` use shared `computeLineStarts` (no per-loop reallocation)
+- `thiserror` direct dep aligned to 2.x
+- `setActiveTheme` wired (theme persistence on user pick — surfaced via View → Theme menu)
+- `renderHtml` documented as the export pipeline seam
+
+### Test surface
+
+- 80 unit tests across 21 test files (parser, theme, dirty tracker, every decoration producer, recents, recovery, sanitize, sidebar state)
+- 5 Playwright e2e: open-and-render, edit-and-save, external-change, visual-regression (light + dark)
+
 ## [0.2.0] - 2026-05-08 — Plan 2: Editing & file lifecycle
 
 Foundation Sub-spec A, Plan 2 of 3 complete. The viewer is now an editor: toggle between reading and editing, save, and the buffer auto-reloads when the file changes on disk.
