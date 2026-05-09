@@ -33,7 +33,8 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, pickFolder, isDirectory, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, type OpenedDoc } from "./shell/files";
+import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
 import { createDirtyTracker } from "./shell/dirty";
@@ -350,6 +351,31 @@ async function bootstrap(): Promise<void> {
     },
     newWindow: async () => { await spawnNewWindow(); },
     saveFile: () => { void triggerSave(); },
+    saveFileAs: async () => {
+      const defaultName = exportFileNameFromPath(currentPath, "md");
+      const dest = await saveMarkdownAs(view.state.doc.toString(), defaultName);
+      if (!dest) return;
+      // Re-bind: dest becomes the new currentPath. Future Save writes here,
+      // the watcher tracks the new file, and this open counts as recent.
+      currentPath = dest;
+      dirtyTracker.reset();
+      diverged = false;
+      await setWindowTitle(currentPath, false);
+      await recordRecent(dest);
+      await startWatching(dest);
+      folder.setActiveFile(dest);
+    },
+    revealInFileManager: async () => {
+      if (!currentPath) {
+        await message("This document hasn't been saved yet.", { title: "Reveal in Finder" });
+        return;
+      }
+      try {
+        await fsReveal(currentPath);
+      } catch (err) {
+        await message(`Could not reveal: ${String(err instanceof Error ? err.message : err)}`, { title: "Reveal in Finder" });
+      }
+    },
     closeWindow: async () => {
       const win = getCurrentWindow();
       await win.close();

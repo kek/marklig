@@ -67,3 +67,29 @@ export async function saveHtmlExport(
   await invoke("write_text_file", { path: dest, contents });
   return dest;
 }
+
+/** Prompt for a save destination and write the markdown contents. Returns
+ * the chosen path on success, null on cancel. Used by File -> Save As… to
+ * rebind currentPath without losing edits. */
+export async function saveMarkdownAs(
+  contents: string,
+  defaultName: string,
+): Promise<string | null> {
+  const dest = await save({
+    title: "Save As",
+    defaultPath: defaultName,
+    filters: [
+      { name: "Markdown", extensions: ["md", "markdown", "mdx", "mdown"] },
+    ],
+  });
+  if (typeof dest !== "string") return null;
+  await invoke("write_text_file", { path: dest, contents });
+  return dest;
+}
+
+/** Reveal a file in the OS file manager (Finder on macOS, Explorer on
+ * Windows, xdg-open the parent dir on Linux). Best-effort; failures are
+ * surfaced as a thrown error from the underlying invoke. */
+export async function revealInFileManager(path: string): Promise<void> {
+  await invoke("reveal_in_file_manager", { path });
+}

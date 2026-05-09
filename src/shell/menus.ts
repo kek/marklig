@@ -11,6 +11,8 @@ export interface MenuHandlers {
   openFolder: () => Promise<void>;
   newWindow: () => Promise<void>;
   saveFile: () => void | Promise<void>;
+  saveFileAs: () => Promise<void>;
+  revealInFileManager: () => Promise<void>;
   closeWindow: () => Promise<void>;
   toggleMode: () => void;
   toggleSidebar: () => void;
@@ -101,6 +103,18 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         action: () => {
           void handlers.saveFile();
         },
+      }),
+      await MenuItem.new({
+        id: "save-as",
+        text: "Save As…",
+        accelerator: "CmdOrCtrl+Shift+S",
+        action: () => { void handlers.saveFileAs(); },
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        id: "reveal-in-file-manager",
+        text: "Reveal in Finder",
+        action: () => { void handlers.revealInFileManager(); },
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await Submenu.new({

@@ -134,6 +134,45 @@ pub fn is_directory(path: String) -> bool {
     std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false)
 }
 
+/// Reveal a file in the platform's file manager. Highlights the file itself
+/// (rather than just opening the parent directory) where the platform
+/// supports it. Errors are surfaced as Strings — the command is best-effort
+/// so the frontend can decide whether to show a notice.
+#[tauri::command]
+pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // /select, highlights the file inside its parent folder.
+        Command::new("explorer")
+            .arg(format!("/select,{}", path))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // No standard cross-distro 'select file' command; open the parent
+        // directory via xdg-open. The user lands close enough to act.
+        let parent = std::path::Path::new(&path)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        Command::new("xdg-open")
+            .arg(parent.as_os_str())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, FileError> {
     let root_path = PathBuf::from(&root);
