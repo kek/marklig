@@ -37,23 +37,20 @@ describe("codeblocksProducer", () => {
     expect(r.some((x) => x.class.includes("cm-md-code-body"))).toBe(true);
   });
 
-  it("marks EVERY body line of a multi-line fence (regression: first body line was being skipped at render time)", () => {
+  it("marks EVERY body line of a multi-line fence", () => {
     const src = "```typescript\n    const a = 1;\n    const b = 2;\n    const c = 3;\n    const d = 4;\n```\n";
     const r = classes(src);
     const bodyDecs = r.filter((x) => x.class.includes("cm-md-code-body"));
-    // Expect 4 body line decorations — one per body line.
     expect(bodyDecs.length).toBe(4);
-    // The body line dec's `from` is shifted by +1 from the line start to
-    // dodge the boundary collision with the fence-open block-replace's `to`
-    // (which equals the line start). CM's Decoration.line still targets the
-    // containing line.
+    // Decoration.line requires the position to be exactly at the line start;
+    // any shift (even +1) is invalid and CM silently drops the decoration.
     const lineStarts: number[] = [0];
     for (let i = 0; i < src.length; i++) if (src.charCodeAt(i) === 10) lineStarts.push(i + 1);
     expect(bodyDecs.map((d) => d.from).sort((a, b) => a - b)).toEqual([
-      lineStarts[1] + 1,
-      lineStarts[2] + 1,
-      lineStarts[3] + 1,
-      lineStarts[4] + 1,
+      lineStarts[1],
+      lineStarts[2],
+      lineStarts[3],
+      lineStarts[4],
     ]);
   });
 
@@ -76,14 +73,14 @@ describe("codeblocksProducer", () => {
     for (let i = 0; i < src.length; i++) if (src.charCodeAt(i) === 10) lineStarts.push(i + 1);
     const firstBodyLineStart = lineStarts[1];
 
-    // Codeblocks producer should have a body-line decoration whose position
-    // is on the first body line (one char in, to dodge the boundary
-    // collision with the fence-open elide's `to`).
+    // Codeblocks producer should have a body-line decoration at the first
+    // body line's start. (Decoration.line positions MUST be at line starts;
+    // CM silently drops them otherwise.)
     const cbCursor = cb.iter();
     let foundFirstBodyDec = false;
     while (cbCursor.value) {
       const cls = (cbCursor.value.spec as { class?: string }).class ?? "";
-      if (cbCursor.from === firstBodyLineStart + 1 && cls.includes("cm-md-code-body")) {
+      if (cbCursor.from === firstBodyLineStart && cls.includes("cm-md-code-body")) {
         foundFirstBodyDec = true;
         break;
       }
