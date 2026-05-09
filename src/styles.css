@@ -367,7 +367,24 @@ html.theme-dark  { color-scheme: dark; }
   margin: 0 0 8px;
   word-break: break-all;
 }
+.viewer-folder-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+.viewer-folder-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .viewer-folder-list { display: flex; flex-direction: column; gap: 1px; }
+.viewer-folder-item.filter-hidden { display: none; }
 .viewer-folder-item {
   display: block;
   width: 100%;

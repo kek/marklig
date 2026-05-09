@@ -30,11 +30,20 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   const folderName = document.createElement("div");
   folderName.className = "viewer-folder-name";
 
+  // Filter input — substring match on the relative path. Hidden (via
+  // type=search default UA) browser controls are fine here since the
+  // toolbar style sheet renames borders/padding.
+  const filter = document.createElement("input");
+  filter.type = "search";
+  filter.className = "viewer-folder-filter";
+  filter.placeholder = "Filter…";
+  filter.setAttribute("aria-label", "Filter files in folder");
+
   const list = document.createElement("nav");
   list.className = "viewer-folder-list";
   list.setAttribute("aria-labelledby", "viewer-folder-heading");
 
-  section.append(heading, folderName, list);
+  section.append(heading, folderName, filter, list);
 
   if (opts.insertBefore) {
     opts.parent.insertBefore(section, opts.insertBefore);
@@ -43,6 +52,15 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   }
 
   let activePath: string | null = null;
+
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    for (const item of list.querySelectorAll<HTMLElement>(".viewer-folder-item")) {
+      const rel = (item.textContent ?? "").toLowerCase();
+      const matches = q.length === 0 || rel.includes(q);
+      item.classList.toggle("filter-hidden", !matches);
+    }
+  });
 
   function basename(path: string): string {
     const m = path.match(/[^\\/]+$/);
