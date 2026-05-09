@@ -37,6 +37,7 @@ import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reco
 import { recordRecent } from "./shell/recents";
 import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { buildAndAttachMenu } from "./shell/menus";
 import { setActiveTheme } from "./editor/theme";
@@ -259,6 +260,23 @@ async function bootstrap(): Promise<void> {
     }
   }
 
+  /** Prompt-on-dirty wrapper used by all out-of-band open paths
+   * (drag-drop, OS file-association launches, "Open Recent"). */
+  async function openWithDirtyPrompt(path: string): Promise<void> {
+    if (dirtyTracker.isDirty()) {
+      const proceed = await ask(
+        "Discard your unsaved changes and open this file?",
+        {
+          title: "Unsaved changes",
+          okLabel: "Discard and open",
+          cancelLabel: "Cancel",
+        },
+      );
+      if (!proceed) return;
+    }
+    await loadAndApplyDoc(path);
+  }
+
   await buildAndAttachMenu({
     openFile: async () => {
       const doc = await openFileViaDialog();
@@ -361,38 +379,25 @@ async function bootstrap(): Promise<void> {
   const dropWindow = getCurrentWindow();
   const unsubDrop = await dropWindow.onDragDropEvent(async (event) => {
     if (event.payload.type !== "drop") return;
-    const dropped = event.payload.paths;
-    const md = dropped.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+    const md = event.payload.paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
     if (!md) return;
-
-    if (dirtyTracker.isDirty()) {
-      const proceed = await ask(
-        "Discard your unsaved changes and open the dropped file?",
-        {
-          title: "Unsaved changes",
-          okLabel: "Discard and open",
-          cancelLabel: "Cancel",
-        },
-      );
-      if (!proceed) return;
-    }
-
-    const doc = await readDoc(md);
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: doc.source },
-    });
-    currentPath = doc.path;
-    dirtyTracker.reset();
-    diverged = false;
-    await setWindowTitle(currentPath, false);
-    if (currentPath) {
-      await recordRecent(currentPath);
-      await startWatching(currentPath);
-    }
+    await openWithDirtyPrompt(md);
   });
   window.addEventListener("beforeunload", () => unsubDrop());
 
   await setWindowTitle(initialDoc?.path ?? null, false);
+
+  // OS file-association launches (double-click a .md, "Open With…", drag-drop
+  // onto the dock/taskbar) deliver the path via Tauri's RunEvent::Opened.
+  // The Rust side forwards the paths as `file-open-request`; pick the first
+  // markdown one and route through the dirty-prompt wrapper.
+  const unsubFileOpen = await listen<string[]>("file-open-request", async (e) => {
+    const paths = Array.isArray(e.payload) ? e.payload : [];
+    const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+    if (!md) return;
+    await openWithDirtyPrompt(md);
+  });
+  window.addEventListener("beforeunload", () => unsubFileOpen());
 
   const unsubscribeHighlight = highlightCache.subscribe(() => {
     view.dispatch({ effects: highlightCacheEffect.of() });
