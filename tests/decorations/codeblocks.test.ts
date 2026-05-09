@@ -54,28 +54,28 @@ describe("codeblocksProducer", () => {
     ]);
   });
 
-  it("first body line decoration position doesn't collide with the fence-elide block-replace", async () => {
+  it("first body line decoration position doesn't collide with any reading-mode fence elide", async () => {
     // Combined codeblocks + reading-widgets producers (the reading-mode
-    // pipeline). The fence-elide replace covers [openLineStart, firstBodyLineStart).
-    // The body line decoration on the first body line is at firstBodyLineStart
-    // exactly — same position as the elide's `to`. CM uses startSide / endSide
-    // to disambiguate, but if our positional sort doesn't preserve that, the
-    // line decoration can be lost (manifests in the rendered DOM as the first
-    // body line missing cm-md-code-body class).
+    // pipeline). Earlier the fence-elide was a block-replace covering
+    // [openLineStart, firstBodyLineStart) — its `to` collided with the
+    // first body line's Decoration.line at firstBodyLineStart, and CM
+    // silently dropped the line dec (manifest: first body line rendered
+    // in serif without the cm-md-code-body class). Pin the new invariant:
+    // NO reading-widgets decoration touches firstBodyLineStart, while
+    // the body-line dec at firstBodyLineStart is still emitted.
     const { readingWidgetsProducer } = await import("../../src/editor/decorations/reading-widgets");
     const src = "```typescript\n    const a = 1;\n    const b = 2;\n```\n";
     const tokens = parseMarkdown(src);
     const cb = codeblocksProducer({ source: src, tokens });
     const rw = readingWidgetsProducer({ source: src, tokens });
 
-    // First body line position
     const lineStarts: number[] = [0];
     for (let i = 0; i < src.length; i++) if (src.charCodeAt(i) === 10) lineStarts.push(i + 1);
     const firstBodyLineStart = lineStarts[1];
 
-    // Codeblocks producer should have a body-line decoration at the first
-    // body line's start. (Decoration.line positions MUST be at line starts;
-    // CM silently drops them otherwise.)
+    // Codeblocks producer still emits a Decoration.line at the first body
+    // line's start — Decoration.line positions MUST be at exact line
+    // starts; CM silently drops them otherwise.
     const cbCursor = cb.iter();
     let foundFirstBodyDec = false;
     while (cbCursor.value) {
@@ -88,19 +88,13 @@ describe("codeblocksProducer", () => {
     }
     expect(foundFirstBodyDec).toBe(true);
 
-    // Reading-widgets producer should have a fence-elide block-replace whose
-    // `to` equals firstBodyLineStart.
+    // Reading-widgets must NOT have any decoration whose `to` equals
+    // firstBodyLineStart — that's the regression that ate the body line dec.
     const rwCursor = rw.iter();
-    let foundElide = false;
     while (rwCursor.value) {
-      const cls = (rwCursor.value.spec as { class?: string }).class ?? "";
-      if (cls.includes("cm-md-reading-elide-fence") && rwCursor.to === firstBodyLineStart) {
-        foundElide = true;
-        break;
-      }
+      expect(rwCursor.to).not.toBe(firstBodyLineStart);
       rwCursor.next();
     }
-    expect(foundElide).toBe(true);
   });
 });
 

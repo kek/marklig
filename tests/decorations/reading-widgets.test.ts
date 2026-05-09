@@ -29,11 +29,15 @@ describe("readingWidgetsProducer", () => {
 
   it("hides code fence lines but not body", () => {
     const r = specs("```\nx\n```\n");
-    // Fence open + close use the dedicated fence-elide class so the block
-    // gets a small bit of vertical breath; front-matter still uses the
-    // zero-height line-elide class.
-    const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide-fence"));
-    expect(hides.length).toBe(2);
+    // Fence open + close are elided via two decorations each: an inline
+    // replace (cm-md-reading-elide-fence) hiding the ``` text, and a
+    // Decoration.line (cm-md-reading-elide-fence-line) collapsing the
+    // line height. Together they give the code block a small vertical
+    // breath without colliding with the first body line's Decoration.line.
+    const elideContent = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide-fence");
+    expect(elideContent.length).toBe(2);
+    const lineCollapse = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide-fence-line");
+    expect(lineCollapse.length).toBe(2);
   });
 
   it("hides front matter entirely", () => {

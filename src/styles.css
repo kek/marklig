@@ -218,14 +218,13 @@ html.theme-dark[data-mode="edit"] .cm-editor {
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }
-/* Fence open/close lines: keep the ``` markers hidden but leave a small
-   vertical breath so the code block doesn't sit flush against the
-   surrounding paragraphs. Both top (open) and bottom (close) elides
-   contribute, giving roughly 12px combined. */
-.cm-md-reading-elide-fence {
-  display: block;
-  height: 6px;
-}
+/* Fence open/close lines: hide the ``` content but keep the line element so
+   its Decoration.line collapses the line-height to a thin breathing strip.
+   Together (open + close) this gives ~12px of vertical room around the
+   code block without a block-replace whose endpoint would collide with
+   the first body line's Decoration.line. */
+.cm-md-reading-elide-fence      { display: none; }
+.cm-md-reading-elide-fence-line { font-size: 0; line-height: 6px; }
 /* The image is a leaf widget; padding on an <img> renders correctly and is
    measured by CM, unlike margin. */
 .cm-md-reading-image      { max-width: 100%; height: auto; display: block; padding: 16px 0; box-sizing: content-box; }
