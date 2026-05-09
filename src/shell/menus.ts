@@ -113,7 +113,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "reveal-in-file-manager",
-        text: "Reveal in Finder",
+        text: revealLabel(),
         action: () => { void handlers.revealInFileManager(); },
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
@@ -295,6 +295,14 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   });
   await menu.setAsAppMenu();
   return menu;
+}
+
+function revealLabel(): string {
+  if (typeof navigator === "undefined") return "Reveal in File Manager";
+  const platform = navigator.platform || "";
+  if (/Mac/i.test(platform)) return "Reveal in Finder";
+  if (/Win/i.test(platform)) return "Show in Explorer";
+  return "Show in File Manager";
 }
 
 function shortName(path: string): string {

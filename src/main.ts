@@ -262,9 +262,13 @@ async function bootstrap(): Promise<void> {
     toolbar.setPath(currentPath);
     await setWindowTitle(currentPath, dirty);
     cancelAutoSave();
-    if (dirty && getAutoSave() && currentPath) {
+    // Skip auto-save when the file has diverged (external change since
+    // last load) — triggerSave would pop a 'save anyway?' modal mid-
+    // typing, which is the opposite of what auto-save should feel like.
+    // Wait for the user to explicitly resolve the conflict.
+    if (dirty && getAutoSave() && currentPath && !diverged) {
       autoSaveTimer = setTimeout(() => {
-        if (dirtyTracker.isDirty() && currentPath) {
+        if (dirtyTracker.isDirty() && currentPath && !diverged) {
           void triggerSave();
         }
       }, AUTO_SAVE_DELAY_MS);
