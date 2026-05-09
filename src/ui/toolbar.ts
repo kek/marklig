@@ -85,8 +85,14 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
       applyButtonLabel();
     },
     setPath(p) {
-      pathEl.textContent = p ?? "";
+      // Show the file name in the toolbar (so it's always visible regardless
+      // of path length); keep the full path in the title attribute and the
+      // dataset for hover/tooling. Long paths in the toolbar would just
+      // ellipsis-truncate to the leading dirs, which isn't useful.
+      pathEl.textContent = p ? basename(p) : "";
       pathEl.title = p ?? "";
+      if (p) pathEl.dataset.path = p;
+      else delete pathEl.dataset.path;
     },
     setStats(s) {
       // Keep this terse: writers typically scan the toolbar, not parse it.
@@ -99,6 +105,11 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
           : `${c} chars`;
     },
   };
+}
+
+function basename(path: string): string {
+  const m = path.match(/[^\\/]+$/);
+  return m ? m[0] : path;
 }
 
 /** Compute word/char counts and a reading-time estimate from raw markdown.
