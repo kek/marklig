@@ -24,6 +24,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { loadSettings, subscribeSettings } from "./shell/settings";
+import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { t } from "./i18n/strings";
@@ -58,6 +59,10 @@ async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
   watchSystemTheme(() => applyTheme(loadStoredTheme()));
   await loadSettings();
+  // Restore size + position before any other work so the user doesn't see
+  // a default-sized window flash before the resize lands.
+  await restoreWindowState();
+  installWindowStatePersistence();
 
   await primeHighlighter([
     "javascript", "typescript", "python", "go", "rust",
