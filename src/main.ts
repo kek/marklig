@@ -434,11 +434,28 @@ async function resolveInitialDoc(): Promise<OpenedDoc | null> {
   if (argPath) return await readDoc(argPath);
   // macOS file-association launches deliver the path via RunEvent::Opened,
   // which can fire after bootstrap starts. Wait briefly for it before
-  // falling back to the open dialog — otherwise double-clicking a .md in
-  // Finder briefly shows a redundant open dialog before the doc loads.
+  // falling back to last-opened or the open dialog — otherwise double-
+  // clicking a .md in Finder briefly shows a redundant open dialog
+  // before the doc loads.
   const launched = await waitForFileOpenRequest(500);
   if (launched) return await readDoc(launched);
+  // Re-open whatever was open last time the app closed (recents[0] is the
+  // most-recently-opened path, written on every successful open via
+  // recordRecent). Falls through to the dialog if the file is gone.
+  const lastOpened = await tryReopenLastFile();
+  if (lastOpened) return lastOpened;
   return await openFileViaDialog();
+}
+
+async function tryReopenLastFile(): Promise<OpenedDoc | null> {
+  try {
+    const recents = await loadRecents();
+    if (recents.length === 0) return null;
+    return await readDoc(recents[0]);
+  } catch {
+    // File missing/moved/permission-denied — silently fall through to dialog.
+    return null;
+  }
 }
 
 async function waitForFileOpenRequest(timeoutMs: number): Promise<string | null> {
