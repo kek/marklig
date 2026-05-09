@@ -342,6 +342,57 @@ html.theme-dark  { color-scheme: dark; }
   z-index: 1001;
 }
 
+/* Folder sidebar — sits above the TOC. Mostly the same visual treatment as
+   TOC entries, with depth-based indent. Hidden until a folder is opened. */
+.viewer-folder { margin-bottom: 14px; }
+.viewer-folder.hidden { display: none; }
+.viewer-folder h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.viewer-folder-name {
+  font-size: 12px;
+  color: var(--fg);
+  font-weight: 600;
+  margin: 0 0 8px;
+  word-break: break-all;
+}
+.viewer-folder-list { display: flex; flex-direction: column; gap: 1px; }
+.viewer-folder-item {
+  display: block;
+  width: 100%;
+  padding: 3px 8px;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  border-radius: 3px;
+  line-height: 1.4;
+  cursor: pointer;
+  word-break: break-all;
+}
+.viewer-folder-item:hover { background: rgba(0,0,0,0.04); }
+.viewer-folder-item.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.viewer-folder-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.viewer-folder-depth-1 { padding-left: 16px; }
+.viewer-folder-depth-2 { padding-left: 26px; }
+.viewer-folder-depth-3 { padding-left: 36px; }
+.viewer-folder-depth-4 { padding-left: 46px; }
+.viewer-folder-empty { color: var(--muted); font-size: 12px; margin: 0; }
+
 /* TOC sidebar */
 .viewer-toc {
   width: 220px;

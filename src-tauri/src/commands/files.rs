@@ -102,3 +102,81 @@ pub fn clear_recovery(app: tauri::AppHandle, original_path: String) -> Result<()
     }
     Ok(())
 }
+
+#[derive(serde::Serialize)]
+pub struct MarkdownFileEntry {
+    pub path: String,
+    pub relative: String,
+}
+
+const MAX_FOLDER_DEPTH: u32 = 6;
+const MAX_FOLDER_ENTRIES: usize = 5_000;
+
+fn is_ignored(name: &str) -> bool {
+    if name.starts_with('.') {
+        return true;
+    }
+    matches!(
+        name,
+        "node_modules" | "dist" | "build" | "target" | "out" | ".git" | "__pycache__"
+    )
+}
+
+fn is_markdown_ext(ext: &str) -> bool {
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "md" | "markdown" | "mdx" | "mdown"
+    )
+}
+
+#[tauri::command]
+pub fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, FileError> {
+    let root_path = PathBuf::from(&root);
+    let mut out = Vec::new();
+    walk_for_markdown(&root_path, &root_path, 0, &mut out)?;
+    out.sort_by(|a, b| a.relative.cmp(&b.relative));
+    Ok(out)
+}
+
+fn walk_for_markdown(
+    root: &std::path::Path,
+    current: &std::path::Path,
+    depth: u32,
+    out: &mut Vec<MarkdownFileEntry>,
+) -> Result<(), FileError> {
+    if depth > MAX_FOLDER_DEPTH || out.len() >= MAX_FOLDER_ENTRIES {
+        return Ok(());
+    }
+    let entries = match std::fs::read_dir(current) {
+        Ok(e) => e,
+        // Permission denied / unreadable: silently skip subtree.
+        Err(_) => return Ok(()),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name_owned = entry.file_name();
+        let name = name_owned.to_string_lossy();
+        if is_ignored(name.as_ref()) {
+            continue;
+        }
+        if path.is_dir() {
+            walk_for_markdown(root, &path, depth + 1, out)?;
+            if out.len() >= MAX_FOLDER_ENTRIES {
+                return Ok(());
+            }
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if is_markdown_ext(ext) {
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+                out.push(MarkdownFileEntry {
+                    path: path.to_string_lossy().to_string(),
+                    relative: rel,
+                });
+            }
+        }
+    }
+    Ok(())
+}

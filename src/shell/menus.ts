@@ -8,6 +8,7 @@ import {
 
 export interface MenuHandlers {
   openFile: () => Promise<void>;
+  openFolder: () => Promise<void>;
   saveFile: () => void | Promise<void>;
   closeWindow: () => Promise<void>;
   toggleMode: () => void;
@@ -76,6 +77,13 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         action: () => {
           void handlers.openFile();
         },
+      }),
+      await MenuItem.new({
+        id: "open-folder",
+        text: "Open Folder…",
+        // No accelerator: Cmd+Shift+O is bound to sidebar toggle. The menu
+        // entry alone is enough; this isn't a frequent-use action.
+        action: () => { void handlers.openFolder(); },
       }),
       await Submenu.new({ text: "Open Recent", items: recentItems }),
       await PredefinedMenuItem.new({ item: "Separator" }),

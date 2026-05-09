@@ -1,6 +1,7 @@
 import { createEditor, setMode } from "./editor/editor";
 import { EditorView } from "@codemirror/view";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
+import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
 import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
@@ -31,7 +32,8 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, pickFolder, type OpenedDoc } from "./shell/files";
+import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
@@ -135,6 +137,19 @@ async function bootstrap(): Promise<void> {
   // Make the sidebar appear LEFT of the editor — insert before the editor's DOM.
   shell.insertBefore(toc.element, view.dom);
 
+  // Forward-declared so the folder sidebar (mounted now) can call into
+  // openWithDirtyPrompt (defined further down). Filled in once the helper
+  // is actually available.
+  let onFolderItemActivate: (path: string) => Promise<void> = async () => {};
+
+  // Mount the folder sidebar INSIDE the same aside, above the TOC's "Contents"
+  // heading. Hidden until the user opens a folder.
+  const folder: FolderSidebarHandle = mountFolderSidebar({
+    parent: toc.element,
+    insertBefore: toc.element.firstElementChild as HTMLElement | undefined,
+    onActivate: (path) => { void onFolderItemActivate(path); },
+  });
+
   // Scroll-sync: highlight the entry whose heading is at or above the topmost visible offset.
   view.scrollDOM.addEventListener("scroll", () => {
     const rect = view.scrollDOM.getBoundingClientRect();
@@ -187,6 +202,35 @@ async function bootstrap(): Promise<void> {
 
   let currentPath: string | null = initialDoc?.path ?? null;
   if (currentPath) await recordRecent(currentPath);
+
+  /** Open `root` as the current folder: persist it, list .md files in the
+   * sidebar, ensure the sidebar is visible. Pass null to clear. */
+  async function setCurrentFolder(root: string | null): Promise<void> {
+    await setValue("currentFolder", root);
+    await folder.setFolder(root);
+    if (root) {
+      // Make sure the user can actually see the panel.
+      if (!toc.isVisible()) {
+        toc.setVisible(true);
+        recordExplicitToggle(true);
+      }
+      folder.setActiveFile(currentPath);
+    }
+  }
+
+  // Restore the last-opened folder (if any) so the file list is right where
+  // the user left it. Failures (folder moved/deleted/permission-denied) are
+  // silent — currentFolder stays null and the panel stays hidden.
+  void (async () => {
+    const stored = await getValue<string | null>("currentFolder");
+    if (typeof stored === "string" && stored.length > 0) {
+      try {
+        await setCurrentFolder(stored);
+      } catch {
+        await setValue("currentFolder", null);
+      }
+    }
+  })();
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
@@ -259,6 +303,7 @@ async function bootstrap(): Promise<void> {
     dirtyTracker.reset();
     diverged = false;
     await setWindowTitle(currentPath, false);
+    folder.setActiveFile(currentPath);
     if (currentPath) {
       await recordRecent(currentPath);
       await startWatching(currentPath);
@@ -266,7 +311,7 @@ async function bootstrap(): Promise<void> {
   }
 
   /** Prompt-on-dirty wrapper used by all out-of-band open paths
-   * (drag-drop, OS file-association launches, "Open Recent"). */
+   * (drag-drop, OS file-association launches, "Open Recent", folder-tree click). */
   async function openWithDirtyPrompt(path: string): Promise<void> {
     if (dirtyTracker.isDirty()) {
       const proceed = await ask(
@@ -281,11 +326,16 @@ async function bootstrap(): Promise<void> {
     }
     await loadAndApplyDoc(path);
   }
+  onFolderItemActivate = openWithDirtyPrompt;
 
   await buildAndAttachMenu({
     openFile: async () => {
       const doc = await openFileViaDialog();
       if (doc) await loadAndApplyDoc(doc.path);
+    },
+    openFolder: async () => {
+      const root = await pickFolder();
+      if (root) await setCurrentFolder(root);
     },
     saveFile: () => { void triggerSave(); },
     closeWindow: async () => {
