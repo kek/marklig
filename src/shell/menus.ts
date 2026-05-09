@@ -9,6 +9,7 @@ import {
 export interface MenuHandlers {
   openFile: () => Promise<void>;
   openFolder: () => Promise<void>;
+  newWindow: () => Promise<void>;
   saveFile: () => void | Promise<void>;
   closeWindow: () => Promise<void>;
   toggleMode: () => void;
@@ -70,6 +71,12 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   const fileMenu = await Submenu.new({
     text: "File",
     items: [
+      await MenuItem.new({
+        id: "new-window",
+        text: "New Window",
+        accelerator: "CmdOrCtrl+N",
+        action: () => { void handlers.newWindow(); },
+      }),
       await MenuItem.new({
         id: "open",
         text: "Open…",

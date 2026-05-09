@@ -42,6 +42,7 @@ import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reco
 import { recordRecent } from "./shell/recents";
 import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { buildAndAttachMenu } from "./shell/menus";
@@ -80,7 +81,10 @@ async function bootstrap(): Promise<void> {
     await clearRecovery(entry.originalPath);
   }
 
-  await maybeRestoreFromRecovery();
+  // Recovery flow runs in the main window only. Secondary windows (File ->
+  // New Window) are blank slates — they don't ask about restoring, and the
+  // first/main window owns the recovery decision for the session.
+  if (isMainWindow()) await maybeRestoreFromRecovery();
 
   const initialDoc = await resolveInitialDoc();
 
@@ -337,6 +341,7 @@ async function bootstrap(): Promise<void> {
       const root = await pickFolder();
       if (root) await setCurrentFolder(root);
     },
+    newWindow: async () => { await spawnNewWindow(); },
     saveFile: () => { void triggerSave(); },
     closeWindow: async () => {
       const win = getCurrentWindow();
@@ -479,6 +484,11 @@ async function bootstrap(): Promise<void> {
 }
 
 async function resolveInitialDoc(): Promise<OpenedDoc | null> {
+  // Secondary windows (File -> New Window) start blank. The user opens a file
+  // explicitly. Avoids two windows fighting over the same restore flow and
+  // avoids surprising side effects (re-opening last file in a brand-new window).
+  if (!isMainWindow()) return null;
+
   if (recoveredDoc) return recoveredDoc;
   const argPath = await firstMarkdownArg();
   if (argPath) return await readDoc(argPath);
@@ -594,6 +604,40 @@ function stripTags(html: string): string {
   const tmp = document.createElement("template");
   tmp.innerHTML = html;
   return tmp.content.textContent ?? "";
+}
+
+let nextWindowSeq = 2;
+
+/** Open a new app window. The new window runs the same bootstrap but skips
+ * recovery + last-file restore, so it starts as an empty blank slate
+ * (currentPath = null) — the user opens a file via the dialog or drag-drop. */
+async function spawnNewWindow(): Promise<void> {
+  // Find the next free 'window-N' label. Existing windows may be labeled
+  // 'main', 'window-2', 'window-3', etc.; reuse-or-skip until we find a free one.
+  let label = `window-${nextWindowSeq++}`;
+  while (await WebviewWindow.getByLabel(label)) {
+    label = `window-${nextWindowSeq++}`;
+  }
+  const win = new WebviewWindow(label, {
+    title: "Viewer",
+    width: 1000,
+    height: 760,
+    minWidth: 480,
+    minHeight: 320,
+    dragDropEnabled: true,
+    url: "/",
+  });
+  win.once("tauri://error", (e) => {
+    console.error("failed to create window", label, e);
+  });
+}
+
+function isMainWindow(): boolean {
+  try {
+    return getCurrentWindow().label === "main";
+  } catch {
+    return true;
+  }
 }
 
 function defaultPlaceholder(): string {
