@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.6.0] - 2026-05-09 — Sub-spec D + E partial; reading-mode polish
+
+### Added
+
+- **File associations** for `.md` / `.markdown` / `.mdx` / `.mdown`. Tauri's bundler emits `CFBundleDocumentTypes` + `UTExportedTypeDeclarations` on macOS, registry entries on Windows, and `MimeType=` on the Linux `.desktop`. Files arrive via `tauri::RunEvent::Opened` (URLs, not argv); the Rust handler forwards them to the frontend as a `file-open-request` event. The frontend listener routes through a new `openWithDirtyPrompt` helper used by both drag-drop and OS-level launches. Cold-start case (Finder double-click) waits up to 500 ms for the event before falling back to the open dialog, so no redundant dialog flashes.
+- **Preferences modal** (`Cmd/Ctrl + ,`). Two settings exposed: appearance (system / light / dark) and remote-image policy (placeholder / load / off). Both already wired through the data layer; this surfaces them. Settings changes dispatch a new `refreshDecorationsEffect` so widgets that read settings at render time (notably `ImageWidget`) pick up the change without a doc reload.
+- **Keyboard shortcuts modal** (Help → Keyboard Shortcuts, `F1`). Lists every shortcut grouped by area, with platform-correct glyphs (⌘/⇧ on macOS, Ctrl/Shift elsewhere). `F1` chosen because `Cmd+/` and `Cmd+?` need shifted punctuation on most non-US layouts.
+- **Reading-mode polish**: horizontal rules (`---` / `***` / `___`) render as block `<hr>` widgets in reading mode (previously left as literal text); bullet markers (`-`/`*`/`+`) render as `•` (previously elided entirely).
+
+### Fixed
+
+- Math producer mistokenized `` `$x$` `` (dollars inside backticks) as KaTeX. Both the in-app math producer and the export-side math pre-process now mask inline code spans before scanning for math.
+- Mermaid label text was missing in rendered diagrams. The DOMPurify `svg + html` profile combo was eating Mermaid 11's `<foreignObject>` HTML labels. Mermaid output is trusted (our own dep, `securityLevel: "strict"`); skip the redundant sanitize pass.
+
+### Test surface
+
+- 119 unit tests across 25 files (was 114/25). 5 new across math, reading-widgets, and html-export.
+
+### Not yet (Sub-spec D)
+
+- Folder/project tree, multi-window UX, OS-level Recents (LSRecentDocuments / Jump List / RecentManager).
+
+### Not yet (Sub-spec E)
+
+- Auto-updater. Needs `tauri-plugin-updater`, signing keys, and an update-feed host — separate piece of work.
+
 ## [0.5.0] - 2026-05-08 — Sub-spec C: Export & print
 
 ### Added
