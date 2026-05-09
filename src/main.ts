@@ -24,6 +24,7 @@ import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/deco
 import { loadSettings, subscribeSettings } from "./shell/settings";
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
+import { t } from "./i18n/strings";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
@@ -269,11 +270,11 @@ async function bootstrap(): Promise<void> {
   async function openWithDirtyPrompt(path: string): Promise<void> {
     if (dirtyTracker.isDirty()) {
       const proceed = await ask(
-        "Discard your unsaved changes and open this file?",
+        t("dirty.body"),
         {
-          title: "Unsaved changes",
-          okLabel: "Discard and open",
-          cancelLabel: "Cancel",
+          title: t("dirty.title"),
+          okLabel: t("dirty.discard"),
+          cancelLabel: t("dirty.cancel"),
         },
       );
       if (!proceed) return;

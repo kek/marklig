@@ -4,12 +4,14 @@ import {
   setRemoteImagePolicy,
   type RemoteImagePolicy,
 } from "../shell/settings";
+import { t } from "../i18n/strings";
 import { openModal } from "./modal";
 
 /** Open the preferences modal. Resolves when the user closes it. */
 export function openPreferences(): Promise<void> {
   return openModal({
-    title: "Preferences",
+    title: t("prefs.title"),
+    closeLabel: t("prefs.close"),
     build: (body) => {
       body.append(buildThemeSection());
       body.append(buildImagePolicySection());
@@ -22,19 +24,24 @@ function buildThemeSection(): HTMLElement {
   section.className = "viewer-prefs-section";
 
   const label = document.createElement("h4");
-  label.textContent = "Appearance";
+  label.textContent = t("prefs.appearance");
   section.append(label);
 
   const row = document.createElement("div");
   row.className = "viewer-prefs-row";
   const current: Theme = loadStoredTheme();
-  for (const t of ["system", "light", "dark"] as const) {
+  const labelFor: Record<Theme, string> = {
+    system: t("prefs.theme.system"),
+    light: t("prefs.theme.light"),
+    dark: t("prefs.theme.dark"),
+  };
+  for (const theme of ["system", "light", "dark"] as const) {
     row.append(buildRadio({
       name: "theme",
-      value: t,
-      checked: current === t,
-      label: humanize(t),
-      onChange: () => setActiveTheme(t),
+      value: theme,
+      checked: current === theme,
+      label: labelFor[theme],
+      onChange: () => setActiveTheme(theme),
     }));
   }
   section.append(row);
@@ -46,22 +53,21 @@ function buildImagePolicySection(): HTMLElement {
   section.className = "viewer-prefs-section";
 
   const label = document.createElement("h4");
-  label.textContent = "Remote images";
+  label.textContent = t("prefs.images");
   section.append(label);
 
   const help = document.createElement("p");
   help.className = "viewer-prefs-help";
-  help.textContent =
-    "Markdown can reference images by URL. The viewer never fetches them by default — pick what should happen when a document points at one.";
+  help.textContent = t("prefs.images.help");
   section.append(help);
 
   const row = document.createElement("div");
   row.className = "viewer-prefs-row viewer-prefs-row-vertical";
   const current = getRemoteImagePolicy();
   const options: Array<[RemoteImagePolicy, string]> = [
-    ["placeholder", "Show a placeholder with the URL (default)"],
-    ["load", "Load and display"],
-    ["off", "Hide entirely"],
+    ["placeholder", t("prefs.images.placeholder")],
+    ["load", t("prefs.images.load")],
+    ["off", t("prefs.images.off")],
   ];
   for (const [value, optLabel] of options) {
     row.append(buildRadio({
@@ -101,6 +107,3 @@ function buildRadio(opts: RadioOptions): HTMLLabelElement {
   return wrap;
 }
 
-function humanize(t: Theme): string {
-  return t === "system" ? "Follow system" : t[0].toUpperCase() + t.slice(1);
-}

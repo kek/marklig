@@ -1,3 +1,5 @@
+import { t } from "../i18n/strings";
+
 export type ReconcileChoice = "reload" | "keep";
 
 export function promptReconcile(): Promise<ReconcileChoice> {
@@ -16,20 +18,20 @@ export function promptReconcile(): Promise<ReconcileChoice> {
 
     const title = document.createElement("h3");
     title.id = "viewer-reconcile-title";
-    title.textContent = "File changed on disk";
+    title.textContent = t("reconcile.title");
     const body = document.createElement("p");
     body.id = "viewer-reconcile-body";
-    body.textContent = "Your unsaved edits and the new content cannot both be kept.";
+    body.textContent = t("reconcile.body");
 
     const reload = document.createElement("button");
     reload.type = "button";
     reload.className = "viewer-toolbar-btn";
-    reload.textContent = "Reload from disk";
+    reload.textContent = t("reconcile.reload");
 
     const keep = document.createElement("button");
     keep.type = "button";
     keep.className = "viewer-toolbar-btn";
-    keep.textContent = "Keep my edits";
+    keep.textContent = t("reconcile.keep");
 
     const buttons = document.createElement("div");
     buttons.className = "viewer-reconcile-buttons";
@@ -74,11 +76,11 @@ export function promptReconcile(): Promise<ReconcileChoice> {
 }
 
 export function showOrphanNotice(): void {
-  showTransientNotice("This file is no longer on disk. Save As to choose a new location.", "viewer-orphan-notice", 8000);
+  showTransientNotice(t("notice.orphan"), "viewer-orphan-notice", 8000);
 }
 
 export function showReloadedNotice(): void {
-  showTransientNotice("Reloaded from disk", "viewer-reloaded-notice", 2000);
+  showTransientNotice(t("notice.reloaded"), "viewer-reloaded-notice", 2000);
 }
 
 function showTransientNotice(text: string, className: string, durationMs: number): void {
