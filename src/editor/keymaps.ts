@@ -37,6 +37,29 @@ export function setZoomHandlers(handlers: { in: () => void; out: () => void; res
   zoomResetHandler = handlers.reset;
 }
 
+/** Layout-independent zoom keystroke matcher. CM6's keymap parser and the
+ * Tauri menu accelerator both interpret `+` as "Shift + the US `=` key" —
+ * which fails on layouts where `+` is unshifted (Swedish, German, etc.).
+ * Match by event.key directly so the actual character produced wins. */
+export function installZoomKeyHandler(): () => void {
+  const onKey = (e: KeyboardEvent): void => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    if (e.key === "+" || (e.key === "=" && e.shiftKey)) {
+      e.preventDefault();
+      zoomInHandler();
+    } else if (e.key === "-" || e.key === "−") {
+      e.preventDefault();
+      zoomOutHandler();
+    } else if (e.key === "0") {
+      e.preventDefault();
+      zoomResetHandler();
+    }
+  };
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+}
+
 let sidebarToggleHandler: () => void = () => {};
 export function setSidebarToggleHandler(handler: () => void): void {
   sidebarToggleHandler = handler;

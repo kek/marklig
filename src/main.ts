@@ -3,7 +3,7 @@ import { EditorView } from "@codemirror/view";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar } from "./ui/toolbar";
@@ -175,6 +175,8 @@ async function bootstrap(): Promise<void> {
     out: () => zoomByFn(view, -1),
     reset: () => zoomResetFn(view),
   });
+  const stopZoomKeys = installZoomKeyHandler();
+  window.addEventListener("beforeunload", () => stopZoomKeys());
 
   setSidebarToggleHandler(() => {
     const next = !toc.isVisible();

@@ -49,9 +49,11 @@ const groups: ShortcutGroup[] = [
   },
 ];
 
-/** Open a modal listing every keyboard shortcut grouped by area. Resolves
- * when the user closes it (Esc, overlay click, or close button). */
+/** Open a modal listing every keyboard shortcut grouped by area. No-op if any
+ * modal is already open — repeated F1 presses must not stack overlays.
+ * Resolves when the user closes it (Esc, overlay click, or close button). */
 export function openKeyboardShortcuts(): Promise<void> {
+  if (document.querySelector(".viewer-prefs-overlay")) return Promise.resolve();
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "viewer-prefs-overlay";

@@ -1,6 +1,6 @@
 import { Compartment, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 
 export type Mode = "reading" | "edit";
@@ -24,6 +24,11 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
     doc: opts.source,
     extensions: [
       EditorView.lineWrapping,
+      // drawSelection paints .cm-selectionBackground based on the logical
+      // selection range, so a Cmd+A followed by scrolling continues to show
+      // the selection in newly-rendered viewport. Without it the browser's
+      // native selection only paints DOM that existed at select-time.
+      drawSelection(),
       readOnlyCompartment.of(EditorState.readOnly.of(true)),
       decorationsCompartment.of([]),
       keymapCompartment.of(keymap.of(defaultKeymap)),

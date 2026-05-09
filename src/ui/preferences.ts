@@ -10,8 +10,11 @@ interface OpenPreferencesOptions {
   onChange?: () => void;
 }
 
-/** Open the preferences modal. Resolves when the user closes it. */
+/** Open the preferences modal. No-op if any modal is already open — prevents
+ * stacked overlays from a repeated Cmd+, or F1 press dimming the background
+ * cumulatively. Resolves when the user closes it. */
 export function openPreferences(opts: OpenPreferencesOptions = {}): Promise<void> {
+  if (document.querySelector(".viewer-prefs-overlay")) return Promise.resolve();
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "viewer-prefs-overlay";
