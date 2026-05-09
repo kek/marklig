@@ -2,14 +2,23 @@ export type ReconcileChoice = "reload" | "keep";
 
 export function promptReconcile(): Promise<ReconcileChoice> {
   return new Promise((resolve) => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
     const overlay = document.createElement("div");
     overlay.className = "viewer-reconcile-overlay";
 
     const card = document.createElement("div");
     card.className = "viewer-reconcile-card";
+    card.setAttribute("role", "alertdialog");
+    card.setAttribute("aria-modal", "true");
+    card.setAttribute("aria-labelledby", "viewer-reconcile-title");
+    card.setAttribute("aria-describedby", "viewer-reconcile-body");
+
     const title = document.createElement("h3");
+    title.id = "viewer-reconcile-title";
     title.textContent = "File changed on disk";
     const body = document.createElement("p");
+    body.id = "viewer-reconcile-body";
     body.textContent = "Your unsaved edits and the new content cannot both be kept.";
 
     const reload = document.createElement("button");
@@ -30,18 +39,33 @@ export function promptReconcile(): Promise<ReconcileChoice> {
 
     function close(choice: ReconcileChoice): void {
       document.body.removeChild(overlay);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
+      previouslyFocused?.focus?.();
       resolve(choice);
     }
     function onKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") close("keep");
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close("keep");
+        return;
+      }
+      // Two-button focus trap.
+      if (e.key !== "Tab") return;
+      const active = document.activeElement;
+      if (e.shiftKey && active === keep) {
+        e.preventDefault();
+        reload.focus();
+      } else if (!e.shiftKey && active === reload) {
+        e.preventDefault();
+        keep.focus();
+      }
     }
     reload.addEventListener("click", () => close("reload"));
     keep.addEventListener("click", () => close("keep"));
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) close("keep");
     });
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
 
     overlay.append(card);
     document.body.append(overlay);

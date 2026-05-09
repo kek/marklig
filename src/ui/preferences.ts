@@ -4,61 +4,20 @@ import {
   setRemoteImagePolicy,
   type RemoteImagePolicy,
 } from "../shell/settings";
+import { openModal } from "./modal";
 
-interface OpenPreferencesOptions {
-  /** Called whenever a setting changes so the live editor can re-render. */
-  onChange?: () => void;
-}
-
-/** Open the preferences modal. No-op if any modal is already open — prevents
- * stacked overlays from a repeated Cmd+, or F1 press dimming the background
- * cumulatively. Resolves when the user closes it. */
-export function openPreferences(opts: OpenPreferencesOptions = {}): Promise<void> {
-  if (document.querySelector(".viewer-prefs-overlay")) return Promise.resolve();
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "viewer-prefs-overlay";
-
-    const card = document.createElement("div");
-    card.className = "viewer-prefs-card";
-
-    const title = document.createElement("h3");
-    title.textContent = "Preferences";
-
-    card.append(title);
-    card.append(buildThemeSection(opts.onChange));
-    card.append(buildImagePolicySection(opts.onChange));
-
-    const footer = document.createElement("div");
-    footer.className = "viewer-prefs-footer";
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "viewer-toolbar-btn";
-    close.textContent = "Close";
-    footer.append(close);
-    card.append(footer);
-
-    function dismiss(): void {
-      document.body.removeChild(overlay);
-      document.removeEventListener("keydown", onKey);
-      resolve();
-    }
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") dismiss();
-    }
-    close.addEventListener("click", dismiss);
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) dismiss();
-    });
-    document.addEventListener("keydown", onKey);
-
-    overlay.append(card);
-    document.body.append(overlay);
-    close.focus();
+/** Open the preferences modal. Resolves when the user closes it. */
+export function openPreferences(): Promise<void> {
+  return openModal({
+    title: "Preferences",
+    build: (body) => {
+      body.append(buildThemeSection());
+      body.append(buildImagePolicySection());
+    },
   });
 }
 
-function buildThemeSection(onChange?: () => void): HTMLElement {
+function buildThemeSection(): HTMLElement {
   const section = document.createElement("section");
   section.className = "viewer-prefs-section";
 
@@ -75,17 +34,14 @@ function buildThemeSection(onChange?: () => void): HTMLElement {
       value: t,
       checked: current === t,
       label: humanize(t),
-      onChange: () => {
-        setActiveTheme(t);
-        onChange?.();
-      },
+      onChange: () => setActiveTheme(t),
     }));
   }
   section.append(row);
   return section;
 }
 
-function buildImagePolicySection(onChange?: () => void): HTMLElement {
+function buildImagePolicySection(): HTMLElement {
   const section = document.createElement("section");
   section.className = "viewer-prefs-section";
 
@@ -113,10 +69,7 @@ function buildImagePolicySection(onChange?: () => void): HTMLElement {
       value,
       checked: current === value,
       label: optLabel,
-      onChange: () => {
-        setRemoteImagePolicy(value);
-        onChange?.();
-      },
+      onChange: () => setRemoteImagePolicy(value),
     }));
   }
   section.append(row);

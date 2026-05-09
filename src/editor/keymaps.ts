@@ -80,24 +80,32 @@ const sidebarToggleBinding: KeyBinding = {
 
 const PAGE_OVERLAP_LINES = 3;
 
+/** Honor the OS's reduced-motion preference for scroll animations. Returns
+ * "auto" (instant) when the user has reduced-motion set, "smooth" otherwise. */
+function scrollBehavior(): ScrollBehavior {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+}
+
 function pageScroll(view: EditorView, direction: 1 | -1): boolean {
   const scroller = view.scrollDOM;
   const lineHeight = view.defaultLineHeight;
   const pageHeight = scroller.clientHeight - PAGE_OVERLAP_LINES * lineHeight;
   scroller.scrollBy({
     top: direction * Math.max(pageHeight, lineHeight),
-    behavior: "smooth",
+    behavior: scrollBehavior(),
   });
   return true;
 }
 
 function scrollToTop(view: EditorView): boolean {
-  view.scrollDOM.scrollTo({ top: 0, behavior: "smooth" });
+  view.scrollDOM.scrollTo({ top: 0, behavior: scrollBehavior() });
   return true;
 }
 
 function scrollToBottom(view: EditorView): boolean {
-  view.scrollDOM.scrollTo({ top: view.scrollDOM.scrollHeight, behavior: "smooth" });
+  view.scrollDOM.scrollTo({ top: view.scrollDOM.scrollHeight, behavior: scrollBehavior() });
   return true;
 }
 

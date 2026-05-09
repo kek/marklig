@@ -1,3 +1,5 @@
+import { openModal } from "./modal";
+
 interface ShortcutEntry {
   keys: string;
   description: string;
@@ -49,69 +51,32 @@ const groups: ShortcutGroup[] = [
   },
 ];
 
-/** Open a modal listing every keyboard shortcut grouped by area. No-op if any
- * modal is already open — repeated F1 presses must not stack overlays.
- * Resolves when the user closes it (Esc, overlay click, or close button). */
+/** Open the keyboard-shortcuts modal. Resolves when the user closes it. */
 export function openKeyboardShortcuts(): Promise<void> {
-  if (document.querySelector(".viewer-prefs-overlay")) return Promise.resolve();
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "viewer-prefs-overlay";
+  return openModal({
+    title: "Keyboard Shortcuts",
+    build: (body) => {
+      for (const g of groups) {
+        const section = document.createElement("section");
+        section.className = "viewer-prefs-section";
+        const h = document.createElement("h4");
+        h.textContent = g.heading;
+        section.append(h);
 
-    const card = document.createElement("div");
-    card.className = "viewer-prefs-card";
-
-    const title = document.createElement("h3");
-    title.textContent = "Keyboard Shortcuts";
-    card.append(title);
-
-    for (const g of groups) {
-      const section = document.createElement("section");
-      section.className = "viewer-prefs-section";
-      const h = document.createElement("h4");
-      h.textContent = g.heading;
-      section.append(h);
-
-      const dl = document.createElement("dl");
-      dl.className = "viewer-shortcut-list";
-      for (const e of g.entries) {
-        const dt = document.createElement("dt");
-        dt.className = "viewer-shortcut-keys";
-        dt.textContent = e.keys;
-        const dd = document.createElement("dd");
-        dd.className = "viewer-shortcut-desc";
-        dd.textContent = e.description;
-        dl.append(dt, dd);
+        const dl = document.createElement("dl");
+        dl.className = "viewer-shortcut-list";
+        for (const e of g.entries) {
+          const dt = document.createElement("dt");
+          dt.className = "viewer-shortcut-keys";
+          dt.textContent = e.keys;
+          const dd = document.createElement("dd");
+          dd.className = "viewer-shortcut-desc";
+          dd.textContent = e.description;
+          dl.append(dt, dd);
+        }
+        section.append(dl);
+        body.append(section);
       }
-      section.append(dl);
-      card.append(section);
-    }
-
-    const footer = document.createElement("div");
-    footer.className = "viewer-prefs-footer";
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "viewer-toolbar-btn";
-    close.textContent = "Close";
-    footer.append(close);
-    card.append(footer);
-
-    function dismiss(): void {
-      document.body.removeChild(overlay);
-      document.removeEventListener("keydown", onKey);
-      resolve();
-    }
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") dismiss();
-    }
-    close.addEventListener("click", dismiss);
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) dismiss();
-    });
-    document.addEventListener("keydown", onKey);
-
-    overlay.append(card);
-    document.body.append(overlay);
-    close.focus();
+    },
   });
 }
