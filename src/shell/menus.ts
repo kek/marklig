@@ -6,6 +6,8 @@ import {
   CheckMenuItem,
 } from "@tauri-apps/api/menu";
 
+import { t } from "../i18n/strings";
+
 export interface MenuHandlers {
   openFile: () => Promise<void>;
   openFolder: () => Promise<void>;
@@ -40,7 +42,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
     recentItems.push(
       await MenuItem.new({
         id: "no-recent",
-        text: "(none)",
+        text: t("menu.file.openRecent.empty"),
         enabled: false,
         action: () => {},
       }),
@@ -62,7 +64,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
     recentItems.push(
       await MenuItem.new({
         id: "clear-recents",
-        text: "Clear Menu",
+        text: t("menu.file.openRecent.clear"),
         action: () => {
           void handlers.clearRecents();
         },
@@ -71,17 +73,17 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   }
 
   const fileMenu = await Submenu.new({
-    text: "File",
+    text: t("menu.file"),
     items: [
       await MenuItem.new({
         id: "new-window",
-        text: "New Window",
+        text: t("menu.file.newWindow"),
         accelerator: "CmdOrCtrl+N",
         action: () => { void handlers.newWindow(); },
       }),
       await MenuItem.new({
         id: "open",
-        text: "Open…",
+        text: t("menu.file.open"),
         accelerator: "CmdOrCtrl+O",
         action: () => {
           void handlers.openFile();
@@ -89,16 +91,16 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       }),
       await MenuItem.new({
         id: "open-folder",
-        text: "Open Folder…",
+        text: t("menu.file.openFolder"),
         // No accelerator: Cmd+Shift+O is bound to sidebar toggle. The menu
         // entry alone is enough; this isn't a frequent-use action.
         action: () => { void handlers.openFolder(); },
       }),
-      await Submenu.new({ text: "Open Recent", items: recentItems }),
+      await Submenu.new({ text: t("menu.file.openRecent"), items: recentItems }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "save",
-        text: "Save",
+        text: t("menu.file.save"),
         accelerator: "CmdOrCtrl+S",
         action: () => {
           void handlers.saveFile();
@@ -106,7 +108,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       }),
       await MenuItem.new({
         id: "save-as",
-        text: "Save As…",
+        text: t("menu.file.saveAs"),
         accelerator: "CmdOrCtrl+Shift+S",
         action: () => { void handlers.saveFileAs(); },
       }),
@@ -118,25 +120,25 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await Submenu.new({
-        text: "Export",
+        text: t("menu.file.export"),
         items: [
           await MenuItem.new({
             id: "export-html",
-            text: "HTML…",
+            text: t("menu.file.export.html"),
             action: () => { void handlers.exportHtml(); },
           }),
         ],
       }),
       await MenuItem.new({
         id: "print",
-        text: "Print…",
+        text: t("menu.file.print"),
         accelerator: "CmdOrCtrl+P",
         action: () => handlers.printDocument(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "close",
-        text: "Close Window",
+        text: t("menu.file.closeWindow"),
         accelerator: "CmdOrCtrl+W",
         action: () => {
           void handlers.closeWindow();
@@ -146,7 +148,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   });
 
   const editMenu = await Submenu.new({
-    text: "Edit",
+    text: t("menu.edit"),
     items: [
       await PredefinedMenuItem.new({ item: "Undo" }),
       await PredefinedMenuItem.new({ item: "Redo" }),
@@ -158,20 +160,20 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "find",
-        text: "Find…",
+        text: t("menu.edit.find"),
         accelerator: "CmdOrCtrl+F",
         action: () => handlers.openFind(),
       }),
       await MenuItem.new({
         id: "replace",
-        text: "Find and Replace…",
+        text: t("menu.edit.findReplace"),
         accelerator: "CmdOrCtrl+Shift+F",
         action: () => handlers.openReplace(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "copy-as-html",
-        text: "Copy as HTML",
+        text: t("menu.edit.copyAsHtml"),
         accelerator: "CmdOrCtrl+Shift+C",
         action: () => { void handlers.copyAsHtml(); },
       }),
@@ -179,23 +181,23 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   });
 
   const themeMenu = await Submenu.new({
-    text: "Theme",
+    text: t("menu.view.theme"),
     items: [
       await CheckMenuItem.new({
         id: "theme-light",
-        text: "Light",
+        text: t("menu.view.theme.light"),
         checked: false,
         action: () => handlers.setTheme("light"),
       }),
       await CheckMenuItem.new({
         id: "theme-dark",
-        text: "Dark",
+        text: t("menu.view.theme.dark"),
         checked: false,
         action: () => handlers.setTheme("dark"),
       }),
       await CheckMenuItem.new({
         id: "theme-system",
-        text: "Follow System",
+        text: t("menu.view.theme.system"),
         checked: true,
         action: () => handlers.setTheme("system"),
       }),
@@ -203,17 +205,17 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   });
 
   const viewMenu = await Submenu.new({
-    text: "View",
+    text: t("menu.view"),
     items: [
       await MenuItem.new({
         id: "toggle-mode",
-        text: "Reading / Edit Mode",
+        text: t("menu.view.toggleMode"),
         accelerator: "CmdOrCtrl+E",
         action: () => handlers.toggleMode(),
       }),
       await MenuItem.new({
         id: "toggle-sidebar",
-        text: "Show / Hide Sidebar",
+        text: t("menu.view.toggleSidebar"),
         accelerator: "CmdOrCtrl+Shift+O",
         action: () => handlers.toggleSidebar(),
       }),
@@ -222,19 +224,19 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "zoom-reset",
-        text: "Actual Size",
+        text: t("menu.view.actualSize"),
         accelerator: "CmdOrCtrl+0",
         action: () => handlers.zoomReset(),
       }),
       await MenuItem.new({
         id: "zoom-in",
-        text: "Zoom In",
+        text: t("menu.view.zoomIn"),
         accelerator: "CmdOrCtrl+Plus",
         action: () => handlers.zoomIn(),
       }),
       await MenuItem.new({
         id: "zoom-out",
-        text: "Zoom Out",
+        text: t("menu.view.zoomOut"),
         accelerator: "CmdOrCtrl+-",
         action: () => handlers.zoomOut(),
       }),
@@ -242,7 +244,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   });
 
   const windowMenu = await Submenu.new({
-    text: "Window",
+    text: t("menu.window"),
     items: [
       await PredefinedMenuItem.new({ item: "Minimize" }),
       await PredefinedMenuItem.new({ item: "Maximize" }),
@@ -253,11 +255,11 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   });
 
   const helpMenu = await Submenu.new({
-    text: "Help",
+    text: t("menu.help"),
     items: [
       await MenuItem.new({
         id: "keyboard-shortcuts",
-        text: "Keyboard Shortcuts",
+        text: t("menu.help.shortcuts"),
         accelerator: "F1",
         action: () => handlers.showKeyboardShortcuts(),
       }),
@@ -275,7 +277,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "preferences",
-        text: "Settings…",
+        text: t("menu.app.settings"),
         accelerator: "CmdOrCtrl+,",
         action: () => { void handlers.openPreferences(); },
       }),
@@ -298,11 +300,11 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
 }
 
 function revealLabel(): string {
-  if (typeof navigator === "undefined") return "Reveal in File Manager";
+  if (typeof navigator === "undefined") return t("menu.file.revealLinux");
   const platform = navigator.platform || "";
-  if (/Mac/i.test(platform)) return "Reveal in Finder";
-  if (/Win/i.test(platform)) return "Show in Explorer";
-  return "Show in File Manager";
+  if (/Mac/i.test(platform)) return t("menu.file.revealMac");
+  if (/Win/i.test(platform)) return t("menu.file.revealWindows");
+  return t("menu.file.revealLinux");
 }
 
 function shortName(path: string): string {
