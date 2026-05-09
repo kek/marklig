@@ -393,9 +393,11 @@ html.theme-dark  { color-scheme: dark; }
 .viewer-folder-depth-4 { padding-left: 46px; }
 .viewer-folder-empty { color: var(--muted); font-size: 12px; margin: 0; }
 
-/* TOC sidebar */
+/* TOC sidebar — width is JS-driven (drag handle on the right edge), with
+   a CSS-variable default so the first paint isn't flickery. */
 .viewer-toc {
-  width: 220px;
+  position: relative;
+  width: var(--sidebar-width, 220px);
   background: var(--code-bg);
   border-right: 1px solid var(--rule);
   padding: 18px 14px;
@@ -405,6 +407,25 @@ html.theme-dark  { color-scheme: dark; }
   flex-shrink: 0;
 }
 .viewer-toc.hidden { display: none; }
+.viewer-sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  /* Wider hit target than the visible 1px border. Hover/drag highlight is
+     a thin colored line that looks like the border itself thickening. */
+  background: transparent;
+  transition: background 80ms ease;
+}
+.viewer-sidebar-resize:hover,
+.viewer-sidebar-resize.dragging {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+body.viewer-resizing { cursor: col-resize !important; user-select: none; }
+body.viewer-resizing * { cursor: col-resize !important; }
 .viewer-toc h4 {
   font-size: 11px;
   text-transform: uppercase;

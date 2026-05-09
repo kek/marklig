@@ -27,11 +27,22 @@ export interface MountTocOptions {
   onActivate: (entry: TocEntry) => void;
 }
 
+const SIDEBAR_WIDTH_KEY = "viewer.sidebar.width";
+const SIDEBAR_MIN = 160;
+const SIDEBAR_MAX = 480;
+
 export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
   const aside = document.createElement("aside");
   aside.className = "viewer-toc";
   if (!opts.initiallyVisible) aside.classList.add("hidden");
   opts.parent.append(aside);
+
+  // Restore persisted width and install a drag handle on the right edge.
+  const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+  if (Number.isFinite(stored) && stored >= SIDEBAR_MIN && stored <= SIDEBAR_MAX) {
+    aside.style.setProperty("--sidebar-width", `${stored}px`);
+  }
+  installResizeHandle(aside);
 
   const headingId = "viewer-toc-heading";
   const heading = document.createElement("h4");
@@ -121,4 +132,52 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
     isVisible: () => visible,
     destroy() { aside.remove(); },
   };
+}
+
+function installResizeHandle(aside: HTMLElement): void {
+  const handle = document.createElement("div");
+  handle.className = "viewer-sidebar-resize";
+  handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "vertical");
+  handle.setAttribute("aria-label", "Resize sidebar");
+  handle.tabIndex = 0;
+  aside.append(handle);
+
+  const apply = (px: number): void => {
+    const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(px)));
+    aside.style.setProperty("--sidebar-width", `${clamped}px`);
+    return;
+  };
+  const persist = (): void => {
+    const w = aside.getBoundingClientRect().width;
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(Math.round(w)));
+  };
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = aside.getBoundingClientRect().width;
+    handle.classList.add("dragging");
+    document.body.classList.add("viewer-resizing");
+    const onMove = (m: MouseEvent): void => apply(startW + (m.clientX - startX));
+    const onUp = (): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      handle.classList.remove("dragging");
+      document.body.classList.remove("viewer-resizing");
+      persist();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+
+  // Keyboard nudges: arrow keys widen/narrow by 16 px, with persistence.
+  handle.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const delta = e.key === "ArrowRight" ? 16 : -16;
+    const cur = aside.getBoundingClientRect().width;
+    apply(cur + delta);
+    persist();
+  });
 }
