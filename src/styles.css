@@ -247,6 +247,10 @@ html.theme-dark  { color-scheme: dark; }
   font: inherit;
 }
 .viewer-toolbar-btn:hover { background: var(--code-bg); }
+.viewer-toolbar-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .viewer-dirty-indicator {
   color: var(--accent);
   font-size: 16px;
@@ -361,12 +365,21 @@ html.theme-dark  { color-scheme: dark; }
 .viewer-toc-list { display: flex; flex-direction: column; gap: 2px; }
 .viewer-toc-item {
   display: block;
+  width: 100%;
   padding: 4px 8px;
   color: var(--fg);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
   text-decoration: none;
   border-radius: 4px;
   line-height: 1.45;
   cursor: pointer;
+}
+.viewer-toc-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .viewer-toc-item:hover { background: rgba(0,0,0,0.04); }
 .viewer-toc-item.active {

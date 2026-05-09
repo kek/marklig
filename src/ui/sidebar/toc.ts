@@ -33,12 +33,17 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
   if (!opts.initiallyVisible) aside.classList.add("hidden");
   opts.parent.append(aside);
 
+  const headingId = "viewer-toc-heading";
   const heading = document.createElement("h4");
+  heading.id = headingId;
   heading.textContent = "Contents";
   aside.append(heading);
 
+  // <nav> labelled by the heading so screen readers announce "Contents
+  // navigation" instead of an unnamed landmark.
   const list = document.createElement("nav");
   list.className = "viewer-toc-list";
+  list.setAttribute("aria-labelledby", headingId);
   aside.append(list);
 
   let visible = opts.initiallyVisible;
@@ -73,15 +78,15 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
       return;
     }
     for (const e of entries) {
-      const a = document.createElement("a");
-      a.className = `viewer-toc-item viewer-toc-l${e.level}`;
-      a.textContent = e.text;
-      a.dataset.from = String(e.from);
-      a.addEventListener("click", (event) => {
-        event.preventDefault();
-        opts.onActivate(e);
-      });
-      list.append(a);
+      // <button> rather than <a>: there's no URL, the action is in-app, and
+      // <button> is keyboard-focusable + Enter/Space-activatable by default.
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = `viewer-toc-item viewer-toc-l${e.level}`;
+      item.textContent = e.text;
+      item.dataset.from = String(e.from);
+      item.addEventListener("click", () => opts.onActivate(e));
+      list.append(item);
     }
   }
 
@@ -92,8 +97,15 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
       const from = Number(el.dataset.from ?? "0");
       if (from <= offset) activeIndex = idx;
       el.classList.remove("active");
+      el.removeAttribute("aria-current");
     });
-    if (activeIndex >= 0) items.item(activeIndex)?.classList.add("active");
+    if (activeIndex >= 0) {
+      const active = items.item(activeIndex);
+      active?.classList.add("active");
+      // aria-current="location" tells screen readers this entry is where the
+      // viewport currently is — the analog of "you are here".
+      active?.setAttribute("aria-current", "location");
+    }
   }
 
   render();
