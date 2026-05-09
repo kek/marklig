@@ -22,3 +22,10 @@ thiserror = "2"
 notify = "6"
 notify-debouncer-full = "0.3"
 chrono = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# OS-level recent-documents integration (NSDocumentController). Surfaces
+# opened files in macOS surfaces like the Dock icon's right-click menu.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
