@@ -8,7 +8,7 @@ import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorat
 import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
-import { mountToolbar } from "./ui/toolbar";
+import { mountToolbar, computeDocStats } from "./ui/toolbar";
 import { setWindowTitle } from "./ui/titlebar";
 import { headingsProducer } from "./editor/decorations/headings";
 import { inlineProducer } from "./editor/decorations/inline";
@@ -258,14 +258,21 @@ async function bootstrap(): Promise<void> {
   // previous rAF-driven poll re-stringified the entire doc 60×/sec, which
   // costs O(N) per frame for large files and races the decoration recompute.
   // EditorView.updateListener fires once per transaction with a precomputed
-  // docChanged flag, which is what we actually wanted. Installed via a
-  // Compartment because listeners can't be added after construction.
+  // docChanged flag. Same hook also drives the toolbar word-count readout.
+  // Installed via a Compartment because listeners can't be added after
+  // construction.
   const tocUpdateCompartment = new Compartment();
+  const refreshStats = (): void => {
+    toolbar.setStats(computeDocStats(view.state.doc.toString()));
+  };
+  refreshStats();
   view.dispatch({
     effects: StateEffect.appendConfig.of(
       tocUpdateCompartment.of(
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) toc.refresh();
+          if (!u.docChanged) return;
+          toc.refresh();
+          refreshStats();
         }),
       ),
     ),

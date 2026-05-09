@@ -256,6 +256,12 @@ html.theme-dark  { color-scheme: dark; }
   font-size: 16px;
   line-height: 1;
 }
+.viewer-toolbar-spacer { flex: 1; }
+.viewer-toolbar-stats {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
 
 /* Preferences modal — same overlay/card pattern as the reconcile modal but
    wider and divided into sections. Shared styling lives at the bottom of the
