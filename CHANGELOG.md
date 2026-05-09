@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.0] - 2026-05-09 — Sub-spec F partial; further reading-mode polish
+
+### Added (Sub-spec F: a11y + i18n foundation)
+
+- **Modal accessibility.** All three modals (preferences, shortcuts, reconcile) now have `role="dialog"` (or `alertdialog` for reconcile), `aria-modal`, `aria-labelledby` (and `aria-describedby` for reconcile). Tab cycles inside the card and never escapes; closing returns focus to whatever held it before open.
+- **Reduced-motion support.** The three smooth-scroll calls in `editor/keymaps.ts` (page scroll, top, bottom) check `prefers-reduced-motion` and use instant scrolling when the user has it set.
+- **i18n foundation** (`src/i18n/strings.ts`). Typed source-of-truth English string table with a `t(key)` lookup; locales install via `setLocaleStrings(map)`. Migrated user-facing strings from the three modals, the orphan/reloaded notices, and the dirty-discard confirmation. Menu strings still hardcoded — the pattern is established and they can sweep in a follow-up. 4 unit tests cover defaults, override, per-key fallback, revert.
+- **Keyboard-navigable TOC sidebar.** Items are now `<button>` elements (were hrefless `<a>`s, invisible to keyboard nav). Active item carries `aria-current="location"`; `<nav>` is labelled by the "Contents" heading. Visible `:focus-visible` outline (accent color) on TOC items and toolbar buttons.
+
+### Fixed
+
+- Click-to-position drift in reading mode, round 2. Several block widgets (HR, math block, Mermaid, image placeholder, table) used `margin` for vertical breathing room. CM6's heightmap doesn't measure margin, so every widget shifted following lines downward by N px below where CM thought they were — cumulative, so triple-clicks landed N paragraphs off. All converted to `padding` (HR + table widgets now wrap their inner element in a `<div>` that carries the padding).
+- `drawSelection()` regression in reading mode: drawn cursor showing despite the previous `caret-color: transparent` rule (drawSelection paints its own `.cm-cursor`, ignores caret-color), and selection rectangles painting blocky over widget gaps. Gated `drawSelection()` behind a new selection compartment — edit mode keeps it, reading mode reverts to native browser selection.
+- Cmd+Plus zoom-in failed on Swedish (and any layout where `+` is unshifted). Both the Tauri menu accelerator and CodeMirror's `Mod-+` keymap interpret `+` as "Shift + US `=`". A new window-level keydown handler matches `event.key` directly — layout-independent.
+- F1 / Cmd+, repeated presses stacking modal overlays and dimming the page cumulatively. Both modals now no-op when any modal is already open.
+
+### Test surface
+
+- 123 unit tests across 26 files (was 119/25).
+
 ## [0.6.0] - 2026-05-09 — Sub-spec D + E partial; reading-mode polish
 
 ### Added
