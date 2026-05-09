@@ -18,6 +18,8 @@ export const EN = {
   "prefs.images.placeholder": "Show a placeholder with the URL (default)",
   "prefs.images.load": "Load and display",
   "prefs.images.off": "Hide entirely",
+  "prefs.autosave": "Auto-save",
+  "prefs.autosave.label": "Save automatically after a short pause in typing",
   "prefs.close": "Close",
 
   // Modal: keyboard shortcuts

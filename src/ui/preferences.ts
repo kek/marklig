@@ -2,6 +2,8 @@ import { loadStoredTheme, setActiveTheme, type Theme } from "../editor/theme";
 import {
   getRemoteImagePolicy,
   setRemoteImagePolicy,
+  getAutoSave,
+  setAutoSave,
   type RemoteImagePolicy,
 } from "../shell/settings";
 import { t } from "../i18n/strings";
@@ -15,8 +17,30 @@ export function openPreferences(): Promise<void> {
     build: (body) => {
       body.append(buildThemeSection());
       body.append(buildImagePolicySection());
+      body.append(buildAutoSaveSection());
     },
   });
+}
+
+function buildAutoSaveSection(): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "viewer-prefs-section";
+
+  const label = document.createElement("h4");
+  label.textContent = t("prefs.autosave");
+  section.append(label);
+
+  const wrap = document.createElement("label");
+  wrap.className = "viewer-prefs-radio"; // reuse the same row alignment
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = getAutoSave();
+  input.addEventListener("change", () => setAutoSave(input.checked));
+  const text = document.createElement("span");
+  text.textContent = t("prefs.autosave.label");
+  wrap.append(input, text);
+  section.append(wrap);
+  return section;
 }
 
 function buildThemeSection(): HTMLElement {

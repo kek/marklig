@@ -23,7 +23,7 @@ import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
-import { loadSettings, subscribeSettings } from "./shell/settings";
+import { loadSettings, subscribeSettings, getAutoSave } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
@@ -245,11 +245,34 @@ async function bootstrap(): Promise<void> {
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
+  // Auto-save debounce: each dirty notification resets a 1-second timer;
+  // if it fires while still dirty (and a path is set), trigger a save.
+  // Clearing/resaving is harmless when auto-save is off because the
+  // subscriber checks getAutoSave() at fire time.
+  const AUTO_SAVE_DELAY_MS = 1000;
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  const cancelAutoSave = (): void => {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+  };
   const unsubDirty = dirtyTracker.subscribe(async (dirty) => {
     toolbar.setDirty(dirty);
     await setWindowTitle(currentPath, dirty);
+    cancelAutoSave();
+    if (dirty && getAutoSave() && currentPath) {
+      autoSaveTimer = setTimeout(() => {
+        if (dirtyTracker.isDirty() && currentPath) {
+          void triggerSave();
+        }
+      }, AUTO_SAVE_DELAY_MS);
+    }
   });
-  window.addEventListener("beforeunload", () => unsubDirty());
+  window.addEventListener("beforeunload", () => {
+    unsubDirty();
+    cancelAutoSave();
+  });
 
   const stopRecovery = startRecoveryLoop({
     intervalMs: 5000,

@@ -29,6 +29,10 @@ pub struct WatcherState {
 }
 
 struct WatcherInner {
+    /// Kept for diagnostic/tracing purposes — surfaced via the optional
+    /// debug command and also used as the source of truth for what the
+    /// watcher is currently watching when reconciling state.
+    #[allow(dead_code)]
     target: PathBuf,
     self_write_ts: Option<Instant>,
     _debouncer:

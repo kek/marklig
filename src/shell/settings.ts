@@ -3,8 +3,10 @@ import { getValue, setValue } from "./store";
 export type RemoteImagePolicy = "load" | "placeholder" | "off";
 
 const DEFAULT_REMOTE_IMAGE_POLICY: RemoteImagePolicy = "placeholder";
+const DEFAULT_AUTO_SAVE: boolean = false;
 
 let remoteImagePolicy: RemoteImagePolicy = DEFAULT_REMOTE_IMAGE_POLICY;
+let autoSave: boolean = DEFAULT_AUTO_SAVE;
 const listeners = new Set<() => void>();
 
 export function getRemoteImagePolicy(): RemoteImagePolicy {
@@ -15,6 +17,17 @@ export function setRemoteImagePolicy(p: RemoteImagePolicy): void {
   if (remoteImagePolicy === p) return;
   remoteImagePolicy = p;
   void setValue("remoteImagePolicy", p);
+  for (const l of listeners) l();
+}
+
+export function getAutoSave(): boolean {
+  return autoSave;
+}
+
+export function setAutoSave(v: boolean): void {
+  if (autoSave === v) return;
+  autoSave = v;
+  void setValue("autoSave", v);
   for (const l of listeners) l();
 }
 
@@ -29,6 +42,10 @@ export async function loadSettings(): Promise<void> {
     const stored = await getValue<RemoteImagePolicy>("remoteImagePolicy");
     if (stored === "load" || stored === "placeholder" || stored === "off") {
       remoteImagePolicy = stored;
+    }
+    const storedAutoSave = await getValue<boolean>("autoSave");
+    if (typeof storedAutoSave === "boolean") {
+      autoSave = storedAutoSave;
     }
   } catch {
     // No store available (e.g. Node test env). Stick with defaults.

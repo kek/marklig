@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0] - 2026-05-09 — Editor ergonomics + perf
+
+### Added
+
+- **File menu**: `Save As…` (Cmd+Shift+S) writes through to a new path, rebinds `currentPath`, restarts the watcher, and records the new path in recents (and the macOS recents cache). `Reveal in Finder` shells out to `open -R` / `explorer /select,` / `xdg-open`.
+- **Toolbar word/char count + reading-time** readout. `computeDocStats(source)` strips fenced code, inline code, HTML; counts via Unicode-aware `[\\p{L}\\p{N}][\\p{L}\\p{N}'\\-]*`. 200 wpm reading-time estimate. Wired through the existing `EditorView.updateListener` so it rides the same docChanged hook the TOC uses.
+- **Resizable sidebar**. Drag handle on the right edge with min/max clamp (160–480 px), keyboard nudges via Arrow keys, persisted to `localStorage`. `body.viewer-resizing` forces the col-resize cursor and disables text selection during the drag.
+- **Per-window state persistence**. Tiny in-app persister via the Tauri store keyed by `window.label`; `restoreWindowState` runs early in bootstrap so the user doesn't see a default-sized flash before the resize lands. Sanity-clamps reject sub-320×240 stored values.
+- **Folder sidebar filter**. Substring search input above the file list — case-insensitive, instant.
+
+### Fixed (perf)
+
+- Large markdown files hung the app. Two compounding bugs: HighlightCache had no in-flight tracking (every cache.set re-fired Shiki for every still-pending fence), and pollTocRefresh / dirtyTracker re-stringified the whole document 60×/sec. Fixed via in-flight de-dupe + EditorView.updateListener-driven hooks. Dirty tracker now compares (length, FNV-1a hash) instead of holding the full saved string.
+
 ## [0.9.0] - 2026-05-09 — Sub-spec D continues: per-window watcher, drag-drop, OS-level Recents
 
 ### Added
