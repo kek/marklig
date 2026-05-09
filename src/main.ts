@@ -23,6 +23,7 @@ import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { loadSettings, subscribeSettings } from "./shell/settings";
 import { openPreferences } from "./ui/preferences";
+import { openKeyboardShortcuts } from "./ui/shortcuts";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
@@ -332,6 +333,7 @@ async function bootstrap(): Promise<void> {
     openPreferences: async () => {
       await openPreferences();
     },
+    showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
   });
 
   // Settings change from any source (prefs UI, future Tauri-store sync) →

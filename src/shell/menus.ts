@@ -25,6 +25,7 @@ export interface MenuHandlers {
   printDocument: () => void;
   copyAsHtml: () => Promise<void>;
   openPreferences: () => Promise<void>;
+  showKeyboardShortcuts: () => void;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
@@ -224,7 +225,14 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
 
   const helpMenu = await Submenu.new({
     text: "Help",
-    items: [],
+    items: [
+      await MenuItem.new({
+        id: "keyboard-shortcuts",
+        text: "Keyboard Shortcuts",
+        accelerator: "F1",
+        action: () => handlers.showKeyboardShortcuts(),
+      }),
+    ],
   });
 
   // macOS consumes the first submenu as the application menu (the bold
