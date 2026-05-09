@@ -98,10 +98,20 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
       Decoration.line({ class: "cm-md-code-fence cm-md-code-fence-open" })
         .range(lineStarts[startLine]),
     );
+    // Body line decorations. CM applies a Decoration.line to the line that
+    // CONTAINS the given position; the position doesn't have to be the line
+    // start. Use lineStart + 1 (one char into the line) when the line has
+    // content, so the line decoration's `from` doesn't collide with the `to`
+    // of the fence-open block-replace at lineStart of the first body line —
+    // that collision was causing the first body line's class to be dropped at
+    // render time even though the decoration was correctly emitted.
     for (let line = startLine + 1; line < endLine - 1; line++) {
+      const lineFrom = lineStarts[line];
+      const nextLineFrom = lineStarts[line + 1] ?? source.length;
+      const pos = nextLineFrom > lineFrom + 1 ? lineFrom + 1 : lineFrom;
       ranges.push(
         Decoration.line({ class: `cm-md-code-body cm-md-code-lang-${lang}` })
-          .range(lineStarts[line]),
+          .range(pos),
       );
     }
     if (endLine - 1 > startLine) {

@@ -12,6 +12,9 @@
   --code-bg: #efece4;
   --link: #2c5d8a;
   --accent: #b03060;
+  /* Selection background: a translucent accent tint over the bg works fine
+     in light mode — dark text remains legible against the pale pink. */
+  --selection-bg: rgba(176, 48, 96, 0.22);
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
 }
@@ -26,6 +29,11 @@ html.theme-dark {
   --code-bg: #20232b;
   --link: #7fb3e8;
   --accent: #f08bb6;
+  /* Dark mode: a low-alpha bright-pink tint sits ON TOP of the dark bg, but
+     the bright text underneath shines through and washes out. Use a
+     SOLID dark mauve so the selection bg has its own opacity and the text
+     gets normal-on-dark contrast (~6:1 vs --fg). */
+  --selection-bg: #3d2a35;
 }
 
 html, body, #root {
@@ -603,20 +611,10 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   border-left-width: 1.5px !important;
 }
 
-/* Selection background. 22% accent reads fine against the light-mode bg, but
-   in dark mode the accent is a brighter pink that — at 22% over the dark
-   bg — comes too close to the foreground text color and washes out the
-   characters. Bump dark-mode opacity and tint toward the muted-light side
-   so selected text stays high-contrast. */
+/* Selection background — driven by --selection-bg per theme so we don't
+   have to wrestle with selector specificity to override CodeMirror's
+   built-in rules. !important wins against CM's injected theme. */
 .cm-editor .cm-selectionBackground,
 .cm-editor.cm-focused .cm-selectionBackground {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-}
-html.theme-dark .cm-editor .cm-selectionBackground,
-html.theme-dark .cm-editor.cm-focused .cm-selectionBackground {
-  /* Dark mode: --accent (#f08bb6) at low alpha over the dark bg renders too
-     close to the bright off-white text, washing it out. Use a SOLID color
-     mix of bg + 25% accent — yields a dark mauve that keeps ~6:1 contrast
-     against --fg, so selected text stays readable. */
-  background: color-mix(in srgb, var(--bg), var(--accent) 25%);
+  background: var(--selection-bg) !important;
 }
