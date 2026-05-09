@@ -2,7 +2,12 @@
   color-scheme: light dark;
   --bg: #fdfdfa;
   --fg: #1a1a1a;
-  --muted: #888;
+  /* --muted at #888 vs --bg #fdfdfa is ~3.4:1, below WCAG AA's 4.5:1 for
+     normal text. #666 against the same bg is ~5.9:1 — passes AA for body
+     and AAA for large text. Used for de-emphasized text (footnote refs,
+     small headings, blockquotes, code-fence labels), so contrast matters
+     even though each individual usage is small. */
+  --muted: #666;
   --rule: #e5e2d8;
   --code-bg: #efece4;
   --link: #2c5d8a;
@@ -15,7 +20,8 @@ html.theme-dark {
   color-scheme: dark;
   --bg: #15161a;
   --fg: #e6e3da;
-  --muted: #888;
+  /* #999 against #15161a ~ 8.0:1 — comfortable AA in dark mode. */
+  --muted: #999;
   --rule: #2a2c33;
   --code-bg: #20232b;
   --link: #7fb3e8;
