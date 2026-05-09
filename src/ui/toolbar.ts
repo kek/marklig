@@ -16,6 +16,8 @@ export interface ToolbarHandle {
   setMode: (mode: Mode) => void;
   /** Update the document-stat readout (words / chars / reading time). */
   setStats: (stats: DocStats) => void;
+  /** Update the path readout in the toolbar. Pass null when no doc is open. */
+  setPath: (path: string | null) => void;
 }
 
 export interface DocStats {
@@ -54,6 +56,11 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
   dirty.className = "viewer-dirty-indicator";
   dirty.textContent = "";
 
+  // Path readout in the middle of the toolbar — collapses to file name only
+  // when the path is too wide for the available space (CSS overflow + RTL).
+  const pathEl = document.createElement("span");
+  pathEl.className = "viewer-toolbar-path";
+
   // Spacer pushes the doc-stats readout to the right edge of the toolbar.
   const spacer = document.createElement("span");
   spacer.className = "viewer-toolbar-spacer";
@@ -61,7 +68,7 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
   const stats = document.createElement("span");
   stats.className = "viewer-toolbar-stats";
 
-  bar.append(toggle, sidebar, dirty, spacer, stats);
+  bar.append(toggle, sidebar, dirty, pathEl, spacer, stats);
   parent.prepend(bar);
 
   function applyButtonLabel(): void {
@@ -76,6 +83,10 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
     setMode(m) {
       mode = m;
       applyButtonLabel();
+    },
+    setPath(p) {
+      pathEl.textContent = p ?? "";
+      pathEl.title = p ?? "";
     },
     setStats(s) {
       // Keep this terse: writers typically scan the toolbar, not parse it.

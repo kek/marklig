@@ -257,6 +257,19 @@ html.theme-dark  { color-scheme: dark; }
   line-height: 1;
 }
 .viewer-toolbar-spacer { flex: 1; }
+.viewer-toolbar-path {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-left: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Direction-RTL with text-align-left would collapse the leading path
+     segments (which we care less about) instead of the file name. Keep
+     LTR for now; ellipsis trails on the file end. Acceptable tradeoff. */
+  max-width: 480px;
+}
 .viewer-toolbar-stats {
   color: var(--muted);
   font-variant-numeric: tabular-nums;

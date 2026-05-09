@@ -259,6 +259,7 @@ async function bootstrap(): Promise<void> {
   };
   const unsubDirty = dirtyTracker.subscribe(async (dirty) => {
     toolbar.setDirty(dirty);
+    toolbar.setPath(currentPath);
     await setWindowTitle(currentPath, dirty);
     cancelAutoSave();
     if (dirty && getAutoSave() && currentPath) {
@@ -350,6 +351,7 @@ async function bootstrap(): Promise<void> {
     dirtyTracker.reset();
     diverged = false;
     await setWindowTitle(currentPath, false);
+    toolbar.setPath(currentPath);
     folder.setActiveFile(currentPath);
     if (currentPath) {
       await recordRecent(currentPath);
@@ -396,6 +398,7 @@ async function bootstrap(): Promise<void> {
       dirtyTracker.reset();
       diverged = false;
       await setWindowTitle(currentPath, false);
+      toolbar.setPath(currentPath);
       await recordRecent(dest);
       await startWatching(dest);
       folder.setActiveFile(dest);
@@ -495,6 +498,7 @@ async function bootstrap(): Promise<void> {
         showOrphanNotice();
         currentPath = null;
         void setWindowTitle(null, true);
+        toolbar.setPath(null);
       },
     });
   }
