@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0] - 2026-05-09 — Sub-spec D continues: per-window watcher, drag-drop, OS-level Recents
+
+### Added
+
+- **Per-window file watcher.** `WatcherState` is now `Mutex<HashMap<String, WatcherInner>>` keyed by `window.label()`. Each window owns its own watcher; `watcher_start`/`_stop`/`_mark_self_write` operate per window. Events use `emit_to(label, …)` so a file change reaches only the originating window — broadcasting would let window A react to window B's events.
+- **Drag-drop refinements.** Drop a folder onto the window → opens it in the folder sidebar (`is_directory()` Rust command + first-path inspection in the drop handler). Drop multiple `.md` files → first opens in the current window via the dirty-prompt flow; the rest each spawn a new window pre-loaded with their file (forwarded as `?file=…` URL query, read in `resolveInitialDoc` before the recovery / last-opened chain).
+- **macOS OS-level Recents.** New `register_recent_document` command calls `NSDocumentController.noteNewRecentDocumentURL` on macOS via `objc2-app-kit`. Surfaces opened files in the Dock right-click menu, Spotlight's Recent source, etc. Hop to main thread via `AppHandle::run_on_main_thread` since `NSDocumentController` is main-thread-only. Wired into `recordRecent`. Windows / Linux equivalents stubbed.
+
+### Fixed
+
+- Reading-mode tables broke short header words like "Stage" character-by-character when columns were squeezed. Root cause: `EditorView.lineWrapping` puts `overflow-wrap: anywhere` on `.cm-content`, and that cascaded into table cells. Restored normal word-boundary breaking on `th`/`td`, plus `white-space: nowrap` on headers and `overflow-x: auto` on the table wrapper.
+
 ## [0.8.0] - 2026-05-09 — Sub-spec D: folder tree, multi-window, last-file restore
 
 ### Added
