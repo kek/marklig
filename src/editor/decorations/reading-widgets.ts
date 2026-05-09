@@ -8,10 +8,15 @@ import { getRemoteImagePolicy, shouldRenderImage } from "../../shell/settings";
 class TableWidget extends WidgetType {
   constructor(readonly source: string) { super(); }
   override toDOM(): HTMLElement {
+    // Wrapper carries vertical padding so CM's heightmap measures it
+    // (margin on the table itself would not be measured).
+    const wrap = document.createElement("div");
+    wrap.className = "cm-md-reading-table-wrap";
     const tbl = document.createElement("table");
     tbl.className = "cm-md-reading-table";
+    wrap.append(tbl);
     const lines = this.source.split("\n").filter((l) => l.trim().length > 0);
-    if (lines.length < 2) return tbl;
+    if (lines.length < 2) return wrap;
 
     const cellsOf = (line: string): string[] => {
       let trimmed = line.trim();
@@ -47,7 +52,7 @@ class TableWidget extends WidgetType {
     }
     tbl.append(tbody);
 
-    return tbl;
+    return wrap;
   }
   override eq(other: TableWidget): boolean { return other.source === this.source; }
 }
@@ -105,9 +110,15 @@ function makeBrokenImagePlaceholder(src: string, alt: string): HTMLElement {
 
 class HrWidget extends WidgetType {
   override toDOM(): HTMLElement {
+    // Wrap the <hr> in a div so vertical breathing room is padding (measured
+    // by CM's heightmap) instead of margin (not measured — would drift
+    // click-to-position N px per HR cumulatively).
+    const wrap = document.createElement("div");
+    wrap.className = "cm-md-reading-hr-wrap";
     const hr = document.createElement("hr");
     hr.className = "cm-md-reading-hr";
-    return hr;
+    wrap.append(hr);
+    return wrap;
   }
   override eq(): boolean { return true; }
 }

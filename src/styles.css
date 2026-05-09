@@ -112,9 +112,13 @@ html.theme-dark[data-mode="edit"] .cm-editor {
 
 /* Math (KaTeX) — block equations get vertical breathing room and centered
    layout; inline math sits in the run of text. KaTeX's own stylesheet
-   (imported in main.ts) handles the typesetting itself. */
+   (imported in main.ts) handles the typesetting itself.
+   Padding (not margin) for vertical space: CodeMirror's heightmap measures
+   .cm-line and widget outer elements via offsetHeight/getBoundingClientRect,
+   neither of which include vertical margins — margin would invisibly drift
+   click-position downward by N px per widget cumulatively. */
 .cm-md-math-block {
-  margin: 14px 0;
+  padding: 14px 0;
   text-align: center;
   overflow-x: auto;
 }
@@ -129,7 +133,7 @@ html.theme-dark[data-mode="edit"] .cm-editor {
    placeholder. On error, the source is shown verbatim above the message so the
    author can see what failed without flipping to edit mode. */
 .cm-md-mermaid {
-  margin: 14px 0;
+  padding: 14px 0;
   display: flex;
   justify-content: center;
 }
@@ -168,8 +172,9 @@ html.theme-dark[data-mode="edit"] .cm-editor {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 16px 0;
-  padding: 14px 16px;
+  /* Outer padding replaces what would otherwise be margin — CM6's heightmap
+     doesn't see vertical margins on widget DOM, so margin would drift clicks. */
+  padding: 16px 16px 16px 16px;
   border: 1px dashed var(--rule);
   border-radius: 6px;
   background: var(--code-bg);
@@ -187,17 +192,21 @@ html.theme-dark[data-mode="edit"] .cm-editor {
 
 /* Horizontal rule. Block-replace widget for `hr` tokens — the source line
    stays in edit mode (rendered as `---` / `***` / `___`); reading mode
-   shows a centered rule. */
+   shows a centered rule. The wrapper carries the vertical padding so CM
+   measures the full widget height. */
+.cm-md-reading-hr-wrap { padding: 24px 0; }
 .cm-md-reading-hr {
   border: none;
   border-top: 1px solid var(--rule);
-  margin: 24px 0;
+  margin: 0;
 }
 
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }
-.cm-md-reading-image      { max-width: 100%; height: auto; display: block; margin: 16px 0; }
+/* The image is a leaf widget; padding on an <img> renders correctly and is
+   measured by CM, unlike margin. */
+.cm-md-reading-image      { max-width: 100%; height: auto; display: block; padding: 16px 0; box-sizing: content-box; }
 
 /* Explicit color-scheme on forced themes — keeps native UI (scrollbars,
    form controls) in sync with the user's choice rather than the OS preference. */
@@ -383,13 +392,18 @@ html.theme-dark  { color-scheme: dark; }
   min-width: 0;
 }
 
-/* Reading-mode table widget */
+/* Reading-mode table widget. Padding (not margin) on the table itself adds
+   the vertical breathing room — same heightmap reasoning as the other
+   block widgets above. border-collapse means padding has to live on a
+   wrapper or be absorbed; the simpler path is wrapping with a div in the
+   widget DOM, but here we set a top padding via padding-block so cells
+   stay tight. */
 .cm-md-reading-table {
   border-collapse: collapse;
-  margin: 14px 0;
   font-family: var(--serif);
   font-size: 15px;
 }
+.cm-md-reading-table-wrap { padding: 14px 0; }
 .cm-md-reading-table th,
 .cm-md-reading-table td {
   border-bottom: 1px solid var(--rule);
