@@ -29,7 +29,10 @@ describe("readingWidgetsProducer", () => {
 
   it("hides code fence lines but not body", () => {
     const r = specs("```\nx\n```\n");
-    const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide-line"));
+    // Fence open + close use the dedicated fence-elide class so the block
+    // gets a small bit of vertical breath; front-matter still uses the
+    // zero-height line-elide class.
+    const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide-fence"));
     expect(hides.length).toBe(2);
   });
 
@@ -129,5 +132,22 @@ describe("readingWidgetsProducer", () => {
   it("emits a table widget for GFM tables", () => {
     const r = specs("| a | b |\n|---|---|\n| 1 | 2 |\n");
     expect(r.some((x) => (x.spec as { widget?: unknown }).widget !== undefined && (x.spec as { block?: boolean }).block === true)).toBe(true);
+  });
+
+  it("table cells render basic inline markdown", () => {
+    // Render the table widget's DOM and inspect the first body cell. Inline
+    // **bold** must become a <strong> element, not literal asterisks.
+    const r = specs("| Name | Note |\n|---|---|\n| **A** | `code` |\n");
+    const tableWidget = r.find(
+      (x) =>
+        (x.spec as { widget?: unknown }).widget !== undefined &&
+        (x.spec as { block?: boolean }).block === true,
+    );
+    expect(tableWidget).toBeDefined();
+    const widget = (tableWidget!.spec as { widget: { toDOM(): HTMLElement } }).widget;
+    const dom = widget.toDOM();
+    const tds = dom.querySelectorAll("td");
+    expect(tds[0].querySelector("strong")?.textContent).toBe("A");
+    expect(tds[1].querySelector("code")?.textContent).toBe("code");
   });
 });

@@ -36,8 +36,14 @@ export function buildDecorationField(
         cursor.next();
       }
     }
-    allRanges.sort((a, b) => a.from - b.from || a.to - b.to);
-    return Decoration.set(allRanges, true);
+    // Let CM sort. Our previous (a.from - b.from || a.to - b.to) didn't
+    // account for the startSide / endSide ordering that line vs block-replace
+    // decorations require at the same position — passing `true` (already
+    // sorted) made CM trust an order that occasionally dropped or
+    // mis-applied a line decoration on the line immediately following a
+    // block replace (manifest as the first body line of a fenced code block
+    // missing its background in reading mode).
+    return Decoration.set(allRanges, false);
   };
 
   return StateField.define<DecorationSet>({
