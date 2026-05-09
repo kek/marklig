@@ -1,4 +1,5 @@
 import { createEditor, setMode } from "./editor/editor";
+import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
@@ -252,16 +253,22 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => stopRecovery());
 
-  let lastSourceForToc = view.state.doc.toString();
-  function pollTocRefresh(): void {
-    const cur = view.state.doc.toString();
-    if (cur !== lastSourceForToc) {
-      lastSourceForToc = cur;
-      toc.refresh();
-    }
-    requestAnimationFrame(pollTocRefresh);
-  }
-  requestAnimationFrame(pollTocRefresh);
+  // Refresh the TOC only when the document content actually changes — the
+  // previous rAF-driven poll re-stringified the entire doc 60×/sec, which
+  // costs O(N) per frame for large files and races the decoration recompute.
+  // EditorView.updateListener fires once per transaction with a precomputed
+  // docChanged flag, which is what we actually wanted. Installed via a
+  // Compartment because listeners can't be added after construction.
+  const tocUpdateCompartment = new Compartment();
+  view.dispatch({
+    effects: StateEffect.appendConfig.of(
+      tocUpdateCompartment.of(
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) toc.refresh();
+        }),
+      ),
+    ),
+  });
 
   const triggerSave = async (): Promise<void> => {
     if (!currentPath) return;

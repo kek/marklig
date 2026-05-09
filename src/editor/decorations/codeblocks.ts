@@ -34,6 +34,7 @@ export interface HighlightEntry {
 
 class HighlightCache {
   private map = new Map<string, HighlightEntry>();
+  private inflight = new Set<string>();
   private listeners = new Set<() => void>();
 
   get(content: string): HighlightEntry | undefined {
@@ -48,6 +49,20 @@ class HighlightCache {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+
+  /** Idempotent compute trigger: kicks off highlighting for a fence's content
+   * only if no result is cached AND no compute is already in flight for the
+   * same string. Without the inflight guard, every recompute (driven by
+   * highlightCacheEffect dispatches) would re-fire compute for every still-
+   * pending fence, leading to quadratic blowup on docs with many code blocks. */
+  request(lang: string, content: string): void {
+    if (this.map.has(content) || this.inflight.has(content)) return;
+    this.inflight.add(content);
+    void this.compute(lang, content).then((entry) => {
+      this.inflight.delete(content);
+      this.set(content, entry);
+    });
   }
 
   async compute(lang: string, content: string): Promise<HighlightEntry> {
@@ -117,9 +132,10 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
         }
       }
     } else if (highlighter && loadedLangs.has(lang)) {
-      void highlightCache.compute(lang, fenceContent).then((entry) => {
-        highlightCache.set(fenceContent, entry);
-      });
+      // Idempotent: dedupes in-flight computes so repeated decoration
+      // recomputes (driven by cache-fill dispatches) don't re-kick off
+      // highlighting for the same content.
+      highlightCache.request(lang, fenceContent);
     }
   }
 
