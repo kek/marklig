@@ -414,7 +414,33 @@ async function resolveInitialDoc(): Promise<OpenedDoc | null> {
   if (recoveredDoc) return recoveredDoc;
   const argPath = await firstMarkdownArg();
   if (argPath) return await readDoc(argPath);
+  // macOS file-association launches deliver the path via RunEvent::Opened,
+  // which can fire after bootstrap starts. Wait briefly for it before
+  // falling back to the open dialog — otherwise double-clicking a .md in
+  // Finder briefly shows a redundant open dialog before the doc loads.
+  const launched = await waitForFileOpenRequest(500);
+  if (launched) return await readDoc(launched);
   return await openFileViaDialog();
+}
+
+async function waitForFileOpenRequest(timeoutMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    let unlisten: (() => void) | null = null;
+    const timer = setTimeout(() => {
+      unlisten?.();
+      resolve(null);
+    }, timeoutMs);
+    void listen<string[]>("file-open-request", (e) => {
+      const paths = Array.isArray(e.payload) ? e.payload : [];
+      const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+      if (!md) return;
+      clearTimeout(timer);
+      unlisten?.();
+      resolve(md);
+    }).then((u) => {
+      unlisten = u;
+    });
+  });
 }
 
 async function firstMarkdownArg(): Promise<string | null> {
