@@ -36,14 +36,12 @@ export function buildDecorationField(
         cursor.next();
       }
     }
-    // Let CM sort. Our previous (a.from - b.from || a.to - b.to) didn't
-    // account for the startSide / endSide ordering that line vs block-replace
-    // decorations require at the same position — passing `true` (already
-    // sorted) made CM trust an order that occasionally dropped or
-    // mis-applied a line decoration on the line immediately following a
-    // block replace (manifest as the first body line of a fenced code block
-    // missing its background in reading mode).
-    return Decoration.set(allRanges, false);
+    // sort=true means "lazy-sort during construction" (NOT "already sorted").
+    // Our manual (a.from - b.from || a.to - b.to) below isn't enough on its
+    // own — line vs block-replace decorations at adjacent positions need
+    // startSide ordering that we don't model. Pre-sorting still helps CM's
+    // lazy sort do less work, but `true` is required for correctness.
+    return Decoration.set(allRanges, true);
   };
 
   return StateField.define<DecorationSet>({
