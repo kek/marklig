@@ -2,7 +2,7 @@ import { createEditor, setMode } from "./editor/editor";
 import { EditorView } from "@codemirror/view";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
-import { buildDecorationField } from "./editor/decorations";
+import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
 import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
@@ -21,7 +21,8 @@ import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
-import { loadSettings } from "./shell/settings";
+import { loadSettings, subscribeSettings } from "./shell/settings";
+import { openPreferences } from "./ui/preferences";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
@@ -328,7 +329,19 @@ async function bootstrap(): Promise<void> {
       });
       await writeClipboardHtml(html);
     },
+    openPreferences: async () => {
+      await openPreferences();
+    },
   });
+
+  // Settings change from any source (prefs UI, future Tauri-store sync) →
+  // refresh the decoration field so widgets that read settings at toDOM time
+  // (notably ImageWidget honoring remote-image policy) pick up the new value
+  // without needing a document reload.
+  const unsubSettings = subscribeSettings(() => {
+    view.dispatch({ effects: refreshDecorationsEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubSettings());
 
   async function startWatching(path: string): Promise<void> {
     if (watcherHandle) {

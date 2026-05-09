@@ -1,10 +1,15 @@
 // src/editor/decorations/index.ts
-import { StateField } from "@codemirror/state";
+import { StateEffect, StateField } from "@codemirror/state";
 import type { Extension, EditorState, Range } from "@codemirror/state";
 import { EditorView, Decoration } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { highlightCacheEffect } from "./codeblocks";
 import { mermaidCacheEffect } from "./mermaid";
+
+/** Dispatch this when external state read by widgets at render time changes
+ * (e.g. remote-image policy). Forces the decoration field to recompute even
+ * though the document content didn't change. */
+export const refreshDecorationsEffect = StateEffect.define<void>();
 
 import { parseMarkdown, type MdToken } from "../parser";
 
@@ -41,6 +46,7 @@ export function buildDecorationField(
       for (const e of tr.effects) {
         if (e.is(highlightCacheEffect)) return compute(tr.state);
         if (e.is(mermaidCacheEffect)) return compute(tr.state);
+        if (e.is(refreshDecorationsEffect)) return compute(tr.state);
       }
       if (!tr.docChanged) return prev;
       return compute(tr.state);

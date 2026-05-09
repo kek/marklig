@@ -244,6 +244,49 @@ html.theme-dark  { color-scheme: dark; }
   line-height: 1;
 }
 
+/* Preferences modal — same overlay/card pattern as the reconcile modal but
+   wider and divided into sections. Shared styling lives at the bottom of the
+   reconcile rules; only structural differences are defined here. */
+.viewer-prefs-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.viewer-prefs-card {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 22px 26px;
+  width: min(520px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  font-family: -apple-system, system-ui, sans-serif;
+  color: var(--fg);
+}
+.viewer-prefs-card h3 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
+.viewer-prefs-section { margin-bottom: 18px; }
+.viewer-prefs-section h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.viewer-prefs-help { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.viewer-prefs-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.viewer-prefs-row-vertical { flex-direction: column; gap: 6px; }
+.viewer-prefs-radio {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; cursor: pointer;
+}
+.viewer-prefs-radio input { margin: 0; }
+.viewer-prefs-footer {
+  display: flex; justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .viewer-reconcile-overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.4);

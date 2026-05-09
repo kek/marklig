@@ -24,6 +24,7 @@ export interface MenuHandlers {
   exportHtml: () => Promise<void>;
   printDocument: () => void;
   copyAsHtml: () => Promise<void>;
+  openPreferences: () => Promise<void>;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
@@ -234,6 +235,13 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
     text: "viewer",
     items: [
       await PredefinedMenuItem.new({ item: { About: null } }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        id: "preferences",
+        text: "Settings…",
+        accelerator: "CmdOrCtrl+,",
+        action: () => { void handlers.openPreferences(); },
+      }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await PredefinedMenuItem.new({ item: "Services" }),
       await PredefinedMenuItem.new({ item: "Separator" }),
