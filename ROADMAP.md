@@ -13,7 +13,7 @@ The Foundation sub-spec (A) shipped on 2026-05-08 across three implementation pl
 | **C. Export & print** | PDF, self-contained HTML, print pipeline | ✅ Shipped 2026-05-08 (PDF via OS print dialog; native print-to-PDF deferred) |
 | **D. OS integration** | File associations, drag-drop polish, OS-level Recents, native menu polish, optional folder/project tree, multi-window UX | 🟡 Mostly done 2026-05-09 (file associations, folder tree, multi-window with per-window watcher, drag-drop refinements, last-file restore, macOS NSDocumentController; Windows Jump List + Linux RecentManager remain) |
 | **E. Settings, updater, privacy** | Preferences UI, auto-update channel, network privacy toggles | 🟡 Partial 2026-05-09 (prefs UI + remote-image policy + auto-save toggle + keyboard-shortcut help; auto-updater deferred) |
-| **F. A11y & i18n** | WCAG audit, screen-reader pass, i18n string extraction | 🟡 Partial 2026-05-09 (modal a11y + reduced-motion + keyboard-navigable TOC + i18n foundation; menu-string sweep + WCAG contrast pass deferred) |
+| **F. A11y & i18n** | WCAG audit, screen-reader pass, i18n string extraction | 🟡 Mostly done 2026-05-09 (modal a11y + reduced-motion + keyboard-navigable TOC + i18n foundation + menu-string sweep + WCAG contrast on muted text; full screen-reader audit on reading-mode body deferred) |
 
 ---
 

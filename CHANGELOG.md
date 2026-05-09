@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.0] - 2026-05-09 — More polish: auto-save, path readout, contrast, menu i18n
+
+### Added
+
+- **Auto-save** (opt-in) in Preferences. 1 s debounce on dirty-tracker notifications; only fires when a path is bound and the file isn't in the diverged state (so it never pops the "save anyway?" modal mid-typing).
+- **Toolbar path readout**: shows the file basename next to the dirty indicator; full path in the title attribute.
+- **Folder filter input** above the file list — case-insensitive substring match.
+- **Resizable sidebar** with persisted width (drag handle, keyboard nudges, 160–480 px clamp).
+- **Window state persistence**: per-window size + position via the Tauri store, restored early in bootstrap to avoid a default-sized flash.
+
+### Fixed / improved
+
+- WCAG AA contrast: light-mode `--muted` raised from `#888` (~3.4:1) to `#666` (~5.9:1); dark-mode equivalent raised to `#999` (~8.0:1).
+- Auto-save respects divergence state — won't fire if the file changed externally; waits for the user to resolve via the reconcile flow.
+- Long path readout in toolbar shows basename only (full path on hover) — leading-directory truncation isn't useful at-a-glance.
+- Menu strings migrated to i18n: every `File`/`Edit`/`View`/`Window`/`Help`/app-submenu label is now resolved via `t(menu.*)`. Adding a locale is now `Record<StringKey, string>` end-to-end.
+- Reveal-in-FS menu label is platform-aware: "Reveal in Finder" / "Show in Explorer" / "Show in File Manager".
+- WatcherInner.target's dead-code warning cleared with `#[allow(dead_code)]` and a docstring; cargo is now warning-free.
+
 ## [0.10.0] - 2026-05-09 — Editor ergonomics + perf
 
 ### Added
