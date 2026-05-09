@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0] - 2026-05-09 — Sub-spec D: folder tree, multi-window, last-file restore
+
+### Added
+
+- **Re-open last file on launch.** `resolveInitialDoc` consults `recents[0]` (already kept up-to-date by `recordRecent` on every successful open) before falling back to the open dialog. Order: recovery dump → CLI argv → file-association → last-opened (NEW) → dialog. If the last-opened file is gone, the chain silently falls through.
+- **Folder tree sidebar.** New `File → Open Folder…` action; the chosen path becomes the "current folder" — persisted via the Tauri store and restored on launch. Rust `list_markdown_files(root)` recursively walks for `.md`/`.markdown`/`.mdx`/`.mdown` files, skipping `node_modules`/`.git`/`target`/`dist`/`build`/`out`/dotfiles/etc.; capped at depth 6 and 5,000 entries to prevent runaway scans. Frontend `ui/sidebar/folder.ts` mounts a section above the TOC with a flat list of `<button>` entries; click activates via `openWithDirtyPrompt`. Active file highlighted with `aria-current="true"`.
+- **Multi-window** (`Cmd+N` → File → New Window). Spawns additional viewer windows via `WebviewWindow` with sequential `window-N` labels. The capability scope was widened from `["main"]` to `["main", "window-*"]`. Secondary windows are blank slates — `isMainWindow()` gates the recovery prompt, last-opened restore, and file-association handler.
+
+### Known limitations
+
+- The Rust file watcher is global-state `Mutex<WatcherInner>`; only the most-recently-started watcher is active. Two windows editing different files won't both auto-reload. Reading mode is unaffected.
+- Recents and currentFolder are app-wide rather than per-window.
+- OS-level Recents integration (macOS `LSRecentDocuments`, Windows Jump List, Linux `RecentManager`) is still pending.
+
 ## [0.7.0] - 2026-05-09 — Sub-spec F partial; further reading-mode polish
 
 ### Added (Sub-spec F: a11y + i18n foundation)
