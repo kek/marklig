@@ -185,6 +185,15 @@ html.theme-dark[data-mode="edit"] .cm-editor {
 }
 .cm-md-reading-image-broken { border-style: solid; border-color: var(--accent); }
 
+/* Horizontal rule. Block-replace widget for `hr` tokens — the source line
+   stays in edit mode (rendered as `---` / `***` / `___`); reading mode
+   shows a centered rule. */
+.cm-md-reading-hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 24px 0;
+}
+
 /* Reading-mode widget elides */
 .cm-md-reading-elide      { display: none; }
 .cm-md-reading-elide-line { display: none; }

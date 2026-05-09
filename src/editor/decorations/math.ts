@@ -50,6 +50,9 @@ const BLOCK_MATH_RE = /\$\$([\s\S]+?)\$\$/g;
 // Inline: non-space inside, no embedded `$` or newline. Negative lookbehinds
 // guard against currency (`$5`) and `$$` block delimiters mis-tokenized as inline.
 const INLINE_MATH_RE = /(?<![\\$])\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g;
+// Inline code spans (single backtick). Math inside these is literal — `$x$`
+// is meant to display the dollars, not typeset math.
+const INLINE_CODE_RE = /`[^`\n]+?`/g;
 
 export const mathProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
@@ -63,6 +66,12 @@ export const mathProducer: DecorationProducer = ({ source, tokens }) => {
     const blockStart = lineStarts[t.map[0]];
     const blockEnd = lineStarts[t.map[1]] ?? source.length;
     codeRanges.push([blockStart, blockEnd]);
+  }
+
+  // Skip math inside inline code spans too.
+  for (const match of source.matchAll(INLINE_CODE_RE)) {
+    if (match.index === undefined) continue;
+    codeRanges.push([match.index, match.index + match[0].length]);
   }
 
   // Block math first — its ranges become exclusion zones for the inline scan,

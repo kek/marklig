@@ -66,4 +66,12 @@ describe("buildHtmlExportSync", () => {
     const matches = out.match(/class="katex"/g);
     expect(matches?.length).toBe(2);
   });
+
+  it("does not tokenize math inside inline backtick code", () => {
+    // `$x$` should display the dollars literally; only the bare $a^2$ counts.
+    const out = buildHtmlExportSync("Use `$x$` for math like $a^2$.\n");
+    const matches = out.match(/class="katex"/g);
+    expect(matches?.length).toBe(1);
+    expect(out).toContain("$x$");
+  });
 });

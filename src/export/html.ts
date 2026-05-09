@@ -92,7 +92,14 @@ function renderBodyHtml(source: string): string {
   const placeholderFor = (i: number) => `${PLACEHOLDER_PREFIX}${i}${PLACEHOLDER_SUFFIX}`;
 
   let i = 0;
-  let pre = source;
+  // Mask inline code spans BEFORE math extraction so `$x$` inside backticks
+  // is kept as literal text. Restored after markdown-it renders.
+  const codeMasks: Array<{ token: string; original: string }> = [];
+  let pre = source.replace(/`[^`\n]+?`/g, (m) => {
+    const ph = `${PLACEHOLDER_PREFIX}CODE${codeMasks.length}${PLACEHOLDER_SUFFIX}`;
+    codeMasks.push({ token: ph, original: m });
+    return ph;
+  });
 
   // Block math first so $$ can't be re-tokenized by the inline pass. Surround
   // the placeholder with blank lines so markdown-it puts it in its own <p>,
@@ -115,6 +122,11 @@ function renderBodyHtml(source: string): string {
       return ph;
     },
   );
+
+  // Restore inline code spans before markdown-it sees them.
+  for (const { token, original } of codeMasks) {
+    pre = pre.split(token).join(original);
+  }
 
   let html = sanitizeHtml(renderHtml(pre));
 

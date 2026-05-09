@@ -51,6 +51,20 @@ describe("mathProducer", () => {
     expect(r.length).toBe(0);
   });
 
+  it("skips math inside inline backtick code", () => {
+    // The literal `$x$` inside backticks should NOT be tokenized as math —
+    // backticks mean 'show me the dollar signs'.
+    const r = specs("Inline math syntax is `$x$` like that.\n");
+    expect(r.length).toBe(0);
+  });
+
+  it("still tokenizes math outside backticks on the same line", () => {
+    const r = specs("Use `$x$` to write $a^2$.\n");
+    expect(r.length).toBe(1);
+    // The match starts at the opening $ of the actual math span.
+    expect(r[0].from).toBe("Use `$x$` to write ".length);
+  });
+
   it("handles multi-line block math", () => {
     const src = "$$\nx + y\n= z\n$$\n";
     const r = specs(src);

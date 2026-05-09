@@ -96,6 +96,36 @@ describe("readingWidgetsProducer", () => {
     expect(inline.every((x) => x.from < 4 || x.from >= 36)).toBe(true);
   });
 
+  it("emits a block <hr> widget for thematic breaks", () => {
+    const src = "above\n\n---\n\nbelow\n";
+    const r = specs(src);
+    const blockWidgets = r.filter(
+      (x) =>
+        (x.spec as { widget?: unknown }).widget !== undefined &&
+        (x.spec as { block?: boolean }).block === true,
+    );
+    // The hr widget covers the line containing `---`.
+    const hrFrom = src.indexOf("---");
+    expect(blockWidgets.some((x) => x.from === hrFrom)).toBe(true);
+  });
+
+  it("treats `***` and `___` as thematic breaks too", () => {
+    expect(
+      specs("a\n\n***\n\nb\n").some(
+        (x) =>
+          (x.spec as { widget?: unknown }).widget !== undefined &&
+          (x.spec as { block?: boolean }).block === true,
+      ),
+    ).toBe(true);
+    expect(
+      specs("a\n\n___\n\nb\n").some(
+        (x) =>
+          (x.spec as { widget?: unknown }).widget !== undefined &&
+          (x.spec as { block?: boolean }).block === true,
+      ),
+    ).toBe(true);
+  });
+
   it("emits a table widget for GFM tables", () => {
     const r = specs("| a | b |\n|---|---|\n| 1 | 2 |\n");
     expect(r.some((x) => (x.spec as { widget?: unknown }).widget !== undefined && (x.spec as { block?: boolean }).block === true)).toBe(true);

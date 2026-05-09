@@ -103,6 +103,15 @@ function makeBrokenImagePlaceholder(src: string, alt: string): HTMLElement {
   return wrap;
 }
 
+class HrWidget extends WidgetType {
+  override toDOM(): HTMLElement {
+    const hr = document.createElement("hr");
+    hr.className = "cm-md-reading-hr";
+    return hr;
+  }
+  override eq(): boolean { return true; }
+}
+
 class BulletWidget extends WidgetType {
   override toDOM(): HTMLElement {
     const span = document.createElement("span");
@@ -158,6 +167,18 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
       p = nl + 1;
     }
     codeRanges.push([0, fm[0].length]);
+  }
+
+  // Horizontal rules: replace the line containing `---` / `***` / `___` with
+  // a styled <hr> block widget.
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== "hr" || !t.map) continue;
+    const from = lineStarts[t.map[0]];
+    const to = lineStarts[t.map[1]] ?? source.length;
+    ranges.push(
+      Decoration.replace({ widget: new HrWidget(), block: true }).range(from, to),
+    );
   }
 
   // Code fence open/close: replace those lines. Track full fence range so
