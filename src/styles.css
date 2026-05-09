@@ -456,18 +456,39 @@ html.theme-dark  { color-scheme: dark; }
   min-width: 0;
 }
 
-/* Reading-mode table widget. Padding (not margin) on the table itself adds
-   the vertical breathing room — same heightmap reasoning as the other
-   block widgets above. border-collapse means padding has to live on a
-   wrapper or be absorbed; the simpler path is wrapping with a div in the
-   widget DOM, but here we set a top padding via padding-block so cells
-   stay tight. */
+/* Reading-mode table widget. Padding (not margin) on the wrapper adds the
+   vertical breathing room — same heightmap reasoning as the other block
+   widgets above (CM6's heightmap doesn't measure margin). The wrapper also
+   provides horizontal scroll so wide tables don't force the page wider than
+   the column. */
+.cm-md-reading-table-wrap {
+  padding: 14px 0;
+  overflow-x: auto;
+  max-width: 100%;
+}
 .cm-md-reading-table {
   border-collapse: collapse;
   font-family: var(--serif);
   font-size: 15px;
+  /* table-layout: auto (default) lets the browser size columns by content,
+     but combined with the cell overrides below it stops mid-word breaks. */
 }
-.cm-md-reading-table-wrap { padding: 14px 0; }
+.cm-md-reading-table th,
+.cm-md-reading-table td {
+  /* EditorView.lineWrapping puts `overflow-wrap: anywhere` on .cm-content,
+     which cascades into table cells and lets the browser break short words
+     (e.g. 'Stage') character-by-character when a column is squeezed. Restore
+     normal word-boundary breaking. */
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.cm-md-reading-table th {
+  /* Headers are usually short labels — keep them on one line. With table-
+     layout: auto this also bumps each column's preferred width up to its
+     header, which is almost always the right outcome for narrow markdown
+     tables. */
+  white-space: nowrap;
+}
 .cm-md-reading-table th,
 .cm-md-reading-table td {
   border-bottom: 1px solid var(--rule);
