@@ -130,6 +130,11 @@ fn is_markdown_ext(ext: &str) -> bool {
 }
 
 #[tauri::command]
+pub fn is_directory(path: String) -> bool {
+    std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false)
+}
+
+#[tauri::command]
 pub fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, FileError> {
     let root_path = PathBuf::from(&root);
     let mut out = Vec::new();

@@ -33,7 +33,7 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, pickFolder, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, pickFolder, isDirectory, type OpenedDoc } from "./shell/files";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
 import { createDirtyTracker } from "./shell/dirty";
@@ -459,9 +459,27 @@ async function bootstrap(): Promise<void> {
   const dropWindow = getCurrentWindow();
   const unsubDrop = await dropWindow.onDragDropEvent(async (event) => {
     if (event.payload.type !== "drop") return;
-    const md = event.payload.paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
-    if (!md) return;
-    await openWithDirtyPrompt(md);
+    const paths = event.payload.paths;
+    if (paths.length === 0) return;
+
+    // Single-path drop: if it's a directory, open it as a folder. Otherwise
+    // fall through to the multi-file routing below (which handles single .md
+    // and multi-.md drops uniformly).
+    if (paths.length === 1 && (await isDirectory(paths[0]))) {
+      await setCurrentFolder(paths[0]);
+      return;
+    }
+
+    const mdFiles = paths.filter((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+    if (mdFiles.length === 0) return;
+
+    // First .md goes to the current window. Any additional ones spawn new
+    // windows pre-loaded with their respective files — so dragging five
+    // .md files yields five windows, each on its own document.
+    await openWithDirtyPrompt(mdFiles[0]);
+    for (let i = 1; i < mdFiles.length; i++) {
+      await spawnNewWindow(mdFiles[i]);
+    }
   });
   window.addEventListener("beforeunload", () => unsubDrop());
 
@@ -491,9 +509,21 @@ async function bootstrap(): Promise<void> {
 }
 
 async function resolveInitialDoc(): Promise<OpenedDoc | null> {
-  // Secondary windows (File -> New Window) start blank. The user opens a file
-  // explicitly. Avoids two windows fighting over the same restore flow and
-  // avoids surprising side effects (re-opening last file in a brand-new window).
+  // Secondary windows opened with ?file=… (drop-onto-window splits a multi-
+  // file drop across windows) load that file directly.
+  const urlFile = fileFromUrlQuery();
+  if (urlFile) {
+    try {
+      return await readDoc(urlFile);
+    } catch {
+      // Fall through if the path can't be read; window stays blank.
+    }
+  }
+
+  // Other secondary windows (plain File -> New Window) start blank — the user
+  // opens a file explicitly. Avoids two windows fighting over the same restore
+  // flow and avoids surprising side effects (re-opening last file in a brand-
+  // new window).
   if (!isMainWindow()) return null;
 
   if (recoveredDoc) return recoveredDoc;
@@ -615,16 +645,20 @@ function stripTags(html: string): string {
 
 let nextWindowSeq = 2;
 
-/** Open a new app window. The new window runs the same bootstrap but skips
- * recovery + last-file restore, so it starts as an empty blank slate
- * (currentPath = null) — the user opens a file via the dialog or drag-drop. */
-async function spawnNewWindow(): Promise<void> {
+/** Open a new app window. Without `initialFile`, the new window starts as an
+ * empty blank slate — the user opens via dialog or drag-drop. With one, the
+ * path is forwarded as a `?file=…` query param that bootstrap reads in place
+ * of the usual recovery / last-opened resolution. */
+async function spawnNewWindow(initialFile?: string): Promise<void> {
   // Find the next free 'window-N' label. Existing windows may be labeled
   // 'main', 'window-2', 'window-3', etc.; reuse-or-skip until we find a free one.
   let label = `window-${nextWindowSeq++}`;
   while (await WebviewWindow.getByLabel(label)) {
     label = `window-${nextWindowSeq++}`;
   }
+  const url = initialFile
+    ? `/?file=${encodeURIComponent(initialFile)}`
+    : "/";
   const win = new WebviewWindow(label, {
     title: "Viewer",
     width: 1000,
@@ -632,11 +666,21 @@ async function spawnNewWindow(): Promise<void> {
     minWidth: 480,
     minHeight: 320,
     dragDropEnabled: true,
-    url: "/",
+    url,
   });
   win.once("tauri://error", (e) => {
     console.error("failed to create window", label, e);
   });
+}
+
+function fileFromUrlQuery(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const f = params.get("file");
+    return f && f.length > 0 ? f : null;
+  } catch {
+    return null;
+  }
 }
 
 function isMainWindow(): boolean {

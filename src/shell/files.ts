@@ -46,6 +46,12 @@ export async function listMarkdownFiles(root: string): Promise<MarkdownFileEntry
   return await invoke<MarkdownFileEntry[]>("list_markdown_files", { root });
 }
 
+/** True when `path` is a directory on disk. Used by drag-drop routing to
+ * decide whether to open a path as a file or as a folder. */
+export async function isDirectory(path: string): Promise<boolean> {
+  return await invoke<boolean>("is_directory", { path });
+}
+
 /** Prompt for an HTML save destination and write the contents. Returns the
  * destination path on success, null if the user cancels. */
 export async function saveHtmlExport(

@@ -19,6 +19,7 @@ pub fn run() {
             commands::files::read_all_recovery,
             commands::files::clear_recovery,
             commands::files::list_markdown_files,
+            commands::files::is_directory,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
