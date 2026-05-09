@@ -21,6 +21,7 @@ function buildGroups(): ShortcutGroup[] {
       heading: t("shortcuts.group.file"),
       entries: [
         { keys: `${mod}+O`, description: t("shortcuts.action.open") },
+        { keys: `${mod}+${shift}+O`, description: t("shortcuts.action.openFolder") },
         { keys: `${mod}+S`, description: t("shortcuts.action.save") },
         { keys: `${mod}+P`, description: t("shortcuts.action.print") },
         { keys: `${mod}+W`, description: t("shortcuts.action.closeWindow") },
@@ -30,7 +31,7 @@ function buildGroups(): ShortcutGroup[] {
       heading: t("shortcuts.group.view"),
       entries: [
         { keys: `${mod}+E`, description: t("shortcuts.action.toggleMode") },
-        { keys: `${mod}+${shift}+O`, description: t("shortcuts.action.toggleSidebar") },
+        { keys: `${mod}+${shift}+L`, description: t("shortcuts.action.toggleSidebar") },
         { keys: `${mod}+0`, description: t("shortcuts.action.actualSize") },
         { keys: `${mod}+Plus`, description: t("shortcuts.action.zoomIn") },
         { keys: `${mod}+−`, description: t("shortcuts.action.zoomOut") },

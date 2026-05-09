@@ -29,6 +29,7 @@ export const EN = {
   "shortcuts.group.edit": "Edit",
   "shortcuts.group.app": "App",
   "shortcuts.action.open": "Open…",
+  "shortcuts.action.openFolder": "Open Folder…",
   "shortcuts.action.save": "Save",
   "shortcuts.action.print": "Print…",
   "shortcuts.action.closeWindow": "Close window",

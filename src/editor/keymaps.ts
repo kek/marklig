@@ -73,7 +73,7 @@ const zoomBindings: KeyBinding[] = [
 ];
 
 const sidebarToggleBinding: KeyBinding = {
-  key: "Mod-Shift-o",
+  key: "Mod-Shift-l",
   preventDefault: true,
   run: () => { sidebarToggleHandler(); return true; },
 };

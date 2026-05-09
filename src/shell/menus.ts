@@ -92,8 +92,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await MenuItem.new({
         id: "open-folder",
         text: t("menu.file.openFolder"),
-        // No accelerator: Cmd+Shift+O is bound to sidebar toggle. The menu
-        // entry alone is enough; this isn't a frequent-use action.
+        accelerator: "CmdOrCtrl+Shift+O",
         action: () => { void handlers.openFolder(); },
       }),
       await Submenu.new({ text: t("menu.file.openRecent"), items: recentItems }),
@@ -216,7 +215,7 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await MenuItem.new({
         id: "toggle-sidebar",
         text: t("menu.view.toggleSidebar"),
-        accelerator: "CmdOrCtrl+Shift+O",
+        accelerator: "CmdOrCtrl+Shift+L",
         action: () => handlers.toggleSidebar(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
