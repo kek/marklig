@@ -410,10 +410,20 @@ html.theme-dark  { color-scheme: dark; }
 html[data-mode="edit"] .cm-editor .cm-content {
   caret-color: var(--fg) !important;
 }
-/* Reading mode is read-only — hide the caret entirely. */
+/* Reading mode is read-only — hide the caret entirely. The native caret is
+   suppressed via caret-color; the .cm-cursor rules below cover drawSelection's
+   drawn cursor in case any extension reintroduces it. */
 html[data-mode="reading"] .cm-editor .cm-content,
 html:not([data-mode]) .cm-editor .cm-content {
   caret-color: transparent !important;
+}
+html[data-mode="reading"] .cm-editor .cm-cursor,
+html[data-mode="reading"] .cm-editor .cm-cursor-primary,
+html[data-mode="reading"] .cm-editor .cm-dropCursor,
+html:not([data-mode]) .cm-editor .cm-cursor,
+html:not([data-mode]) .cm-editor .cm-cursor-primary,
+html:not([data-mode]) .cm-editor .cm-dropCursor {
+  display: none !important;
 }
 
 /* For configurations that use drawSelection (a drawn .cm-cursor instead of the

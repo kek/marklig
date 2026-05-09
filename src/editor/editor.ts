@@ -18,20 +18,26 @@ export interface ModeExtensions {
 const readOnlyCompartment = new Compartment();
 const decorationsCompartment = new Compartment();
 const keymapCompartment = new Compartment();
+const selectionCompartment = new Compartment();
+
+// drawSelection() paints CM6's own .cm-selectionBackground rectangles based on
+// the logical selection range — the right call in EDIT mode, where it survives
+// viewport virtualization and gives us a visible drawn caret. In READING mode
+// the same extension paints solid rectangles over widget-heavy layout (elided
+// markup, <hr> widgets, heading padding), which looks blocky; native browser
+// selection handles those gaps gracefully and is fine for select-and-copy.
+const editModeSelection: Extension = drawSelection();
+const readingModeSelection: Extension = [];
 
 export function createEditor(opts: CreateEditorOptions): EditorView {
   const state = EditorState.create({
     doc: opts.source,
     extensions: [
       EditorView.lineWrapping,
-      // drawSelection paints .cm-selectionBackground based on the logical
-      // selection range, so a Cmd+A followed by scrolling continues to show
-      // the selection in newly-rendered viewport. Without it the browser's
-      // native selection only paints DOM that existed at select-time.
-      drawSelection(),
       readOnlyCompartment.of(EditorState.readOnly.of(true)),
       decorationsCompartment.of([]),
       keymapCompartment.of(keymap.of(defaultKeymap)),
+      selectionCompartment.of(readingModeSelection),
     ],
   });
   return new EditorView({ state, parent: opts.parent });
@@ -40,6 +46,9 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
 export function setMode(view: EditorView, mode: Mode, ext?: ModeExtensions): void {
   const effects = [
     readOnlyCompartment.reconfigure(EditorState.readOnly.of(mode === "reading")),
+    selectionCompartment.reconfigure(
+      mode === "edit" ? editModeSelection : readingModeSelection,
+    ),
   ];
   if (ext) {
     effects.push(decorationsCompartment.reconfigure(ext.decorations));
@@ -52,4 +61,5 @@ export const compartments = {
   readOnly: readOnlyCompartment,
   decorations: decorationsCompartment,
   keymap: keymapCompartment,
+  selection: selectionCompartment,
 };
