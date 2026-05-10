@@ -228,58 +228,58 @@ export async function recordCurrentWindowState(
 }
 
 /**
- * Install a Tauri close-requested handler that snapshots the window's state
- * before letting the close proceed. The provided getters are read at close
- * time, so they always see the latest path/mode/scroll values. Returns an
- * unsubscribe function.
+ * Install per-window state persistence.
  *
- * `beforeunload` is unreliable here: it fires fire-and-forget, so an async
- * IPC `Store.save()` typically does not complete before the process exits on
- * Cmd+Q (especially when multiple windows close simultaneously). Tauri's
- * `onCloseRequested` lets us preventDefault, await the save, then explicitly
- * destroy the window — guaranteeing the entry lands on disk.
+ * Cmd+Q shutdown is too tight for an async `beforeunload` IPC to land on
+ * disk reliably (it fires fire-and-forget; Store.save() finishes after the
+ * process is gone). Tauri's `onCloseRequested` handler can preventDefault
+ * and await, but in practice with multiple windows on Cmd+Q the macOS
+ * terminate sequence still races the await. So instead we save state
+ * proactively while the window is alive: an immediate write on register,
+ * a periodic write on a short interval, and a best-effort final write on
+ * close-requested + beforeunload.
+ *
+ * Returns an unsubscribe function.
  */
+const SESSION_TICK_MS = 1500;
+
 export function installWindowSessionPersistence(getters: {
   currentPath: () => string | null;
   scrollTop: () => number;
   mode: () => WindowMode;
 }): () => void {
-  const win = getCurrentWindow();
-  let unlisten: (() => void) | null = null;
-  let alreadyClosing = false;
-
-  void win.onCloseRequested(async (event) => {
-    if (alreadyClosing) return; // re-entry guard
-    alreadyClosing = true;
-    event.preventDefault();
-    try {
-      await recordCurrentWindowState({
-        path: getters.currentPath(),
-        scrollTop: getters.scrollTop(),
-        mode: getters.mode(),
-      });
-    } catch {
-      // ignore — never block close on a persistence failure
-    }
-    try {
-      await win.destroy();
-    } catch {
-      // last resort
-    }
-  }).then((u) => { unlisten = u; });
-
-  // Keep the `beforeunload` path too as a best-effort backup for hot-reload /
-  // dev-server unloads where close-requested doesn't fire.
-  const beforeunloadHandler = (): void => {
-    void recordCurrentWindowState({
+  const recordNow = (): Promise<void> =>
+    recordCurrentWindowState({
       path: getters.currentPath(),
       scrollTop: getters.scrollTop(),
       mode: getters.mode(),
     });
-  };
+
+  // Immediate write so even an instant-quit after launch still has state.
+  void recordNow();
+
+  // Periodic write — keeps scrollTop/mode/path fresh during the session.
+  const interval = window.setInterval(() => { void recordNow(); }, SESSION_TICK_MS);
+
+  // Best-effort flush on close: Tauri close-requested then DOM beforeunload.
+  // Either may "win" depending on platform; both are safe to call together
+  // because the underlying record is idempotent (per-label key overwrite).
+  let unlisten: (() => void) | null = null;
+  let alreadyClosing = false;
+  const win = getCurrentWindow();
+  void win.onCloseRequested(async (event) => {
+    if (alreadyClosing) return;
+    alreadyClosing = true;
+    event.preventDefault();
+    try { await recordNow(); } catch { /* ignore */ }
+    try { await win.destroy(); } catch { /* ignore */ }
+  }).then((u) => { unlisten = u; });
+
+  const beforeunloadHandler = (): void => { void recordNow(); };
   window.addEventListener("beforeunload", beforeunloadHandler);
 
   return () => {
+    window.clearInterval(interval);
     window.removeEventListener("beforeunload", beforeunloadHandler);
     unlisten?.();
   };
