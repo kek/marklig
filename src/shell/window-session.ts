@@ -1,0 +1,181 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+import { getValue, setValue } from "./store";
+
+/**
+ * Multi-window session restore.
+ *
+ * Each open window writes a `WindowSessionEntry` to a single `windowSession`
+ * key in the store on `beforeunload`. On the next launch, the *main* window
+ * reads the list and spawns one secondary window per non-main entry; the main
+ * window itself uses its own entry to choose which file to reopen (after the
+ * recovery prompt and any other higher-priority initial-doc resolution).
+ *
+ * The contract is intentionally simple:
+ *   - The store always contains the *most recent* state per window label.
+ *   - On startup we read once, restore, then clear the stale list so that a
+ *     subsequent launch (without the prior multi-window session) doesn't keep
+ *     resurrecting old windows forever. Currently-open windows will then write
+ *     fresh entries on their own beforeunload.
+ *   - Per-window record() is best-effort and defensive: failures are logged
+ *     but never propagated, so a flaky tauri call can't break window close.
+ */
+
+export type WindowMode = "reading" | "edit";
+
+export interface WindowSessionEntry {
+  /** Tauri window label, e.g. "main", "window-2". */
+  label: string;
+  /** Last-loaded markdown file, or null if the window was blank. */
+  path: string | null;
+  /** Logical pixels (matches LogicalSize/LogicalPosition for setSize/setPosition). */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** scrollDOM.scrollTop at time of close, used to restore reading position. */
+  scrollTop: number;
+  /** Reading vs. edit mode at time of close. */
+  mode: WindowMode;
+  /** Wall-clock at record time; used for newest-first ordering / debugging. */
+  timestampMs: number;
+}
+
+interface WindowSession {
+  windows: WindowSessionEntry[];
+}
+
+const SESSION_KEY = "windowSession";
+
+function emptySession(): WindowSession {
+  return { windows: [] };
+}
+
+function isValidEntry(e: unknown): e is WindowSessionEntry {
+  if (!e || typeof e !== "object") return false;
+  const r = e as Record<string, unknown>;
+  return (
+    typeof r.label === "string" &&
+    (r.path === null || typeof r.path === "string") &&
+    typeof r.x === "number" &&
+    typeof r.y === "number" &&
+    typeof r.width === "number" &&
+    typeof r.height === "number" &&
+    typeof r.scrollTop === "number" &&
+    (r.mode === "reading" || r.mode === "edit") &&
+    typeof r.timestampMs === "number"
+  );
+}
+
+/** Read the persisted session. Defensive: bad shapes return an empty session. */
+export async function loadWindowSession(): Promise<WindowSession> {
+  try {
+    const raw = await getValue<unknown>(SESSION_KEY);
+    if (!raw || typeof raw !== "object") return emptySession();
+    const r = raw as Record<string, unknown>;
+    if (!Array.isArray(r.windows)) return emptySession();
+    const windows = r.windows.filter(isValidEntry);
+    return { windows };
+  } catch {
+    return emptySession();
+  }
+}
+
+/** Persist the full session list. Used by tests + the upsert helper. */
+export async function saveWindowSession(session: WindowSession): Promise<void> {
+  try {
+    await setValue(SESSION_KEY, session);
+  } catch {
+    // ignore — store unavailable (e.g. test env without tauri)
+  }
+}
+
+/** Wipe the session. Called by main once it has consumed the entries to spawn
+ *  secondary windows, so they aren't restored a second time on a future
+ *  single-window launch. */
+export async function clearWindowSession(): Promise<void> {
+  await saveWindowSession(emptySession());
+}
+
+/** Insert-or-replace an entry by label. Pure function — testable without store. */
+export function upsertEntry(
+  session: WindowSession,
+  entry: WindowSessionEntry,
+): WindowSession {
+  const others = session.windows.filter((w) => w.label !== entry.label);
+  return { windows: [...others, entry] };
+}
+
+/** Remove an entry by label. Pure function. */
+export function removeEntry(
+  session: WindowSession,
+  label: string,
+): WindowSession {
+  return { windows: session.windows.filter((w) => w.label !== label) };
+}
+
+export interface RecordWindowStateInput {
+  path: string | null;
+  scrollTop: number;
+  mode: WindowMode;
+}
+
+/**
+ * Capture and persist the current window's session entry. Called from
+ * `beforeunload`. Best-effort: any failure (no tauri, no store) is swallowed
+ * so a flaky call can't block window close.
+ */
+export async function recordCurrentWindowState(
+  input: RecordWindowStateInput,
+): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    const label = win.label;
+    const size = await win.outerSize();
+    const pos = await win.outerPosition();
+    const factor = await win.scaleFactor();
+    const entry: WindowSessionEntry = {
+      label,
+      path: input.path,
+      width: Math.round(size.width / factor),
+      height: Math.round(size.height / factor),
+      x: Math.round(pos.x / factor),
+      y: Math.round(pos.y / factor),
+      scrollTop: Math.max(0, Math.round(input.scrollTop)),
+      mode: input.mode,
+      timestampMs: Date.now(),
+    };
+    const current = await loadWindowSession();
+    const next = upsertEntry(current, entry);
+    await saveWindowSession(next);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Install a `beforeunload` handler that snapshots the window's state. The
+ * provided getters are read at unload time, so they always see the latest
+ * path/mode/scroll values. Returns an unsubscribe function.
+ *
+ * Note: `beforeunload` handlers must be synchronous-ish; we kick off the
+ * persistence as a fire-and-forget promise. The Tauri webview waits for
+ * pending microtasks long enough for `Store.save()` to land in normal
+ * close paths; in a hard kill (SIGKILL / power loss) this is best-effort,
+ * which matches the rest of the recovery story.
+ */
+export function installWindowSessionPersistence(getters: {
+  currentPath: () => string | null;
+  scrollTop: () => number;
+  mode: () => WindowMode;
+}): () => void {
+  const handler = (): void => {
+    void recordCurrentWindowState({
+      path: getters.currentPath(),
+      scrollTop: getters.scrollTop(),
+      mode: getters.mode(),
+    });
+  };
+  window.addEventListener("beforeunload", handler);
+  return () => window.removeEventListener("beforeunload", handler);
+}

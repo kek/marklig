@@ -25,6 +25,13 @@ import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { loadSettings, subscribeSettings, getAutoSave } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
+import {
+  loadWindowSession,
+  clearWindowSession,
+  installWindowSessionPersistence,
+  type WindowSessionEntry,
+  type WindowMode,
+} from "./shell/window-session";
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { t } from "./i18n/strings";
@@ -94,7 +101,24 @@ async function bootstrap(): Promise<void> {
   // first/main window owns the recovery decision for the session.
   if (isMainWindow()) await maybeRestoreFromRecovery();
 
-  const initialDoc = await resolveInitialDoc();
+  // Multi-window restore: on the main window, read the persisted session,
+  // spawn one secondary window per non-main entry, then clear the session so
+  // a future single-window launch doesn't keep resurrecting old windows. The
+  // main window's own entry is consumed below to influence which file/scroll
+  // position/mode this window opens with.
+  const sessionEntryForThisWindow = await loadAndApplySession();
+
+  // Restored session entry for the main window only takes effect when the
+  // higher-priority sources (recovery, file-association launch, CLI arg)
+  // didn't yield a doc; otherwise those win.
+  const sessionFallbackPath =
+    isMainWindow() && sessionEntryForThisWindow?.path
+      ? sessionEntryForThisWindow.path
+      : null;
+  // Secondary windows that were spawned from a session entry receive their
+  // path via ?file=… (see resolveInitialDoc) — same channel as multi-file
+  // drag-drop, so we don't need a separate code path.
+  const initialDoc = await resolveInitialDoc(sessionFallbackPath);
 
   const shell = document.createElement("div");
   shell.className = "viewer-app-shell";
@@ -298,12 +322,25 @@ async function bootstrap(): Promise<void> {
     edit:    { decorations: editingSet, keymap: editKeymap },
   };
 
-  let currentMode: Mode = "reading";
+  // Restore mode + scroll position. Two sources, in priority order:
+  //   1. URL query params (?mode=, ?scrollTop=) — set by spawnRestoredWindow
+  //      for secondary windows. Per-window, doesn't depend on session lookup
+  //      from inside the secondary window.
+  //   2. Session entry for the current label — only relevant on the main
+  //      window, since secondary windows always go via the URL channel.
+  // If either is absent the defaults (reading mode, scrollTop 0) win.
+  const urlRestore = restoreParamsFromUrl();
+  const restoredMode: Mode =
+    urlRestore.mode ?? sessionEntryForThisWindow?.mode ?? "reading";
+  const restoredScrollTop: number =
+    urlRestore.scrollTop ?? sessionEntryForThisWindow?.scrollTop ?? 0;
+
+  let currentMode: Mode = restoredMode;
 
   const toolbar = mountToolbar(root, {
     view,
     modeExtensions,
-    initialMode: "reading",
+    initialMode: restoredMode,
     initialSidebarVisible: toc.isVisible(),
     onModeChange: (m) => {
       currentMode = m;
@@ -316,6 +353,22 @@ async function bootstrap(): Promise<void> {
       toolbar.setSidebarVisible(next);
     },
   });
+
+  // Apply the restored mode (toolbar reflects it but the editor compartments
+  // need the explicit setMode to swap decorations + keymap + readOnly).
+  if (restoredMode !== "reading") {
+    setMode(view, restoredMode, modeExtensions[restoredMode]);
+    document.documentElement.dataset.mode = restoredMode;
+  }
+
+  // Apply the restored scroll position after a frame so layout has settled.
+  // Without the rAF, scrollTop is silently clamped to 0 because scrollHeight
+  // hasn't been measured yet on a freshly-mounted EditorView.
+  if (restoredScrollTop > 0) {
+    requestAnimationFrame(() => {
+      view.scrollDOM.scrollTop = restoredScrollTop;
+    });
+  }
 
   setModeToggleHandler(() => {
     currentMode = currentMode === "reading" ? "edit" : "reading";
@@ -341,6 +394,17 @@ async function bootstrap(): Promise<void> {
 
   let currentPath: string | null = initialDoc?.path ?? null;
   if (currentPath) await recordRecent(currentPath);
+
+  // Multi-window session restore: snapshot this window's state on
+  // beforeunload. Captures path/scrollTop/mode at unload time so the next
+  // launch can re-spawn the exact arrangement. Per-window — both main and
+  // secondary windows participate.
+  const stopWindowSession = installWindowSessionPersistence({
+    currentPath: () => currentPath,
+    scrollTop: () => view.scrollDOM.scrollTop,
+    mode: () => currentMode,
+  });
+  window.addEventListener("beforeunload", () => stopWindowSession());
 
   /** Open `root` as the current folder: persist it, list .md files in the
    * sidebar, ensure the sidebar is visible. Pass null to clear. */
@@ -726,9 +790,10 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => unsubscribeMermaid());
 }
 
-async function resolveInitialDoc(): Promise<OpenedDoc | null> {
+async function resolveInitialDoc(sessionFallbackPath: string | null = null): Promise<OpenedDoc | null> {
   // Secondary windows opened with ?file=… (drop-onto-window splits a multi-
-  // file drop across windows) load that file directly.
+  // file drop across windows, and multi-window session restore reuses the
+  // same channel) load that file directly.
   const urlFile = fileFromUrlQuery();
   if (urlFile) {
     try {
@@ -754,12 +819,67 @@ async function resolveInitialDoc(): Promise<OpenedDoc | null> {
   // before the doc loads.
   const launched = await waitForFileOpenRequest(500);
   if (launched) return await readDoc(launched);
+  // Multi-window session restore for the main window: prefer the file the
+  // main window had open last time over generic recents[0], so closing-
+  // and-reopening preserves the exact arrangement. Falls through to recents
+  // if the file is gone.
+  if (sessionFallbackPath) {
+    try {
+      return await readDoc(sessionFallbackPath);
+    } catch {
+      // file missing/moved — fall through to recents/dialog
+    }
+  }
   // Re-open whatever was open last time the app closed (recents[0] is the
   // most-recently-opened path, written on every successful open via
   // recordRecent). Falls through to the dialog if the file is gone.
   const lastOpened = await tryReopenLastFile();
   if (lastOpened) return lastOpened;
   return await openFileViaDialog();
+}
+
+/**
+ * On the main window only: read the persisted multi-window session, spawn
+ * secondary windows for each non-main entry whose file still exists, then
+ * clear the session list (so a future single-window launch doesn't keep
+ * resurrecting old windows). Returns the session entry for the *current*
+ * window so the caller can use it to influence file/scroll/mode restore.
+ *
+ * Secondary windows: returns their own session entry if any (they may have
+ * been re-spawned by main and want to honor scrollTop/mode from URL params,
+ * but we still surface the entry for symmetry).
+ */
+async function loadAndApplySession(): Promise<WindowSessionEntry | null> {
+  const session = await loadWindowSession();
+  const myLabel = currentWindowLabel();
+  const myEntry = session.windows.find((w) => w.label === myLabel) ?? null;
+
+  if (!isMainWindow()) return myEntry;
+
+  // Spawn secondary windows from the persisted session. If a previously-open
+  // file no longer exists, skip that window silently — we don't want a modal
+  // storm on launch.
+  for (const entry of session.windows) {
+    if (entry.label === myLabel) continue;
+    if (entry.path && !(await pathExists(entry.path))) continue;
+    await spawnRestoredWindow(entry);
+  }
+
+  // One-shot: clear the session now so we don't restore the same set on the
+  // next launch (the windows we just spawned will write their own fresh
+  // entries on close). Crash recovery for unsaved buffers stays in its own
+  // store and is unaffected.
+  await clearWindowSession();
+  return myEntry;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<boolean>("path_exists", { path });
+  } catch {
+    return false;
+  }
 }
 
 async function tryReopenLastFile(): Promise<OpenedDoc | null> {
@@ -868,12 +988,7 @@ let nextWindowSeq = 2;
  * path is forwarded as a `?file=…` query param that bootstrap reads in place
  * of the usual recovery / last-opened resolution. */
 async function spawnNewWindow(initialFile?: string): Promise<void> {
-  // Find the next free 'window-N' label. Existing windows may be labeled
-  // 'main', 'window-2', 'window-3', etc.; reuse-or-skip until we find a free one.
-  let label = `window-${nextWindowSeq++}`;
-  while (await WebviewWindow.getByLabel(label)) {
-    label = `window-${nextWindowSeq++}`;
-  }
+  const label = await nextWindowLabel();
   const url = initialFile
     ? `/?file=${encodeURIComponent(initialFile)}`
     : "/";
@@ -891,6 +1006,61 @@ async function spawnNewWindow(initialFile?: string): Promise<void> {
   });
 }
 
+/** Reopen a window from a persisted session entry. Honors the entry's label
+ * (so the next session-record happens under the same name and overwrites
+ * cleanly), restores logical size/position, and forwards file/scrollTop/mode
+ * via URL params for the secondary window's bootstrap to apply. */
+async function spawnRestoredWindow(entry: WindowSessionEntry): Promise<void> {
+  // Don't collide with a window the user already opened in this session.
+  // (Shouldn't normally happen on launch — the main window is the only one
+  //  alive — but defensive in case the session contains a 'main' duplicate.)
+  if (await WebviewWindow.getByLabel(entry.label)) return;
+
+  const params = new URLSearchParams();
+  if (entry.path) params.set("file", entry.path);
+  params.set("scrollTop", String(Math.max(0, Math.round(entry.scrollTop))));
+  params.set("mode", entry.mode);
+  const url = `/?${params.toString()}`;
+
+  // Sanity-clamp obviously-broken sizes; let valid logical pixels through
+  // verbatim so multi-monitor positions reproduce.
+  const width = entry.width >= 320 ? entry.width : 1000;
+  const height = entry.height >= 240 ? entry.height : 760;
+
+  const win = new WebviewWindow(entry.label, {
+    title: "Viewer",
+    x: entry.x,
+    y: entry.y,
+    width,
+    height,
+    minWidth: 480,
+    minHeight: 320,
+    dragDropEnabled: true,
+    url,
+  });
+  win.once("tauri://error", (e) => {
+    console.error("failed to restore window", entry.label, e);
+  });
+  // Bump the seq so the next File -> New Window doesn't collide with a
+  // restored 'window-N'. nextWindowSeq is monotonic; treat any restored
+  // numeric label as a lower bound.
+  const m = /^window-(\d+)$/.exec(entry.label);
+  if (m) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n >= nextWindowSeq) nextWindowSeq = n + 1;
+  }
+}
+
+async function nextWindowLabel(): Promise<string> {
+  // Find the next free 'window-N' label. Existing windows may be labeled
+  // 'main', 'window-2', 'window-3', etc.; reuse-or-skip until we find a free one.
+  let label = `window-${nextWindowSeq++}`;
+  while (await WebviewWindow.getByLabel(label)) {
+    label = `window-${nextWindowSeq++}`;
+  }
+  return label;
+}
+
 function fileFromUrlQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -901,11 +1071,39 @@ function fileFromUrlQuery(): string | null {
   }
 }
 
+/** Read optional ?mode= and ?scrollTop= URL params used by multi-window
+ *  session restore to forward state into a freshly-spawned secondary window.
+ *  Either may be absent; both are validated. */
+function restoreParamsFromUrl(): { mode: WindowMode | null; scrollTop: number | null } {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const m = params.get("mode");
+    const mode: WindowMode | null = m === "edit" || m === "reading" ? m : null;
+    const sRaw = params.get("scrollTop");
+    let scrollTop: number | null = null;
+    if (sRaw != null) {
+      const n = Number(sRaw);
+      if (Number.isFinite(n) && n >= 0) scrollTop = n;
+    }
+    return { mode, scrollTop };
+  } catch {
+    return { mode: null, scrollTop: null };
+  }
+}
+
 function isMainWindow(): boolean {
   try {
     return getCurrentWindow().label === "main";
   } catch {
     return true;
+  }
+}
+
+function currentWindowLabel(): string {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return "main";
   }
 }
 
