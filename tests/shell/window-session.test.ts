@@ -21,6 +21,10 @@ vi.mock("../../src/shell/store", () => ({
   setValue: vi.fn(async (k: string, v: unknown) => {
     storeData.set(k, v);
   }),
+  deleteValue: vi.fn(async (k: string) => {
+    storeData.delete(k);
+  }),
+  listKeys: vi.fn(async () => Array.from(storeData.keys())),
 }));
 
 import {

@@ -19,3 +19,14 @@ export async function setValue<T>(key: string, value: T): Promise<void> {
   await s.set(key, value);
   await s.save();
 }
+
+export async function deleteValue(key: string): Promise<void> {
+  const s = await getStore();
+  await s.delete(key);
+  await s.save();
+}
+
+export async function listKeys(): Promise<string[]> {
+  const s = await getStore();
+  return await s.keys();
+}

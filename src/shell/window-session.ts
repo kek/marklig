@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { getValue, setValue } from "./store";
+import { deleteValue, getValue, listKeys, setValue } from "./store";
 
 /**
  * Multi-window session restore.
@@ -46,9 +46,19 @@ interface WindowSession {
 }
 
 const SESSION_KEY = "windowSession";
+/** Per-window key prefix. Each window writes only its own entry under
+ *  `windowSession:<label>` so simultaneous beforeunload writes from multiple
+ *  windows can't clobber each other through a load-modify-save race on a
+ *  shared list. The legacy `windowSession` key is still read on load for
+ *  backward compatibility with sessions persisted before this change. */
+const SESSION_ENTRY_PREFIX = "windowSession:";
 
 function emptySession(): WindowSession {
   return { windows: [] };
+}
+
+function entryKey(label: string): string {
+  return `${SESSION_ENTRY_PREFIX}${label}`;
 }
 
 function isValidEntry(e: unknown): e is WindowSessionEntry {
@@ -67,24 +77,61 @@ function isValidEntry(e: unknown): e is WindowSessionEntry {
   );
 }
 
-/** Read the persisted session. Defensive: bad shapes return an empty session. */
+/** Read the persisted session. Defensive: bad shapes return an empty session.
+ *
+ *  Reads both the per-window keys (`windowSession:<label>`, the current format)
+ *  and the legacy single-key list (`windowSession`, used before the per-window
+ *  fix). Per-window entries take precedence on label collision. */
 export async function loadWindowSession(): Promise<WindowSession> {
   try {
-    const raw = await getValue<unknown>(SESSION_KEY);
-    if (!raw || typeof raw !== "object") return emptySession();
-    const r = raw as Record<string, unknown>;
-    if (!Array.isArray(r.windows)) return emptySession();
-    const windows = r.windows.filter(isValidEntry);
-    return { windows };
+    const byLabel = new Map<string, WindowSessionEntry>();
+
+    // Per-window keys.
+    let keys: string[] = [];
+    try {
+      keys = await listKeys();
+    } catch {
+      keys = [];
+    }
+    for (const k of keys) {
+      if (!k.startsWith(SESSION_ENTRY_PREFIX)) continue;
+      try {
+        const v = await getValue<unknown>(k);
+        if (isValidEntry(v)) byLabel.set(v.label, v);
+      } catch {
+        // skip malformed entry
+      }
+    }
+
+    // Legacy list — only contributes labels not already covered.
+    try {
+      const raw = await getValue<unknown>(SESSION_KEY);
+      if (raw && typeof raw === "object") {
+        const r = raw as Record<string, unknown>;
+        if (Array.isArray(r.windows)) {
+          for (const e of r.windows) {
+            if (isValidEntry(e) && !byLabel.has(e.label)) byLabel.set(e.label, e);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return { windows: [...byLabel.values()] };
   } catch {
     return emptySession();
   }
 }
 
-/** Persist the full session list. Used by tests + the upsert helper. */
+/** Persist the full session list as per-window keys. Used by tests + helpers.
+ *  Idempotent: replaces the per-window keys for the entries given, leaves
+ *  others alone. To wipe everything use `clearWindowSession`. */
 export async function saveWindowSession(session: WindowSession): Promise<void> {
   try {
-    await setValue(SESSION_KEY, session);
+    for (const e of session.windows) {
+      await setValue(entryKey(e.label), e);
+    }
   } catch {
     // ignore — store unavailable (e.g. test env without tauri)
   }
@@ -92,9 +139,35 @@ export async function saveWindowSession(session: WindowSession): Promise<void> {
 
 /** Wipe the session. Called by main once it has consumed the entries to spawn
  *  secondary windows, so they aren't restored a second time on a future
- *  single-window launch. */
+ *  single-window launch. Removes per-window keys *and* the legacy list. */
 export async function clearWindowSession(): Promise<void> {
-  await saveWindowSession(emptySession());
+  try {
+    let keys: string[] = [];
+    try {
+      keys = await listKeys();
+    } catch {
+      keys = [];
+    }
+    for (const k of keys) {
+      if (k.startsWith(SESSION_ENTRY_PREFIX)) {
+        try { await deleteValue(k); } catch { /* ignore */ }
+      }
+    }
+    try { await deleteValue(SESSION_KEY); } catch { /* ignore */ }
+  } catch {
+    // ignore
+  }
+}
+
+/** Remove a single window's persisted entry — used when a window is closed
+ *  individually (e.g. user clicks the close button) so it doesn't get
+ *  resurrected on next launch. */
+export async function removeWindowSessionEntry(label: string): Promise<void> {
+  try {
+    await deleteValue(entryKey(label));
+  } catch {
+    // ignore
+  }
 }
 
 /** Insert-or-replace an entry by label. Pure function — testable without store. */
@@ -145,9 +218,10 @@ export async function recordCurrentWindowState(
       mode: input.mode,
       timestampMs: Date.now(),
     };
-    const current = await loadWindowSession();
-    const next = upsertEntry(current, entry);
-    await saveWindowSession(next);
+    // Write only this window's key — never load-modify-save the shared list.
+    // Two windows firing beforeunload at the same time on Cmd+Q would
+    // otherwise both load the same baseline and overwrite each other's entry.
+    await setValue(entryKey(label), entry);
   } catch {
     // ignore
   }
