@@ -88,10 +88,13 @@ build_appex() {
     # Ad-hoc sign so Quick Look will load the extension without a developer ID.
     # Real distribution requires `codesign --sign "Developer ID Application: ..."`
     # — see README §Build & sign for the full flow.
-    codesign --force --sign - --timestamp=none --options runtime \
+    # Note: `--options runtime` (hardened runtime) is incompatible with ad-hoc
+    # signing; pluginkit needs the App Sandbox entitlement to load the
+    # extension at all, so we skip hardened runtime locally and apply
+    # entitlements directly.
+    codesign --force --sign - --timestamp=none \
         --entitlements "$QL_DIR/extension.entitlements" \
-        "$appex_dir" 2>/dev/null || \
-    codesign --force --sign - --timestamp=none "$appex_dir"
+        "$appex_dir"
 
     echo "    -> $appex_dir"
 }
