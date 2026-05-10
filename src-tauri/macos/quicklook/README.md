@@ -39,13 +39,14 @@ src-tauri/macos/quicklook/
 ├── README.md                   ← this file
 ├── extension.entitlements      ← App Sandbox + read-only file access
 ├── preview/
-│   ├── Info.plist              ← com.apple.quicklook.preview extension
+│   ├── Info.plist              ← NSExtension (com.apple.quicklook.preview)
 │   ├── main.swift              ← NSExtensionMain shim
 │   ├── PreviewViewController.swift
 │   ├── MarkdownRenderer.swift  ← MD → HTML, sanitised at the source
 │   └── Stylesheet.swift        ← copy of src/export/styles.ts
 ├── thumbnail/
-│   ├── Info.plist              ← com.apple.quicklook.thumbnail extension
+│   ├── Info.plist              ← EXAppExtensionAttributes + NSExtension
+│   │                             (com.apple.quicklook.thumbnail)
 │   ├── main.swift
 │   └── ThumbnailProvider.swift ← Core Graphics drawing
 └── tests/
@@ -93,6 +94,47 @@ pluginkit -m -p com.apple.quicklook.preview | grep viewer
 pluginkit -e use -i com.viewer.app.quicklook
 pluginkit -e use -i com.viewer.app.thumbnail
 ```
+
+## Plist format on Tahoe / Sequoia
+
+Both `Info.plist` files declare the extension twice: once via the modern
+`EXAppExtensionAttributes` dictionary (ExtensionKit format introduced for
+macOS 14+) and once via the legacy `NSExtension` dictionary. The duplication
+is intentional:
+
+- The thumbnail extension point
+  (`/System/Library/ExtensionKit/ExtensionPoints/com.apple.quicklook.thumbnail.appexpt`)
+  sets `EXSupportsNSExtensionPlistKeys = true`, which means the OS accepts
+  either key shape under the same public point. Listing both lets newer
+  PluginKit code paths read `EXAppExtensionAttributes` directly while older
+  paths still parse `NSExtension`.
+- The newer `.secure` thumbnail extension point exists
+  (`com.apple.quicklook.thumbnail.secure`) but is marked
+  `EXExtensionPointIsPublic = false` and is reserved for OS-bundled extensions
+  in `/System/Library/ExtensionKit/Extensions/` (e.g. `TextThumbnailExtension`).
+  Third-party apps cannot register against it.
+- There is no `com.apple.quicklook.preview.appexpt` on Tahoe at all — the
+  preview point only exists as a legacy `NSExtension` point. Every third-party
+  preview extension currently shipping (Bear, Krita, LibreOffice, Microsoft
+  Remote Desktop, Xcode's own `ProvisoningProfileQuicklookExtension`) declares
+  itself with the legacy `NSExtension` dictionary, so we do too.
+
+`LSItemContentTypes` is also set at the bundle root so `lsregister` picks the
+supported UTIs up before the system opens the extension descriptor.
+
+### Runtime activation requires real signing
+
+`pluginkit -m` lists ad-hoc-signed extensions, and `qlmanage -t` will route
+the right UTI to the right `.appex` once the host app is installed under
+`/Applications/`, but quicklookd on macOS 14+ will **not** spawn an ad-hoc
+extension into its sandboxed XPC pool. The extension surface needs a real
+`TeamIdentifier` (Developer ID Application certificate) plus the hardened
+runtime to satisfy quicklookd's launch checks. Every working third-party
+Quick Look extension on disk (Bear, Krita, Blender, LibreOffice, …) carries
+a non-empty `TeamIdentifier` in its `codesign -dv` output. End-to-end
+verification of the rendered thumbnail / preview therefore has to wait for
+a signed CI build; the format and the bundle layout above are correct on
+their own.
 
 ## Sanitisation
 

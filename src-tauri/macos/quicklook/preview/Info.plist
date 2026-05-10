@@ -22,6 +22,25 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
+    <!--
+        Quick Look preview is the legacy half of the extension surface:
+        /System/Library/ExtensionKit/ExtensionPoints/ has no
+        com.apple.quicklook.preview.appexpt at all on Tahoe (26.x), and every
+        third-party preview extension shipping today (Bear, Krita, LibreOffice,
+        Microsoft, GarageBand, Xcode's own ProvisoningProfileQuicklookExtension)
+        still declares itself via NSExtension. So we keep that shape.
+
+        LSItemContentTypes is repeated at the bundle root because Launch
+        Services indexes that key when registering plugins with `lsregister`,
+        and some Tahoe code paths consult it before opening the NSExtension
+        dictionary.
+    -->
+    <key>LSItemContentTypes</key>
+    <array>
+        <string>net.daringfireball.markdown</string>
+        <string>public.markdown</string>
+        <string>com.viewer.app.markdown</string>
+    </array>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionAttributes</key>

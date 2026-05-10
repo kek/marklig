@@ -85,13 +85,20 @@ build_appex() {
         -string "${module_name}.$(plutil_principal_class "$kind")" \
         "$appex_dir/Contents/Info.plist"
 
-    # Ad-hoc sign so Quick Look will load the extension without a developer ID.
-    # Real distribution requires `codesign --sign "Developer ID Application: ..."`
-    # — see README §Build & sign for the full flow.
-    # Note: `--options runtime` (hardened runtime) is incompatible with ad-hoc
-    # signing; pluginkit needs the App Sandbox entitlement to load the
-    # extension at all, so we skip hardened runtime locally and apply
-    # entitlements directly.
+    # Ad-hoc sign so the bundle registers with PluginKit and `qlmanage -m`
+    # lists it. Note that quicklookd on macOS 14+ refuses to spawn an ad-hoc
+    # extension into the sandboxed XPC pool: real end-to-end activation
+    # requires a Developer ID Application certificate (every working
+    # third-party Quick Look extension on disk has a non-empty TeamIdentifier
+    # in `codesign -dv`). For distribution, replace `-` below with the full
+    # signing identity name, e.g. `"Developer ID Application: …"` — see
+    # README §Build & sign for the full flow.
+    #
+    # `--options runtime` (hardened runtime) is intentionally omitted: it's
+    # incompatible with ad-hoc signing because the hardened runtime requires
+    # a notarised, Team-bound signature, and PluginKit needs the App Sandbox
+    # entitlement applied directly to the ad-hoc signature to load the
+    # extension at all.
     codesign --force --sign - --timestamp=none \
         --entitlements "$QL_DIR/extension.entitlements" \
         "$appex_dir"

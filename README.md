@@ -77,8 +77,16 @@ qlmanage -t -s 256 -o /tmp some.md  # render a thumbnail PNG
 ```
 
 See `src-tauri/macos/quicklook/README.md` for architecture notes, the
-sanitisation contract, and what's deliberately deferred (math, Mermaid,
-syntax highlighting in code blocks).
+sanitisation contract, what's deliberately deferred (math, Mermaid,
+syntax highlighting in code blocks), and the macOS 14+ format details
+(the thumbnail `Info.plist` declares the extension via both
+`EXAppExtensionAttributes` and `NSExtension`; the preview point only
+exists as a legacy `NSExtension` point on Tahoe).
+
+> Note: runtime activation by quicklookd requires a real `TeamIdentifier`.
+> Ad-hoc signed extensions register with `pluginkit` but are not spawned
+> into the sandboxed XPC pool, so end-to-end thumbnail/preview rendering
+> verifies only on a Developer ID-signed build.
 
 ## Architecture
 
