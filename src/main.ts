@@ -42,7 +42,7 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
@@ -423,6 +423,11 @@ async function bootstrap(): Promise<void> {
   /** Open `root` as the current folder: persist it, list .md files in the
    * sidebar, ensure the sidebar is visible. Pass null to clear. */
   async function setCurrentFolder(root: string | null): Promise<void> {
+    if (root === currentFolder) {
+      // No-op if unchanged — just resync active highlight in case the file did.
+      if (root) folder.setActiveFile(currentPath);
+      return;
+    }
     currentFolder = root;
     await setValue("currentFolder", root);
     await folder.setFolder(root);
@@ -437,32 +442,47 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Restore the last-opened folder. Per-window session entry takes precedence
-  // over the legacy global `currentFolder` key — that's the path that keeps
-  // each window's own sidebar root distinct across relaunches. The global
-  // key is the fallback for first-launch / windows without a session entry.
-  void (async () => {
-    let target: string | null | undefined = sessionEntryForThisWindow?.folder;
-    if (target === undefined) {
-      target = await getValue<string | null>("currentFolder");
+/** Switch the folder sidebar to the file's repo (nearest .git/.jj/.hg/.svn
+   * ancestor) or its parent directory if no repo is found. Best-effort —
+   * failures are swallowed so a folder lookup never blocks the open. */
+  async function syncFolderToFile(path: string): Promise<void> {
+    try {
+      const root = await resolveFolderRoot(path);
+      if (root) await setCurrentFolder(root);
+    } catch {
+      // Ignore — keep whatever folder was already shown.
     }
-    if (typeof target === "string" && target.length > 0) {
-      try {
-        await setCurrentFolder(target);
-      } catch {
-        // Folder moved / deleted / permission-denied — clear the global key
-        // so we don't keep retrying it, and leave the panel hidden.
-        await setValue("currentFolder", null);
+  }
+
+  // Initial folder: derive from the opened file if there is one; otherwise
+  // restore from the per-window session entry (preferred) or the legacy
+  // global `currentFolder` key (fallback for first-launch / new windows).
+  if (currentPath) {
+    void syncFolderToFile(currentPath);
+  } else {
+    void (async () => {
+      let target: string | null | undefined = sessionEntryForThisWindow?.folder;
+      if (target === undefined) {
+        target = await getValue<string | null>("currentFolder");
       }
-    }
-    // If the session entry explicitly stored `sidebarVisible: false`, honour
-    // that even when setCurrentFolder() would have opened the panel.
-    if (sessionEntryForThisWindow?.sidebarVisible === false) {
-      toc.setVisible(false);
-      recordExplicitToggle(false);
-      toolbar.setSidebarVisible(false);
-    }
-  })();
+      if (typeof target === "string" && target.length > 0) {
+        try {
+          await setCurrentFolder(target);
+        } catch {
+          // Folder moved / deleted / permission-denied — clear the global
+          // key so we don’t keep retrying it, and leave the panel hidden.
+          await setValue("currentFolder", null);
+        }
+      }
+      // If the session entry explicitly stored `sidebarVisible: false`,
+      // honour that even when setCurrentFolder() would have opened the panel.
+      if (sessionEntryForThisWindow?.sidebarVisible === false) {
+        toc.setVisible(false);
+        recordExplicitToggle(false);
+        toolbar.setSidebarVisible(false);
+      }
+    })();
+  }
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
@@ -592,6 +612,7 @@ async function bootstrap(): Promise<void> {
       await recordRecent(currentPath);
       await startWatching(currentPath);
       await maybeRestorePositionFor(currentPath);
+      await syncFolderToFile(currentPath);
     }
   }
 
@@ -644,6 +665,7 @@ async function bootstrap(): Promise<void> {
       await recordRecent(dest);
       await startWatching(dest);
       folder.setActiveFile(dest);
+      await syncFolderToFile(dest);
     },
     revealInFileManager: async () => {
       if (!currentPath) {

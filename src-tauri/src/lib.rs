@@ -37,6 +37,7 @@ pub fn run() {
             commands::files::list_markdown_files,
             commands::files::is_directory,
             commands::files::path_exists,
+            commands::files::resolve_folder_root,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
             is_quitting,
