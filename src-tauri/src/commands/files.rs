@@ -134,6 +134,14 @@ pub fn is_directory(path: String) -> bool {
     std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false)
 }
 
+/// Returns true if the path exists at all (file or directory). Used by the
+/// multi-window session restore to skip session entries whose file has been
+/// deleted/moved between launches without showing an error modal storm.
+#[tauri::command]
+pub fn path_exists(path: String) -> bool {
+    std::fs::metadata(&path).is_ok()
+}
+
 /// Reveal a file in the platform's file manager. Highlights the file itself
 /// (rather than just opening the parent directory) where the platform
 /// supports it. Errors are surfaced as Strings — the command is best-effort
