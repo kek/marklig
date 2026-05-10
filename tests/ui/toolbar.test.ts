@@ -1,6 +1,88 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import { JSDOM } from "jsdom";
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 
-import { computeDocStats } from "../../src/ui/toolbar";
+import { computeDocStats, mountToolbar } from "../../src/ui/toolbar";
+
+let host: HTMLElement;
+let dom: JSDOM;
+
+beforeEach(() => {
+  dom = new JSDOM('<!doctype html><div id="host"></div>');
+  globalThis.document = dom.window.document;
+  host = dom.window.document.getElementById("host")!;
+});
+
+function makeView(): EditorView {
+  return new EditorView({
+    state: EditorState.create({ doc: "" }),
+    parent: host,
+  });
+}
+
+describe("mountToolbar icon buttons", () => {
+  it("renders Edit and TOC toggles as inline-SVG icon buttons", () => {
+    const view = makeView();
+    mountToolbar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+    });
+    const buttons = host.querySelectorAll<HTMLButtonElement>(".viewer-toolbar-btn");
+    // First button is the mode toggle, second is the TOC toggle.
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    const [editBtn, tocBtn] = [buttons[0], buttons[1]];
+
+    // Both render an inline <svg> child (no text label).
+    expect(editBtn.querySelector("svg")).not.toBeNull();
+    expect(tocBtn.querySelector("svg")).not.toBeNull();
+    expect(editBtn.textContent?.trim()).toBe("");
+    expect(tocBtn.textContent?.trim()).toBe("");
+
+    // Both expose a localized aria-label and a tooltip via title.
+    expect(editBtn.getAttribute("aria-label")).toBeTruthy();
+    expect(editBtn.getAttribute("title")).toBeTruthy();
+    expect(tocBtn.getAttribute("aria-label")).toBeTruthy();
+    expect(tocBtn.getAttribute("title")).toBeTruthy();
+
+    // Icon variant class is applied so the CSS knows to size as a square hit
+    // target instead of the default text-button padding.
+    expect(editBtn.classList.contains("viewer-toolbar-btn--icon")).toBe(true);
+    expect(tocBtn.classList.contains("viewer-toolbar-btn--icon")).toBe(true);
+  });
+
+  it("reflects edit mode and sidebar visibility via aria-pressed", () => {
+    const view = makeView();
+    const handle = mountToolbar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+      initialSidebarVisible: false,
+    });
+    const buttons = host.querySelectorAll<HTMLButtonElement>(".viewer-toolbar-btn");
+    const [editBtn, tocBtn] = [buttons[0], buttons[1]];
+
+    // Reading mode + sidebar hidden → both pressed=false.
+    expect(editBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(tocBtn.getAttribute("aria-pressed")).toBe("false");
+
+    handle.setMode("edit");
+    expect(editBtn.getAttribute("aria-pressed")).toBe("true");
+
+    handle.setSidebarVisible(true);
+    expect(tocBtn.getAttribute("aria-pressed")).toBe("true");
+
+    handle.setSidebarVisible(false);
+    expect(tocBtn.getAttribute("aria-pressed")).toBe("false");
+  });
+});
 
 describe("computeDocStats", () => {
   it("returns zero for an empty document", () => {

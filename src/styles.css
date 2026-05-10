@@ -272,6 +272,35 @@ html.theme-dark  { color-scheme: dark; }
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Icon variant: square hit target sized to match the text-button height (the
+   text variant is ~24px tall: 12px line + 6px×2 vertical padding ± borders).
+   Centers the inline SVG so the visible glyph sits on the same baseline as
+   the dirty indicator and path readout. */
+.viewer-toolbar-btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+}
+.viewer-toolbar-btn--icon > svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+/* Active / pressed state — used by the Edit toggle while in edit mode and
+   the TOC toggle while the sidebar is open. Filled background plus accent
+   border reads as "on" against the muted-outline default. Works in both
+   themes because both colors come from CSS variables. */
+.viewer-toolbar-btn[aria-pressed="true"] {
+  background: var(--code-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.viewer-toolbar-btn[aria-pressed="true"]:hover {
+  background: var(--code-bg);
+}
 .viewer-dirty-indicator {
   color: var(--accent);
   font-size: 16px;
@@ -413,12 +442,23 @@ html.theme-dark  { color-scheme: dark; }
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-.viewer-folder-list { display: flex; flex-direction: column; gap: 1px; }
-.viewer-folder-item.filter-hidden { display: none; }
+/* Bounded scroll area so a deep folder can't push the TOC ("Contents") below
+   the fold. The TOC (.viewer-toc) is the outer scroll container; this inner
+   region scrolls independently when the tree exceeds ~40% of the sidebar. */
+.viewer-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
 .viewer-folder-item {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 3px 8px;
+  /* Indent grows with tree depth; chevron column adds a constant offset for
+     leaf files so they align with the folder label, not the chevron. */
+  padding: 3px 8px 3px calc(8px + var(--depth, 0) * 12px);
   color: var(--fg);
   background: transparent;
   border: 0;
@@ -440,10 +480,18 @@ html.theme-dark  { color-scheme: dark; }
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-.viewer-folder-depth-1 { padding-left: 16px; }
-.viewer-folder-depth-2 { padding-left: 26px; }
-.viewer-folder-depth-3 { padding-left: 36px; }
-.viewer-folder-depth-4 { padding-left: 46px; }
+.viewer-folder-dir { color: var(--fg); font-weight: 500; }
+.viewer-folder-chevron {
+  display: inline-block;
+  width: 12px;
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.viewer-folder-label { flex: 1; min-width: 0; word-break: break-all; }
+/* Files don't have a chevron — pad the chevron column so names align. */
+.viewer-folder-file { padding-left: calc(8px + var(--depth, 0) * 12px + 16px); }
 .viewer-folder-empty { color: var(--muted); font-size: 12px; margin: 0; }
 
 /* TOC sidebar — width is JS-driven (drag handle on the right edge), with

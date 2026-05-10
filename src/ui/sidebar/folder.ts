@@ -16,9 +16,70 @@ export interface MountFolderOptions {
   onActivate: (path: string) => void;
 }
 
+interface FileNode {
+  kind: "file";
+  name: string;
+  path: string;
+  relative: string;
+}
+
+interface DirNode {
+  kind: "dir";
+  name: string;
+  /** Path within the root, e.g. "docs/superpowers". Empty for the root itself. */
+  relative: string;
+  children: TreeNode[];
+}
+
+type TreeNode = FileNode | DirNode;
+
+function splitSegments(rel: string): string[] {
+  return rel.split(/[\\/]/).filter((s) => s.length > 0);
+}
+
+/** Build a folder tree from the flat sorted list returned by the Rust walker. */
+function buildTree(entries: MarkdownFileEntry[]): DirNode {
+  const root: DirNode = { kind: "dir", name: "", relative: "", children: [] };
+
+  for (const entry of entries) {
+    const segs = splitSegments(entry.relative);
+    if (segs.length === 0) continue;
+    let cursor = root;
+    for (let i = 0; i < segs.length - 1; i++) {
+      const name = segs[i];
+      let next = cursor.children.find(
+        (c): c is DirNode => c.kind === "dir" && c.name === name,
+      );
+      if (!next) {
+        const relParts = segs.slice(0, i + 1).join("/");
+        next = { kind: "dir", name, relative: relParts, children: [] };
+        cursor.children.push(next);
+      }
+      cursor = next;
+    }
+    cursor.children.push({
+      kind: "file",
+      name: segs[segs.length - 1],
+      path: entry.path,
+      relative: entry.relative,
+    });
+  }
+
+  // Folders first, then files, alphabetical within each group. Sort recursively.
+  const sortNode = (node: DirNode): void => {
+    node.children.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const c of node.children) if (c.kind === "dir") sortNode(c);
+  };
+  sortNode(root);
+  return root;
+}
+
 /** Mount a folder section above the existing TOC. Hidden until a folder is
- * opened. Renders a flat, sorted list of .md files with their path relative
- * to the folder root — depth is communicated via indent on '/' segments. */
+ * opened. Renders a tree of folders + .md files; folders are collapsed by
+ * default and can be expanded by clicking the disclosure triangle. */
 export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandle {
   const section = document.createElement("section");
   section.className = "viewer-folder hidden";
@@ -30,9 +91,6 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   const folderName = document.createElement("div");
   folderName.className = "viewer-folder-name";
 
-  // Filter input — substring match on the relative path. Hidden (via
-  // type=search default UA) browser controls are fine here since the
-  // toolbar style sheet renames borders/padding.
   const filter = document.createElement("input");
   filter.type = "search";
   filter.className = "viewer-folder-filter";
@@ -52,26 +110,117 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   }
 
   let activePath: string | null = null;
-
-  filter.addEventListener("input", () => {
-    const q = filter.value.trim().toLowerCase();
-    for (const item of list.querySelectorAll<HTMLElement>(".viewer-folder-item")) {
-      const rel = (item.textContent ?? "").toLowerCase();
-      const matches = q.length === 0 || rel.includes(q);
-      item.classList.toggle("filter-hidden", !matches);
-    }
-  });
+  let tree: DirNode = { kind: "dir", name: "", relative: "", children: [] };
+  /** Folder relative-paths (e.g. "docs/superpowers") that are user-expanded. */
+  const expanded = new Set<string>();
+  let currentFilter = "";
 
   function basename(path: string): string {
     const m = path.match(/[^\\/]+$/);
     return m ? m[0] : path;
   }
 
+  /** Containing folder (relative form) of a file's relative path, or "" if root. */
+  function dirnameOf(rel: string): string {
+    const segs = splitSegments(rel);
+    return segs.slice(0, -1).join("/");
+  }
+
+  /** Add a folder and all its ancestors to the expanded set. */
+  function expandAncestors(rel: string): void {
+    if (!rel) return;
+    const segs = splitSegments(rel);
+    for (let i = 1; i <= segs.length; i++) {
+      expanded.add(segs.slice(0, i).join("/"));
+    }
+  }
+
+  /** Does this subtree contain a file whose relative path matches the filter? */
+  function subtreeMatches(node: TreeNode, q: string): boolean {
+    if (node.kind === "file") return node.relative.toLowerCase().includes(q);
+    return node.children.some((c) => subtreeMatches(c, q));
+  }
+
+  function render(): void {
+    list.innerHTML = "";
+    if (tree.children.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "viewer-folder-empty";
+      empty.textContent = "No Markdown files in this folder.";
+      list.append(empty);
+      return;
+    }
+
+    const q = currentFilter.trim().toLowerCase();
+    const filtering = q.length > 0;
+
+    const renderChildren = (parent: DirNode, depth: number): void => {
+      for (const node of parent.children) {
+        if (filtering && !subtreeMatches(node, q)) continue;
+
+        if (node.kind === "dir") {
+          const isOpen = filtering || expanded.has(node.relative);
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "viewer-folder-item viewer-folder-dir";
+          row.style.setProperty("--depth", String(depth));
+          row.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          row.title = node.relative;
+
+          const chevron = document.createElement("span");
+          chevron.className = "viewer-folder-chevron";
+          chevron.setAttribute("aria-hidden", "true");
+          chevron.textContent = isOpen ? "▾" : "▸";
+
+          const label = document.createElement("span");
+          label.className = "viewer-folder-label";
+          label.textContent = node.name;
+
+          row.append(chevron, label);
+          row.addEventListener("click", () => {
+            if (filtering) return; // filter forces open; ignore toggles
+            if (expanded.has(node.relative)) expanded.delete(node.relative);
+            else expanded.add(node.relative);
+            render();
+          });
+          list.append(row);
+
+          if (isOpen) renderChildren(node, depth + 1);
+        } else {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "viewer-folder-item viewer-folder-file";
+          btn.style.setProperty("--depth", String(depth));
+          btn.title = node.relative;
+          btn.dataset.path = node.path;
+          btn.textContent = node.name;
+          if (node.path === activePath) {
+            btn.classList.add("active");
+            btn.setAttribute("aria-current", "true");
+          }
+          btn.addEventListener("click", () => opts.onActivate(node.path));
+          list.append(btn);
+        }
+      }
+    };
+
+    renderChildren(tree, 0);
+  }
+
+  filter.addEventListener("input", () => {
+    currentFilter = filter.value;
+    render();
+  });
+
   async function setFolder(root: string | null): Promise<void> {
     if (!root) {
       section.classList.add("hidden");
       list.innerHTML = "";
       folderName.textContent = "";
+      tree = { kind: "dir", name: "", relative: "", children: [] };
+      expanded.clear();
+      currentFilter = "";
+      filter.value = "";
       return;
     }
     folderName.textContent = basename(root);
@@ -90,40 +239,32 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
       return;
     }
 
-    list.innerHTML = "";
-    if (files.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "viewer-folder-empty";
-      empty.textContent = "No Markdown files in this folder.";
-      list.append(empty);
-      return;
+    tree = buildTree(files);
+    expanded.clear();
+    // Reveal the folder containing the active file, if any.
+    if (activePath) {
+      const match = files.find((f) => f.path === activePath);
+      if (match) expandAncestors(dirnameOf(match.relative));
     }
-
-    for (const entry of files) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      const depth = (entry.relative.match(/[\\/]/g) ?? []).length;
-      btn.className = `viewer-folder-item viewer-folder-depth-${Math.min(depth, 4)}`;
-      btn.textContent = entry.relative;
-      btn.title = entry.path;
-      btn.dataset.path = entry.path;
-      if (entry.path === activePath) btn.classList.add("active");
-      btn.addEventListener("click", () => opts.onActivate(entry.path));
-      list.append(btn);
-    }
+    render();
   }
 
   function setActiveFile(path: string | null): void {
     activePath = path;
-    for (const item of list.querySelectorAll<HTMLElement>(".viewer-folder-item")) {
-      const isActive = item.dataset.path === path;
-      item.classList.toggle("active", isActive);
-      if (isActive) {
-        item.setAttribute("aria-current", "true");
-      } else {
-        item.removeAttribute("aria-current");
+    if (path) {
+      // Find the entry to know which folder to reveal.
+      const stack: TreeNode[] = [...tree.children];
+      while (stack.length > 0) {
+        const node = stack.pop()!;
+        if (node.kind === "file" && node.path === path) {
+          expandAncestors(dirnameOf(node.relative));
+          break;
+        } else if (node.kind === "dir") {
+          stack.push(...node.children);
+        }
       }
     }
+    render();
   }
 
   return {
