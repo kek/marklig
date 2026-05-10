@@ -272,6 +272,35 @@ html.theme-dark  { color-scheme: dark; }
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Icon variant: square hit target sized to match the text-button height (the
+   text variant is ~24px tall: 12px line + 6px×2 vertical padding ± borders).
+   Centers the inline SVG so the visible glyph sits on the same baseline as
+   the dirty indicator and path readout. */
+.viewer-toolbar-btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+}
+.viewer-toolbar-btn--icon > svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+/* Active / pressed state — used by the Edit toggle while in edit mode and
+   the TOC toggle while the sidebar is open. Filled background plus accent
+   border reads as "on" against the muted-outline default. Works in both
+   themes because both colors come from CSS variables. */
+.viewer-toolbar-btn[aria-pressed="true"] {
+  background: var(--code-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.viewer-toolbar-btn[aria-pressed="true"]:hover {
+  background: var(--code-bg);
+}
 .viewer-dirty-indicator {
   color: var(--accent);
   font-size: 16px;

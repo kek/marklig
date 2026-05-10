@@ -2,6 +2,7 @@ import type { EditorView } from "@codemirror/view";
 
 import { setMode } from "../editor/editor";
 import type { Mode, ModeExtensions } from "../editor/editor";
+import { t } from "../i18n/strings";
 
 export interface ToolbarOptions {
   view: EditorView;
@@ -9,11 +10,16 @@ export interface ToolbarOptions {
   initialMode: Mode;
   onModeChange?: (mode: Mode) => void;
   onSidebarToggle?: () => void;
+  /** Whether the TOC sidebar is initially open — used to set the toggle's
+   * aria-pressed / active visual state at mount time. */
+  initialSidebarVisible?: boolean;
 }
 
 export interface ToolbarHandle {
   setDirty: (dirty: boolean) => void;
   setMode: (mode: Mode) => void;
+  /** Reflect TOC sidebar visibility in the toggle's pressed/active state. */
+  setSidebarVisible: (visible: boolean) => void;
   /** Update the document-stat readout (words / chars / reading time). */
   setStats: (stats: DocStats) => void;
   /** Update the path readout in the toolbar. Pass null when no doc is open. */
@@ -33,7 +39,9 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
 
   const toggle = document.createElement("button");
   toggle.type = "button";
-  toggle.className = "viewer-toolbar-btn";
+  toggle.className = "viewer-toolbar-btn viewer-toolbar-btn--icon";
+  // Edit toggle stays "pressed" while editing — that's the active state.
+  toggle.setAttribute("aria-pressed", "false");
 
   let mode: Mode = opts.initialMode;
   applyButtonLabel();
@@ -47,9 +55,11 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
 
   const sidebar = document.createElement("button");
   sidebar.type = "button";
-  sidebar.className = "viewer-toolbar-btn";
-  sidebar.textContent = "TOC";
-  sidebar.title = "Toggle table of contents";
+  sidebar.className = "viewer-toolbar-btn viewer-toolbar-btn--icon";
+  sidebar.innerHTML = ICON_TOC;
+  sidebar.setAttribute("aria-label", t("toolbar.toc"));
+  sidebar.title = t("toolbar.toc.title");
+  sidebar.setAttribute("aria-pressed", opts.initialSidebarVisible ? "true" : "false");
   sidebar.addEventListener("click", () => opts.onSidebarToggle?.());
 
   const dirty = document.createElement("span");
@@ -72,10 +82,22 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
   parent.prepend(bar);
 
   function applyButtonLabel(): void {
-    toggle.textContent = mode === "reading" ? "Edit" : "Read";
-    toggle.title = mode === "reading"
-      ? "Switch to edit mode (Cmd/Ctrl+E)"
-      : "Switch to reading mode (Cmd/Ctrl+E)";
+    // The edit toggle is a "current mode → press to switch" affordance:
+    //   reading mode  → button shows the EDIT icon, label "Edit"
+    //   edit mode     → button shows the READ icon, label "Read"
+    // aria-pressed reflects "edit mode is on" so screen readers convey the
+    // toggle state, not the icon glyph.
+    if (mode === "reading") {
+      toggle.innerHTML = ICON_EDIT;
+      toggle.setAttribute("aria-label", t("toolbar.edit"));
+      toggle.title = t("toolbar.edit.title");
+      toggle.setAttribute("aria-pressed", "false");
+    } else {
+      toggle.innerHTML = ICON_READ;
+      toggle.setAttribute("aria-label", t("toolbar.read"));
+      toggle.title = t("toolbar.read.title");
+      toggle.setAttribute("aria-pressed", "true");
+    }
   }
 
   return {
@@ -83,6 +105,9 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
     setMode(m) {
       mode = m;
       applyButtonLabel();
+    },
+    setSidebarVisible(visible) {
+      sidebar.setAttribute("aria-pressed", visible ? "true" : "false");
     },
     setPath(p) {
       // Show the file name in the toolbar (so it's always visible regardless
@@ -131,3 +156,38 @@ export function computeDocStats(source: string): DocStats {
   const readingMinutes = words === 0 ? 0 : Math.max(1, Math.ceil(words / 200));
   return { words, chars, readingMinutes };
 }
+
+// Inline SVGs (Lucide-style 24×24 outline strokes). Embedded as strings so the
+// app stays free of icon-font / icon-package dependencies. `aria-hidden` keeps
+// AT from announcing the glyph — the surrounding button carries the label.
+// Strokes use `currentColor` so dark/light themes inherit the correct hue from
+// the toolbar button's color, no per-theme overrides needed.
+const SVG_ATTRS =
+  'xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" ' +
+  'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true" focusable="false"';
+
+/** Lucide `pencil` (edit). */
+const ICON_EDIT =
+  `<svg ${SVG_ATTRS}>` +
+  `<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>` +
+  `<path d="m15 5 4 4"/>` +
+  `</svg>`;
+
+/** Lucide `book-open` (read). */
+const ICON_READ =
+  `<svg ${SVG_ATTRS}>` +
+  `<path d="M12 7v14"/>` +
+  `<path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>` +
+  `</svg>`;
+
+/** Lucide `list` (table of contents). */
+const ICON_TOC =
+  `<svg ${SVG_ATTRS}>` +
+  `<path d="M3 5h.01"/>` +
+  `<path d="M3 12h.01"/>` +
+  `<path d="M3 19h.01"/>` +
+  `<path d="M8 5h13"/>` +
+  `<path d="M8 12h13"/>` +
+  `<path d="M8 19h13"/>` +
+  `</svg>`;

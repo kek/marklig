@@ -95,6 +95,14 @@ export const EN = {
   // Transient notices
   "notice.orphan": "This file is no longer on disk. Save As to choose a new location.",
   "notice.reloaded": "Reloaded from disk",
+
+  // Toolbar buttons (icon buttons need a localized aria-label / title)
+  "toolbar.edit": "Edit",
+  "toolbar.edit.title": "Switch to edit mode (Cmd/Ctrl+E)",
+  "toolbar.read": "Read",
+  "toolbar.read.title": "Switch to reading mode (Cmd/Ctrl+E)",
+  "toolbar.toc": "Table of contents",
+  "toolbar.toc.title": "Toggle table of contents",
 } as const;
 
 export type StringKey = keyof typeof EN;

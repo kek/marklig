@@ -179,6 +179,7 @@ async function bootstrap(): Promise<void> {
     view,
     modeExtensions,
     initialMode: "reading",
+    initialSidebarVisible: toc.isVisible(),
     onModeChange: (m) => {
       currentMode = m;
       document.documentElement.dataset.mode = m;
@@ -187,6 +188,7 @@ async function bootstrap(): Promise<void> {
       const next = !toc.isVisible();
       toc.setVisible(next);
       recordExplicitToggle(next);
+      toolbar.setSidebarVisible(next);
     },
   });
 
@@ -209,6 +211,7 @@ async function bootstrap(): Promise<void> {
     const next = !toc.isVisible();
     toc.setVisible(next);
     recordExplicitToggle(next);
+    toolbar.setSidebarVisible(next);
   });
 
   let currentPath: string | null = initialDoc?.path ?? null;
@@ -224,6 +227,7 @@ async function bootstrap(): Promise<void> {
       if (!toc.isVisible()) {
         toc.setVisible(true);
         recordExplicitToggle(true);
+        toolbar.setSidebarVisible(true);
       }
       folder.setActiveFile(currentPath);
     }
@@ -432,6 +436,7 @@ async function bootstrap(): Promise<void> {
       const next = !toc.isVisible();
       toc.setVisible(next);
       recordExplicitToggle(next);
+      toolbar.setSidebarVisible(next);
     },
     setTheme: (t) => setActiveTheme(t),
     zoomIn: () => zoomByFn(view, +1),
