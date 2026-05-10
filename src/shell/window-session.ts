@@ -228,28 +228,59 @@ export async function recordCurrentWindowState(
 }
 
 /**
- * Install a `beforeunload` handler that snapshots the window's state. The
- * provided getters are read at unload time, so they always see the latest
- * path/mode/scroll values. Returns an unsubscribe function.
+ * Install a Tauri close-requested handler that snapshots the window's state
+ * before letting the close proceed. The provided getters are read at close
+ * time, so they always see the latest path/mode/scroll values. Returns an
+ * unsubscribe function.
  *
- * Note: `beforeunload` handlers must be synchronous-ish; we kick off the
- * persistence as a fire-and-forget promise. The Tauri webview waits for
- * pending microtasks long enough for `Store.save()` to land in normal
- * close paths; in a hard kill (SIGKILL / power loss) this is best-effort,
- * which matches the rest of the recovery story.
+ * `beforeunload` is unreliable here: it fires fire-and-forget, so an async
+ * IPC `Store.save()` typically does not complete before the process exits on
+ * Cmd+Q (especially when multiple windows close simultaneously). Tauri's
+ * `onCloseRequested` lets us preventDefault, await the save, then explicitly
+ * destroy the window — guaranteeing the entry lands on disk.
  */
 export function installWindowSessionPersistence(getters: {
   currentPath: () => string | null;
   scrollTop: () => number;
   mode: () => WindowMode;
 }): () => void {
-  const handler = (): void => {
+  const win = getCurrentWindow();
+  let unlisten: (() => void) | null = null;
+  let alreadyClosing = false;
+
+  void win.onCloseRequested(async (event) => {
+    if (alreadyClosing) return; // re-entry guard
+    alreadyClosing = true;
+    event.preventDefault();
+    try {
+      await recordCurrentWindowState({
+        path: getters.currentPath(),
+        scrollTop: getters.scrollTop(),
+        mode: getters.mode(),
+      });
+    } catch {
+      // ignore — never block close on a persistence failure
+    }
+    try {
+      await win.destroy();
+    } catch {
+      // last resort
+    }
+  }).then((u) => { unlisten = u; });
+
+  // Keep the `beforeunload` path too as a best-effort backup for hot-reload /
+  // dev-server unloads where close-requested doesn't fire.
+  const beforeunloadHandler = (): void => {
     void recordCurrentWindowState({
       path: getters.currentPath(),
       scrollTop: getters.scrollTop(),
       mode: getters.mode(),
     });
   };
-  window.addEventListener("beforeunload", handler);
-  return () => window.removeEventListener("beforeunload", handler);
+  window.addEventListener("beforeunload", beforeunloadHandler);
+
+  return () => {
+    window.removeEventListener("beforeunload", beforeunloadHandler);
+    unlisten?.();
+  };
 }
