@@ -44,6 +44,7 @@ import { installWatcher, type WatcherHandle } from "./shell/watcher";
 import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
 import { recordRecent } from "./shell/recents";
 import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
+import { getFilePosition, setFilePosition, canonicalizePath } from "./shell/file-positions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
@@ -166,7 +167,131 @@ async function bootstrap(): Promise<void> {
     const rect = view.scrollDOM.getBoundingClientRect();
     const offset = view.posAtCoords({ x: rect.left + 10, y: rect.top + 10 });
     if (offset !== null) toc.setActive(offset);
+    schedulePositionSave();
   }, { passive: true });
+
+  // ── Per-file scroll/cursor persistence ───────────────────────────────────
+  // Debounce settings-store writes: scrolling fires many events per second;
+  // each `setFilePosition` reads + writes the entire map and saves the JSON
+  // file, so we batch up to one write per ~500ms of idle.
+  const POSITION_SAVE_DEBOUNCE_MS = 500;
+  let positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  // After a doc-load, ignore the synthetic scroll events that fire while
+  // decorations inflate the height (Shiki/Mermaid placeholders → real nodes).
+  // The restore path arms this; the next user scroll past
+  // `positionSaveSuppressedUntil` re-enables saves.
+  let positionSaveSuppressedUntil = 0;
+
+  function suppressPositionSave(forMs: number): void {
+    positionSaveSuppressedUntil = Date.now() + forMs;
+  }
+
+  function captureCurrentPosition(): { scrollTop: number; line: number; col: number } {
+    const scrollTop = view.scrollDOM.scrollTop;
+    const head = view.state.selection.main.head;
+    const lineObj = view.state.doc.lineAt(head);
+    return {
+      scrollTop,
+      line: lineObj.number,
+      col: head - lineObj.from,
+    };
+  }
+
+  async function persistCurrentPosition(): Promise<void> {
+    if (!currentPath) return;
+    if (Date.now() < positionSaveSuppressedUntil) return;
+    try {
+      const key = await canonicalizePath(currentPath);
+      await setFilePosition(key, captureCurrentPosition());
+    } catch {
+      // Best-effort — storage failures shouldn't break editing.
+    }
+  }
+
+  function schedulePositionSave(): void {
+    if (positionSaveTimer) clearTimeout(positionSaveTimer);
+    positionSaveTimer = setTimeout(() => {
+      positionSaveTimer = null;
+      void persistCurrentPosition();
+    }, POSITION_SAVE_DEBOUNCE_MS);
+  }
+
+  function flushPositionSaveSync(): void {
+    // beforeunload runs synchronously; we kick off the promise but can't await
+    // it. Tauri's @tauri-apps/plugin-store flushes on a debounced background
+    // task and survives normal app exit; if the renderer is killed mid-flight
+    // we lose at most the trailing edit, which is acceptable for cursor
+    // position (recovery is the load-bearing path).
+    if (positionSaveTimer) {
+      clearTimeout(positionSaveTimer);
+      positionSaveTimer = null;
+    }
+    void persistCurrentPosition();
+  }
+  window.addEventListener("beforeunload", flushPositionSaveSync);
+
+  // Restore the saved position once the doc is loaded and decorations have
+  // had a chance to settle. We schedule across two requestAnimationFrames:
+  // 1) decoration field is committed at the end of the current frame after
+  //    the change/refresh dispatch; 2) the next rAF gives the layout pass
+  //    time to flush. Async widget caches (Shiki / Mermaid) re-fire the
+  //    decoration field as their results arrive, so we re-apply the scroll
+  //    until either the user interacts (any wheel/keydown/pointerdown) or
+  //    a short watchdog window elapses — without that, a cold-cache
+  //    Shiki render lands AFTER our restore and pushes content down.
+  function restorePosition(target: { scrollTop: number; line: number; col: number }): void {
+    suppressPositionSave(2500);
+    let userInteracted = false;
+    const markInteraction = (): void => { userInteracted = true; };
+    const interactionEvents: Array<keyof WindowEventMap> = ["wheel", "keydown", "pointerdown", "touchstart"];
+    for (const ev of interactionEvents) {
+      window.addEventListener(ev, markInteraction, { capture: true, once: true });
+    }
+    const cleanup = (): void => {
+      for (const ev of interactionEvents) {
+        window.removeEventListener(ev, markInteraction, true);
+      }
+    };
+
+    // Best-effort cursor restore. Clamp to the current document size so a
+    // remembered line past EOF doesn't blow up.
+    try {
+      const docLines = view.state.doc.lines;
+      const targetLine = Math.max(1, Math.min(target.line || 1, docLines));
+      const lineObj = view.state.doc.line(targetLine);
+      const offset = Math.min(lineObj.from + Math.max(0, target.col), lineObj.to);
+      view.dispatch({ selection: { anchor: offset, head: offset } });
+    } catch {
+      // Out-of-range or empty doc — skip cursor restore, scroll-only is fine.
+    }
+
+    let attempt = 0;
+    const reapply = (): void => {
+      if (userInteracted) { cleanup(); return; }
+      view.scrollDOM.scrollTop = target.scrollTop;
+      attempt++;
+      // Re-apply for ~1.5s to ride out late Shiki/Mermaid inflation. Each
+      // attempt waits one rAF; the loop self-stops on user interaction.
+      if (attempt < 90) requestAnimationFrame(reapply);
+      else cleanup();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(reapply));
+  }
+
+  /** Apply a saved position right after a doc-load, unless the URL has an
+   * explicit `#anchor` fragment (which the user / external link explicitly
+   * asked us to honor). */
+  async function maybeRestorePositionFor(path: string | null): Promise<void> {
+    if (!path) return;
+    if (window.location.hash && window.location.hash.length > 1) return;
+    try {
+      const key = await canonicalizePath(path);
+      const saved = await getFilePosition(key);
+      if (saved) restorePosition(saved);
+    } catch {
+      // best-effort
+    }
+  }
 
   const modeExtensions = {
     reading: { decorations: readingSet, keymap: readingKeymap },
@@ -347,6 +472,16 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => stopCloseHandler());
 
   async function loadAndApplyDoc(path: string): Promise<void> {
+    // Capture the OUTGOING file's position before we replace the buffer so
+    // tab-switching / Open-Recent doesn't lose where the user was.
+    if (currentPath) {
+      try {
+        const prevKey = await canonicalizePath(currentPath);
+        await setFilePosition(prevKey, captureCurrentPosition());
+      } catch {
+        // best-effort
+      }
+    }
     const doc = await readDoc(path);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: doc.source },
@@ -360,6 +495,7 @@ async function bootstrap(): Promise<void> {
     if (currentPath) {
       await recordRecent(currentPath);
       await startWatching(currentPath);
+      await maybeRestorePositionFor(currentPath);
     }
   }
 
@@ -523,6 +659,14 @@ async function bootstrap(): Promise<void> {
 
   if (currentPath) {
     await startWatching(currentPath);
+  }
+
+  // Restore the saved scroll/cursor for the initial doc. Skipped when the
+  // initial doc was supplied by crash recovery (the recovered buffer is
+  // newer than the on-disk version, so its prior scroll position is stale)
+  // and skipped when an explicit URL hash is present.
+  if (currentPath && !recoveredDoc) {
+    await maybeRestorePositionFor(currentPath);
   }
 
   const dropWindow = getCurrentWindow();
