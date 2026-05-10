@@ -50,6 +50,28 @@ CI matrix runs Ubuntu, macOS, and Windows on every push.
 
 See `REQUIREMENTS.md` for the full v1 spec and `ROADMAP.md` for the sub-spec breakdown and shipping status.
 
+## macOS file associations
+
+Viewer's `Info.plist` declares itself as an editor for `.md`, `.markdown`, `.mdx`, and `.mdown` files via `CFBundleDocumentTypes`, and it exports the `net.daringfireball.markdown` UTI (conforming to `public.plain-text`). When you install the built `Viewer.app` into `/Applications`, macOS LaunchServices picks this up automatically the first time the app is launched, indexed by Spotlight, or copied to a tracked location.
+
+If "Open With → Viewer" doesn't show up in Finder, force-register the bundle:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f /Applications/Viewer.app
+```
+
+(Useful when you ran a fresh build out of the source tree without copying it to `/Applications`, or after replacing the bundle in place.)
+
+To set Viewer as your default Markdown handler:
+
+1. In Finder, right-click any `.md` file and choose **Get Info**.
+2. Under **Open with**, select **Viewer**.
+3. Click **Change All…** to apply the choice to every `.md` file.
+
+Repeat for `.markdown`, `.mdx`, and `.mdown` if you want them handled the same way — macOS keeps a separate default handler per extension/UTI.
+
+When Viewer is already running, double-clicking a `.md` file in Finder routes through Tauri's `RunEvent::Opened`. The Rust shell forwards the path to the focused (or, failing that, main) window only — other open Viewer windows aren't disturbed — and brings that window forward.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
