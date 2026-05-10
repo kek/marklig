@@ -1,7 +1,7 @@
 mod commands;
 
 use commands::watcher::WatcherState;
-use tauri::{Emitter, RunEvent};
+use tauri::{Emitter, Manager, RunEvent};
 
 pub fn run() {
     tauri::Builder::default()
@@ -42,7 +42,30 @@ pub fn run() {
                     })
                     .collect();
                 if !paths.is_empty() {
-                    let _ = app.emit("file-open-request", paths);
+                    // Route to a single window, not all of them — when several
+                    // windows are open, broadcasting would have every window
+                    // run the open flow simultaneously. Prefer the currently
+                    // focused window; fall back to "main"; fall back to any
+                    // window; last-resort broadcast (covers the cold-start
+                    // case where no webview has finished registering yet).
+                    let target = app
+                        .webview_windows()
+                        .into_iter()
+                        .find(|(_, w)| w.is_focused().unwrap_or(false))
+                        .or_else(|| {
+                            app.webview_windows()
+                                .into_iter()
+                                .find(|(label, _)| label == "main")
+                        })
+                        .or_else(|| app.webview_windows().into_iter().next());
+                    if let Some((label, win)) = target {
+                        // Bring the chosen window forward so the user sees the
+                        // freshly opened document, not whatever was on top.
+                        let _ = win.set_focus();
+                        let _ = app.emit_to(label.as_str(), "file-open-request", paths);
+                    } else {
+                        let _ = app.emit("file-open-request", paths);
+                    }
                 }
             }
         });
