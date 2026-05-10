@@ -55,7 +55,7 @@ import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recov
 import { getFilePosition, setFilePosition, canonicalizePath } from "./shell/file-positions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit, emitTo } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { buildAndAttachMenu } from "./shell/menus";
 import { setActiveTheme } from "./editor/theme";
@@ -395,6 +395,11 @@ async function bootstrap(): Promise<void> {
 
   let currentPath: string | null = initialDoc?.path ?? null;
   let currentFolder: string | null = null;
+  const selfLabel = getCurrentWindow().label;
+  // Map<window label, current folder root>. Populated from broadcasts so the
+  // main window can route Finder opens to a window already showing the same
+  // tree. Only the main window consults this map.
+  const folderByLabel = new Map<string, string | null>();
   if (currentPath) await recordRecent(currentPath);
 
   // Multi-window session restore: snapshot this window's state on
@@ -419,6 +424,9 @@ async function bootstrap(): Promise<void> {
     currentFolder = root;
     await setValue("currentFolder", root);
     await folder.setFolder(root);
+    // Announce so the main window's routing map stays in sync. Loopback to
+    // this window's own listener is harmless (same value).
+    void emit("viewer:window-folder", { label: selfLabel, folder: root });
     if (root) {
       // Make sure the user can actually see the panel.
       if (!toc.isVisible()) {
@@ -429,6 +437,42 @@ async function bootstrap(): Promise<void> {
       folder.setActiveFile(currentPath);
     }
   }
+
+  // Every window listens for a targeted open request; main routes here when
+  // it has decided this window owns the file's folder. emitTo only delivers
+  // to the named window, so other windows ignore by virtue of not receiving.
+  const unsubTargetedOpen = await listen<string>("viewer:open-file", async (e) => {
+    const md = typeof e.payload === "string" ? e.payload : null;
+    if (!md) return;
+    await openWithDirtyPrompt(md);
+    await getCurrentWindow().setFocus();
+  });
+  window.addEventListener("beforeunload", () => unsubTargetedOpen());
+
+  // Track other windows' folder roots (main only). Each window broadcasts on
+  // every setCurrentFolder; close announcements clear stale entries (best-
+  // effort — beforeunload may not always deliver, so we also verify the
+  // window still exists at route time).
+  if (isMainWindow()) {
+    const unsubFolderState = await listen<{ label: string; folder: string | null }>(
+      "viewer:window-folder",
+      (e) => { folderByLabel.set(e.payload.label, e.payload.folder); },
+    );
+    const unsubWindowClosed = await listen<{ label: string }>(
+      "viewer:window-closed",
+      (e) => { folderByLabel.delete(e.payload.label); },
+    );
+    window.addEventListener("beforeunload", () => {
+      unsubFolderState();
+      unsubWindowClosed();
+    });
+  }
+  // Announce this window's initial state (null until syncFolderToFile runs)
+  // so the main window's map sees us even when we have no folder yet.
+  void emit("viewer:window-folder", { label: selfLabel, folder: null });
+  window.addEventListener("beforeunload", () => {
+    void emit("viewer:window-closed", { label: selfLabel });
+  });
 
   /** Switch the folder sidebar to the file's repo (nearest .git/.jj/.hg/.svn
    * ancestor) or its parent directory if no repo is found. Best-effort —
@@ -795,13 +839,41 @@ async function bootstrap(): Promise<void> {
 
   // OS file-association launches (double-click a .md, "Open With…", drag-drop
   // onto the dock/taskbar) deliver the path via Tauri's RunEvent::Opened.
-  // The Rust side forwards the paths as `file-open-request`; pick the first
-  // markdown one and route through the dirty-prompt wrapper.
+  // The Rust side forwards the paths as `file-open-request`; only the main
+  // window decides what to do (the emit broadcasts to every window, so without
+  // this gate each window would react independently). Routing:
+  //   1. Resolve the file's folder root.
+  //   2. If any existing window already shows that root, hand the file off
+  //      there via emitTo + focus.
+  //   3. Otherwise spawn a new window pre-loaded with the file.
+  // Cold-launch is unrelated: the very first window's bootstrap consumes the
+  // event via waitForFileOpenRequest and loads it into itself.
   const unsubFileOpen = await listen<string[]>("file-open-request", async (e) => {
+    if (!isMainWindow()) return;
     const paths = Array.isArray(e.payload) ? e.payload : [];
     const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
     if (!md) return;
-    await openWithDirtyPrompt(md);
+    let targetRoot: string | null = null;
+    try { targetRoot = await resolveFolderRoot(md); } catch { /* fall through */ }
+    let matchedLabel: string | null = null;
+    if (targetRoot) {
+      for (const [label, folder] of folderByLabel) {
+        if (folder !== targetRoot) continue;
+        // The map can lag a closed window by a frame; verify before routing.
+        const w = await WebviewWindow.getByLabel(label);
+        if (w) { matchedLabel = label; break; }
+        folderByLabel.delete(label);
+      }
+    }
+    if (matchedLabel) {
+      await emitTo(matchedLabel, "viewer:open-file", md);
+      if (matchedLabel !== selfLabel) {
+        const w = await WebviewWindow.getByLabel(matchedLabel);
+        await w?.setFocus();
+      }
+    } else {
+      await spawnNewWindow(md);
+    }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
 
