@@ -20,6 +20,7 @@ pub fn run() {
             commands::files::clear_recovery,
             commands::files::list_markdown_files,
             commands::files::is_directory,
+            commands::files::path_exists,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
         ])
