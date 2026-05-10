@@ -42,7 +42,7 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
@@ -394,6 +394,7 @@ async function bootstrap(): Promise<void> {
   });
 
   let currentPath: string | null = initialDoc?.path ?? null;
+  let currentFolder: string | null = null;
   if (currentPath) await recordRecent(currentPath);
 
   // Multi-window session restore: snapshot this window's state on
@@ -410,6 +411,12 @@ async function bootstrap(): Promise<void> {
   /** Open `root` as the current folder: persist it, list .md files in the
    * sidebar, ensure the sidebar is visible. Pass null to clear. */
   async function setCurrentFolder(root: string | null): Promise<void> {
+    if (root === currentFolder) {
+      // No-op if unchanged — just resync active highlight in case the file did.
+      if (root) folder.setActiveFile(currentPath);
+      return;
+    }
+    currentFolder = root;
     await setValue("currentFolder", root);
     await folder.setFolder(root);
     if (root) {
@@ -423,19 +430,35 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Restore the last-opened folder (if any) so the file list is right where
-  // the user left it. Failures (folder moved/deleted/permission-denied) are
-  // silent — currentFolder stays null and the panel stays hidden.
-  void (async () => {
-    const stored = await getValue<string | null>("currentFolder");
-    if (typeof stored === "string" && stored.length > 0) {
-      try {
-        await setCurrentFolder(stored);
-      } catch {
-        await setValue("currentFolder", null);
-      }
+  /** Switch the folder sidebar to the file's repo (nearest .git/.jj/.hg/.svn
+   * ancestor) or its parent directory if no repo is found. Best-effort —
+   * failures are swallowed so a folder lookup never blocks the open. */
+  async function syncFolderToFile(path: string): Promise<void> {
+    try {
+      const root = await resolveFolderRoot(path);
+      if (root) await setCurrentFolder(root);
+    } catch {
+      // Ignore — keep whatever folder was already shown.
     }
-  })();
+  }
+
+  // Initial folder: derive from the opened file if there is one; otherwise
+  // fall back to the last-used folder. Either way the sidebar lands in a
+  // useful place at startup.
+  if (currentPath) {
+    void syncFolderToFile(currentPath);
+  } else {
+    void (async () => {
+      const stored = await getValue<string | null>("currentFolder");
+      if (typeof stored === "string" && stored.length > 0) {
+        try {
+          await setCurrentFolder(stored);
+        } catch {
+          await setValue("currentFolder", null);
+        }
+      }
+    })();
+  }
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
@@ -565,6 +588,7 @@ async function bootstrap(): Promise<void> {
       await recordRecent(currentPath);
       await startWatching(currentPath);
       await maybeRestorePositionFor(currentPath);
+      await syncFolderToFile(currentPath);
     }
   }
 
@@ -611,6 +635,7 @@ async function bootstrap(): Promise<void> {
       await recordRecent(dest);
       await startWatching(dest);
       folder.setActiveFile(dest);
+      await syncFolderToFile(dest);
     },
     revealInFileManager: async () => {
       if (!currentPath) {
