@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox is required for Quick Look extensions. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <!-- Read-only access to user-selected files. Quick Look hands the file
+         path to the extension, which counts as user-selected for this purpose. -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+    <!-- No network egress: the renderer never speaks to the network and the
+         WKWebView has JavaScript disabled. -->
+</dict>
+</plist>

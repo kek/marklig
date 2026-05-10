@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Viewer Markdown Thumbnail</string>
+    <key>CFBundleExecutable</key>
+    <string>ViewerThumbnail</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.viewer.app.thumbnail</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>ViewerThumbnail</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <!--
+        Modern ExtensionKit-style declaration. macOS 14+ reads attributes from
+        EXAppExtensionAttributes; the underlying extension point
+        com.apple.quicklook.thumbnail is the only one published as
+        EXExtensionPointIsPublic = true in
+        /System/Library/ExtensionKit/ExtensionPoints/com.apple.quicklook.thumbnail.appexpt
+        (the .secure variant exists but is private to OS-bundled extensions).
+        The same appexpt sets EXSupportsNSExtensionPlistKeys = true, so the
+        principal-class hint can travel under either of the two well-known keys.
+    -->
+    <key>EXAppExtensionAttributes</key>
+    <dict>
+        <key>EXExtensionPointIdentifier</key>
+        <string>com.apple.quicklook.thumbnail</string>
+        <key>QLSupportedContentTypes</key>
+        <array>
+            <string>net.daringfireball.markdown</string>
+            <string>public.markdown</string>
+            <string>com.viewer.app.markdown</string>
+        </array>
+        <key>QLThumbnailMinimumDimension</key>
+        <integer>16</integer>
+    </dict>
+    <!--
+        Legacy NSExtension dictionary, retained so the bundle is also valid for
+        the older PluginKit code path that powers Quick Look on macOS 12 / 13
+        and that some quicklookd dispatch paths still consult on macOS 14+.
+        Keeping both keys is supported because the extension point sets
+        EXSupportsNSExtensionPlistKeys = true.
+    -->
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>QLSupportedContentTypes</key>
+            <array>
+                <string>net.daringfireball.markdown</string>
+                <string>public.markdown</string>
+                <string>com.viewer.app.markdown</string>
+            </array>
+            <key>QLThumbnailMinimumDimension</key>
+            <integer>16</integer>
+        </dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.quicklook.thumbnail</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).ThumbnailProvider</string>
+    </dict>
+</dict>
+</plist>

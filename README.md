@@ -40,6 +40,54 @@ npm run tauri:build
 
 CI matrix runs Ubuntu, macOS, and Windows on every push.
 
+### macOS Quick Look extension
+
+The macOS build ships a Quick Look preview + thumbnail extension so pressing
+Space on a `.md` file in Finder shows a fully rendered preview matching
+Viewer's reading mode, and column-view thumbnails get a branded "MD" badge
+plus the document's first heading.
+
+The extension is a pair of `.appex` bundles in `src-tauri/macos/quicklook/`,
+built with a hand-rolled `xcrun swiftc` script (no Xcode project needed).
+
+```bash
+# 1. Build the .appex bundles (universal arm64 + x86_64, ad-hoc signed):
+scripts/build-quicklook.sh
+# → target/quicklook/ViewerQuickLook.appex
+# → target/quicklook/ViewerThumbnail.appex
+
+# 2. Build the host .app:
+npm run tauri:build
+
+# 3. Copy the extensions into the .app's PlugIns directory:
+scripts/build-quicklook.sh --install \
+    src-tauri/target/release/bundle/macos/Viewer.app
+
+# 4. Drag Viewer.app to /Applications. Finder registers the extensions on
+#    first launch; pressing Space on any .md file then shows the rendered
+#    preview, and Finder's column / icon views use the branded thumbnail.
+```
+
+To smoke-test the renderer or the bundles in isolation:
+
+```bash
+scripts/test-quicklook.sh         # Swift fixtures for MarkdownRenderer
+qlmanage -p some.md               # render the preview to a Quick Look window
+qlmanage -t -s 256 -o /tmp some.md  # render a thumbnail PNG
+```
+
+See `src-tauri/macos/quicklook/README.md` for architecture notes, the
+sanitisation contract, what's deliberately deferred (math, Mermaid,
+syntax highlighting in code blocks), and the macOS 14+ format details
+(the thumbnail `Info.plist` declares the extension via both
+`EXAppExtensionAttributes` and `NSExtension`; the preview point only
+exists as a legacy `NSExtension` point on Tahoe).
+
+> Note: runtime activation by quicklookd requires a real `TeamIdentifier`.
+> Ad-hoc signed extensions register with `pluginkit` but are not spawned
+> into the sandboxed XPC pool, so end-to-end thumbnail/preview rendering
+> verifies only on a Developer ID-signed build.
+
 ## Architecture
 
 - `src/editor/` — CodeMirror setup, markdown-it parser, decoration producers (one per construct: headings, inline, lists, links, images, blockquotes, tables, code blocks, front matter, footnotes, math, mermaid, reading-mode widgets).
