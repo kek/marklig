@@ -112,7 +112,7 @@ pub struct MarkdownFileEntry {
 const MAX_FOLDER_DEPTH: u32 = 6;
 const MAX_FOLDER_ENTRIES: usize = 5_000;
 
-fn is_ignored(name: &str) -> bool {
+pub(crate) fn is_ignored(name: &str) -> bool {
     if name.starts_with('.') {
         return true;
     }

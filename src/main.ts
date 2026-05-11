@@ -49,6 +49,7 @@ import { buildHtmlExport } from "./export/html";
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
 import { installWatcher, type WatcherHandle } from "./shell/watcher";
+import { installFolderWatcher, type FolderWatcherHandle } from "./shell/folder-watcher";
 import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
 import { recordRecent } from "./shell/recents";
 import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
@@ -395,6 +396,7 @@ async function bootstrap(): Promise<void> {
 
   let currentPath: string | null = initialDoc?.path ?? null;
   let currentFolder: string | null = null;
+  let folderWatcherHandle: FolderWatcherHandle | null = null;
   if (currentPath) await recordRecent(currentPath);
 
   // Multi-window session restore: snapshot this window's state on
@@ -419,6 +421,23 @@ async function bootstrap(): Promise<void> {
     currentFolder = root;
     await setValue("currentFolder", root);
     await folder.setFolder(root);
+    // Swap the recursive folder watcher: stop the old one (if any) and start
+    // a new one for the new root. The watcher fires "viewer://folder-changed"
+    // when files appear/disappear so we can refresh the sidebar tree.
+    if (folderWatcherHandle) {
+      await folderWatcherHandle.stop();
+      folderWatcherHandle = null;
+    }
+    if (root) {
+      try {
+        folderWatcherHandle = await installFolderWatcher({
+          root,
+          onChanged: () => { void folder.refresh(); },
+        });
+      } catch (err) {
+        console.warn("folder watcher failed to start", err);
+      }
+    }
     if (root) {
       // Make sure the user can actually see the panel.
       if (!toc.isVisible()) {
@@ -698,6 +717,9 @@ async function bootstrap(): Promise<void> {
       await openPreferences();
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
+  });
+  window.addEventListener("beforeunload", () => {
+    if (folderWatcherHandle) void folderWatcherHandle.stop();
   });
 
   // Settings change from any source (prefs UI, future Tauri-store sync) →

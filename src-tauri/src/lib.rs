@@ -1,11 +1,13 @@
 mod commands;
 
+use commands::folder_watcher::FolderWatcherState;
 use commands::watcher::WatcherState;
 use tauri::{Emitter, Manager, RunEvent};
 
 pub fn run() {
     tauri::Builder::default()
         .manage(WatcherState::new())
+        .manage(FolderWatcherState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -24,6 +26,8 @@ pub fn run() {
             commands::files::resolve_folder_root,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
+            commands::folder_watcher::folder_watcher_start,
+            commands::folder_watcher::folder_watcher_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
