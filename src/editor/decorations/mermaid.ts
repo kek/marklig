@@ -61,11 +61,20 @@ export const mermaidCache = new MermaidCache();
 export const mermaidCacheEffect = StateEffect.define<void>();
 
 class MermaidWidget extends WidgetType {
-  constructor(readonly source: string) { super(); }
+  readonly entry: MermaidEntry | undefined;
+  constructor(readonly source: string) {
+    super();
+    // Capture the cache state at construction time so widget equality
+    // distinguishes a loading widget from a loaded-result widget for the same
+    // source. Without this, CodeMirror's eq check returns true on cache fill
+    // and the loading DOM is reused, leaving "Rendering diagram…" on screen
+    // until something else (e.g. a focus change) forces a redraw.
+    this.entry = mermaidCache.get(source);
+  }
   override toDOM(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "cm-md-mermaid";
-    const entry = mermaidCache.get(this.source);
+    const entry = this.entry;
     if (!entry) {
       wrap.classList.add("cm-md-mermaid-loading");
       wrap.textContent = "Rendering diagram…";
@@ -91,7 +100,9 @@ class MermaidWidget extends WidgetType {
     }
     return wrap;
   }
-  override eq(other: MermaidWidget): boolean { return other.source === this.source; }
+  override eq(other: MermaidWidget): boolean {
+    return other.source === this.source && other.entry === this.entry;
+  }
 }
 
 export const mermaidProducer: DecorationProducer = ({ source, tokens }) => {
