@@ -177,9 +177,9 @@ export async function clearWindowSession(): Promise<void> {
   }
 }
 
-/** Remove a single window's persisted entry — used when a window is closed
- *  individually (e.g. user clicks the close button) so it doesn't get
- *  resurrected on next launch. */
+/** Remove a single window's persisted entry — used by the close-requested
+ *  handler so a window closed individually doesn't get resurrected on the
+ *  next launch. */
 export async function removeWindowSessionEntry(label: string): Promise<void> {
   try {
     await deleteValue(entryKey(label));
@@ -252,14 +252,29 @@ export async function recordCurrentWindowState(
 /**
  * Install per-window state persistence.
  *
- * Cmd+Q shutdown is too tight for an async `beforeunload` IPC to land on
- * disk reliably (it fires fire-and-forget; Store.save() finishes after the
- * process is gone). Tauri's `onCloseRequested` handler can preventDefault
- * and await, but in practice with multiple windows on Cmd+Q the macOS
- * terminate sequence still races the await. So instead we save state
- * proactively while the window is alive: an immediate write on register,
- * a periodic write on a short interval, and a best-effort final write on
- * close-requested + beforeunload.
+ * Quit-vs-close on macOS is delineated by *which event path runs*, not by a
+ * flag we have to read. Tauri/Tao on macOS routes the two cases differently:
+ *
+ *   - Cmd-Q hits `applicationWillTerminate` and the runtime tears windows
+ *     down WITHOUT firing per-window `CloseRequested` events. The JS
+ *     close-requested handler below never runs. Each window's last periodic
+ *     tick (and `beforeunload`) leaves its `windowSession:<label>` entry
+ *     intact, so the next launch sees the multi-window set and restores it.
+ *
+ *   - Closing one window via the red X (or programmatic close) fires
+ *     `CloseRequested`. The handler removes that window's entry so it
+ *     doesn't come back on next launch. If this also happens to be the last
+ *     window — which on macOS triggers an auto-quit — every prior X-close
+ *     already removed its entry, so the store ends up empty and the next
+ *     launch starts with a single default window.
+ *
+ * The original implementation tried to distinguish via an `is_quitting` IPC
+ * flag, but the flag is only flipped on `RunEvent::ExitRequested`, which
+ * itself only fires *after the last window is destroyed* — far too late for
+ * the per-window close handler to read. Worse: the periodic tick wasn't
+ * stopped at close time, so its next firing would re-write the entry that
+ * had just been removed (which is how stale entries accumulated and caused
+ * "6 windows on every launch even after closing them all" → #34).
  *
  * Returns an unsubscribe function.
  */
@@ -290,10 +305,6 @@ export function installWindowSessionPersistence(getters: {
   // Periodic write — keeps scrollTop/mode/path fresh during the session.
   const interval = window.setInterval(() => { void recordNow(); }, SESSION_TICK_MS);
 
-  // Quit-vs-close: when the user closes one window of several, drop that
-  // window from the restore-on-next-launch set. When the user picks Quit
-  // (Cmd-Q), the Rust side has already flipped a flag so we preserve every
-  // window's entry. `is_quitting` is the IPC that exposes it.
   let unlisten: (() => void) | null = null;
   let alreadyClosing = false;
   const win = getCurrentWindow();
@@ -301,30 +312,21 @@ export function installWindowSessionPersistence(getters: {
     if (alreadyClosing) return;
     alreadyClosing = true;
     event.preventDefault();
-    let quitting = false;
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      quitting = await invoke<boolean>("is_quitting");
-    } catch {
-      // No is_quitting handler (older backend) — preserve the entry, since
-      // that matches the prior trunk behaviour of always saving.
-      quitting = true;
-    }
-    if (quitting) {
-      try { await recordNow(); } catch { /* ignore */ }
-    } else {
-      try { await removeWindowSessionEntry(win.label); } catch { /* ignore */ }
-    }
+    // Stop the periodic tick BEFORE the async remove + destroy chain. The
+    // earlier code left the interval running and the 1.5s tick frequently
+    // landed between `removeWindowSessionEntry` and `destroy()`, putting
+    // the just-removed entry straight back — that race is the root cause
+    // of #34.
+    window.clearInterval(interval);
+    try { await removeWindowSessionEntry(win.label); } catch { /* ignore */ }
     try { await win.destroy(); } catch { /* ignore */ }
   }).then((u) => { unlisten = u; });
 
-  // beforeunload is the last-line backstop. It fires fire-and-forget for both
-  // the user-close and the quit paths; the periodic tick (above) is the
-  // primary guarantor of fresh state, so beforeunload only needs to nudge a
-  // final write. On the user-close path the close-requested handler has
-  // already removed the entry, but a redundant recordNow here would re-add
-  // it before destroy lands — so we no-op on the close path by reading the
-  // alreadyClosing flag.
+  // beforeunload is the last-line backstop for the Cmd-Q teardown path:
+  // it nudges one more write so even a window that hasn't ticked in nearly
+  // 1500ms still has fresh state when restoration happens. Skipped when
+  // the user closed this window individually — the close-requested handler
+  // just removed the entry and a redundant write would resurrect it.
   const beforeunloadHandler = (): void => {
     if (alreadyClosing) return;
     void recordNow();
