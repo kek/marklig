@@ -138,6 +138,51 @@ describe("readingWidgetsProducer", () => {
     expect(r.some((x) => (x.spec as { widget?: unknown }).widget !== undefined && (x.spec as { block?: boolean }).block === true)).toBe(true);
   });
 
+  it("emits softbreak replace at interior paragraph newlines", () => {
+    // Paragraph reflow (#12): an interior `\n` inside a paragraph is replaced
+    // with a SoftBreakWidget so CM6 visually merges the source lines.
+    const src = "foo\nbar\nbaz\n";
+    const r = specs(src);
+    const softbreaks = r.filter((x) => {
+      const w = (x.spec as { widget?: { constructor?: { name?: string } } }).widget;
+      return w?.constructor?.name === "SoftBreakWidget";
+    });
+    expect(softbreaks).toHaveLength(2);
+    expect(softbreaks[0].from).toBe(3); // \n after "foo"
+    expect(softbreaks[0].to).toBe(4);
+    expect(softbreaks[1].from).toBe(7); // \n after "bar"
+  });
+
+  it("does not collapse a CommonMark hard-break (two trailing spaces)", () => {
+    const src = "foo  \nbar\n";
+    const r = specs(src);
+    const softbreaks = r.filter((x) => {
+      const w = (x.spec as { widget?: { constructor?: { name?: string } } }).widget;
+      return w?.constructor?.name === "SoftBreakWidget";
+    });
+    expect(softbreaks).toHaveLength(0);
+  });
+
+  it("does not collapse a backslash hard-break", () => {
+    const src = "foo\\\nbar\n";
+    const r = specs(src);
+    const softbreaks = r.filter((x) => {
+      const w = (x.spec as { widget?: { constructor?: { name?: string } } }).widget;
+      return w?.constructor?.name === "SoftBreakWidget";
+    });
+    expect(softbreaks).toHaveLength(0);
+  });
+
+  it("does not insert a softbreak between separate paragraphs", () => {
+    const src = "first\n\nsecond\n";
+    const r = specs(src);
+    const softbreaks = r.filter((x) => {
+      const w = (x.spec as { widget?: { constructor?: { name?: string } } }).widget;
+      return w?.constructor?.name === "SoftBreakWidget";
+    });
+    expect(softbreaks).toHaveLength(0);
+  });
+
   it("table cells render basic inline markdown", () => {
     // Render the table widget's DOM and inspect the first body cell. Inline
     // **bold** must become a <strong> element, not literal asterisks.
