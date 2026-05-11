@@ -416,6 +416,67 @@ html.theme-dark  { color-scheme: dark; }
 }
 .viewer-shortcut-desc { color: var(--fg); }
 
+/* Project switcher palette (Ctrl+R). Reuses the prefs overlay/card classes for
+   z-index and centering; layout-specific bits live below. */
+.viewer-palette-card {
+  width: min(560px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 18px 14px;
+}
+.viewer-palette-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  outline: none;
+}
+.viewer-palette-input:focus { border-color: var(--accent, #4a90e2); }
+.viewer-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.viewer-palette-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.viewer-palette-row:hover { background: var(--code-bg); }
+.viewer-palette-row.is-selected {
+  background: var(--accent, #4a90e2);
+  color: #fff;
+}
+.viewer-palette-row.is-selected .viewer-palette-parent { color: rgba(255,255,255,0.78); }
+.viewer-palette-base { font-weight: 600; }
+.viewer-palette-parent {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viewer-palette-empty {
+  margin: 0;
+  padding: 10px 4px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .viewer-reconcile-overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.4);
