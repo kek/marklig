@@ -1,5 +1,5 @@
-import { listen, emit, emitTo } from "@tauri-apps/api/event";
-import { Window } from "@tauri-apps/api/window";
+import { emit, emitTo } from "@tauri-apps/api/event";
+import { Window, getCurrentWindow } from "@tauri-apps/api/window";
 import type { Theme } from "../editor/theme";
 
 // macOS has one app-wide menu, and its action callbacks fire in whichever
@@ -66,11 +66,17 @@ export interface LocalMenuHandlers {
 const EVENT = "viewer:menu-action";
 
 /** Install the per-window listener that executes incoming menu actions
- * against this window's local handlers. Returns an unsubscribe function. */
+ * against this window's local handlers. Returns an unsubscribe function.
+ *
+ * Uses the current window's scoped listener (`getCurrentWindow().listen`)
+ * rather than the top-level `listen` from `@tauri-apps/api/event` — the
+ * top-level one receives every event regardless of `emitTo` target, which
+ * caused actions dispatched with `emitTo(focusedLabel, ...)` to run in
+ * every window (e.g. project switch propagating everywhere). */
 export async function installMenuActionListener(
   handlers: LocalMenuHandlers,
 ): Promise<() => void> {
-  return await listen<MenuAction>(EVENT, async (e) => {
+  return await getCurrentWindow().listen<MenuAction>(EVENT, async (e) => {
     const a = e.payload;
     switch (a.type) {
       case "openFile": await handlers.openFile(); break;
@@ -101,16 +107,14 @@ export async function installMenuActionListener(
   });
 }
 
-/** Send an action to whichever window currently has focus. Falls back to a
- * broadcast if no window is focused — main is virtually always listening
- * and will pick it up. */
+/** Send an action to whichever window currently has focus. Falls back to the
+ * current JS context's own window if Tauri reports no focused window — under
+ * some focus-tracking races getFocusedWindow returns null briefly, and a
+ * blanket broadcast would run the action in every open window (e.g. every
+ * window would switch projects on Ctrl-R). */
 export async function dispatchToFocused(action: MenuAction): Promise<void> {
-  const focused = await Window.getFocusedWindow();
-  if (focused) {
-    await emitTo(focused.label, EVENT, action);
-  } else {
-    await emit(EVENT, action);
-  }
+  const focused = (await Window.getFocusedWindow()) ?? getCurrentWindow();
+  await emitTo(focused.label, EVENT, action);
 }
 
 /** Broadcast an action to every window. Use for app-wide settings like
