@@ -66,6 +66,11 @@ import {
 } from "./shell/menu-actions";
 import { setActiveTheme } from "./editor/theme";
 import { loadRecents, clearRecents } from "./shell/recents";
+import {
+  loadRecentProjects,
+  recordRecentProject,
+  clearRecentProjects,
+} from "./shell/recent-projects";
 import { openSearchPanel } from "@codemirror/search";
 
 let recoveredDoc: { path: string; source: string } | null = null;
@@ -439,6 +444,7 @@ async function bootstrap(): Promise<void> {
     // Announce so the main window's routing map stays in sync. Loopback to
     // this window's own listener is harmless (same value).
     void emit("viewer:window-folder", { label: selfLabel, folder: root });
+    if (root) await recordRecentProject(root);
     if (root) {
       // Make sure the user can actually see the panel.
       if (!toc.isVisible()) {
@@ -767,6 +773,8 @@ async function bootstrap(): Promise<void> {
       await openPreferences();
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
+    openProject: async (path) => { await setCurrentFolder(path); },
+    clearRecentProjects: async () => { await clearRecentProjects(); },
   };
   const unsubMenuActions = await installMenuActionListener(localHandlers);
   window.addEventListener("beforeunload", () => unsubMenuActions());
@@ -811,6 +819,9 @@ async function bootstrap(): Promise<void> {
       copyAsHtml: () => dispatchToFocused({ type: "copyAsHtml" }),
       openPreferences: () => dispatchToFocused({ type: "openPreferences" }),
       showKeyboardShortcuts: () => { void dispatchToFocused({ type: "showKeyboardShortcuts" }); },
+      recentProjects: async () => await loadRecentProjects(),
+      openProject: (path) => dispatchToFocused({ type: "openProject", path }),
+      clearRecentProjects: () => dispatchToFocused({ type: "clearRecentProjects" }),
     });
   }
 
