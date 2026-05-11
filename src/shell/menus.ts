@@ -35,6 +35,7 @@ export interface MenuHandlers {
   recentProjects: () => Promise<string[]>;
   openProject: (path: string) => Promise<void>;
   clearRecentProjects: () => Promise<void>;
+  openProjectPalette: () => Promise<void> | void;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
@@ -76,7 +77,22 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
     );
   }
 
-  const projectItems: Array<MenuItem | PredefinedMenuItem> = [];
+  const projectItems: Array<MenuItem | PredefinedMenuItem> = [
+    // Literal Ctrl+R on every platform — Cmd+R is reserved by convention for
+    // reload, so the project switcher uses the still-free Ctrl chord even on
+    // macOS. Tauri's `Ctrl+...` accelerator string maps to the real Control
+    // key regardless of platform; `CmdOrCtrl+...` would mistakenly steal
+    // Cmd+R on macOS.
+    await MenuItem.new({
+      id: "open-project-palette",
+      text: t("menu.projects.openRecentPalette"),
+      accelerator: "Ctrl+R",
+      action: () => {
+        void handlers.openProjectPalette();
+      },
+    }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+  ];
   if (projects.length === 0) {
     projectItems.push(
       await MenuItem.new({

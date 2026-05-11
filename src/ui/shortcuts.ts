@@ -46,6 +46,14 @@ function buildGroups(): ShortcutGroup[] {
       ],
     },
     {
+      heading: t("shortcuts.group.projects"),
+      entries: [
+        // Ctrl+R on every platform (incl. macOS) — Cmd+R is reload by
+        // convention, so the palette uses literal Ctrl.
+        { keys: "Ctrl+R", description: t("shortcuts.action.switchProject") },
+      ],
+    },
+    {
       heading: t("shortcuts.group.app"),
       entries: [
         { keys: `${mod}+,`, description: t("shortcuts.action.settings") },

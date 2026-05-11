@@ -35,6 +35,7 @@ import {
 } from "./shell/window-session";
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
+import { openProjectPalette } from "./ui/project-palette";
 import { t } from "./i18n/strings";
 import "katex/dist/katex.min.css";
 import {
@@ -794,9 +795,31 @@ async function bootstrap(): Promise<void> {
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
     openProject: async (path) => { await setCurrentFolder(path); },
     clearRecentProjects: async () => { await clearRecentProjects(); },
+    openProjectPalette: () => { void openProjectPalette(); },
   };
   const unsubMenuActions = await installMenuActionListener(localHandlers);
   window.addEventListener("beforeunload", () => unsubMenuActions());
+
+  // Global Ctrl+R → project switcher (issue #27). Literal Ctrl on every
+  // platform — Cmd+R stays free for reload. preventDefault keeps the webview
+  // from navigating. Guarded so we don't steal R-as-a-letter inside text
+  // inputs (CodeMirror normally eats keystrokes before this runs, but
+  // defensively skip when focus is in any editable surface).
+  function onGlobalKey(e: KeyboardEvent): void {
+    if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key !== "r" && e.key !== "R") return;
+    const t = e.target as HTMLElement | null;
+    if (t) {
+      const tag = t.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) return;
+    }
+    e.preventDefault();
+    void openProjectPalette();
+  }
+  document.addEventListener("keydown", onGlobalKey, true);
+  window.addEventListener("beforeunload", () => {
+    document.removeEventListener("keydown", onGlobalKey, true);
+  });
 
   // Only the main window owns the app menu. If every window installed it
   // each one would clobber the previous handlers (last writer wins on
@@ -841,6 +864,7 @@ async function bootstrap(): Promise<void> {
       recentProjects: async () => await loadRecentProjects(),
       openProject: (path) => dispatchToFocused({ type: "openProject", path }),
       clearRecentProjects: () => dispatchToFocused({ type: "clearRecentProjects" }),
+      openProjectPalette: () => dispatchToFocused({ type: "openProjectPalette" }),
     });
   }
   window.addEventListener("beforeunload", () => {

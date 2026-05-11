@@ -43,6 +43,14 @@ export const EN = {
   "shortcuts.action.copyAsHtml": "Copy as HTML",
   "shortcuts.action.settings": "Settings",
   "shortcuts.action.shortcuts": "Keyboard shortcuts",
+  "shortcuts.group.projects": "Projects",
+  "shortcuts.action.switchProject": "Switch project",
+
+  // Modal: project switcher (quick palette)
+  "palette.projects.title": "Switch Project",
+  "palette.projects.placeholder": "Type to filter projects…",
+  "palette.projects.empty": "No recent projects",
+  "palette.projects.noMatches": "No matching projects",
 
   // Modal: reconcile (file changed on disk)
   "reconcile.title": "File changed on disk",
@@ -90,6 +98,7 @@ export const EN = {
   "menu.projects": "Projects",
   "menu.projects.empty": "(none)",
   "menu.projects.clear": "Clear Menu",
+  "menu.projects.openRecentPalette": "Switch Project…",
   "menu.window": "Window",
   "menu.help": "Help",
   "menu.help.shortcuts": "Keyboard Shortcuts",
