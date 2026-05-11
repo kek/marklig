@@ -1102,6 +1102,12 @@ async function resolveInitialDoc(sessionFallbackPath: string | null = null): Pro
  * resurrecting old windows). Returns the session entry for the *current*
  * window so the caller can use it to influence file/scroll/mode restore.
  *
+ * The set of entries on disk is implicitly the "alive set at last quit":
+ * each individual close removes its own entry (window-session.ts close
+ * handler), while Cmd-Q on macOS bypasses per-window close events entirely
+ * — leaving the periodic-tick entries intact. So whatever's still in the
+ * store when we boot up is exactly what to restore.
+ *
  * Secondary windows: returns their own session entry if any (they may have
  * been re-spawned by main and want to honor scrollTop/mode from URL params,
  * but we still surface the entry for symmetry).

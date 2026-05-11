@@ -2,27 +2,11 @@ mod commands;
 
 use commands::folder_watcher::FolderWatcherState;
 use commands::watcher::WatcherState;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager, RunEvent};
-
-/// Set true once `RunEvent::ExitRequested` fires (user picked Quit / Cmd-Q).
-/// Each window's close-requested handler reads this via `is_quitting` to
-/// distinguish "user closed one window" from "the app is shutting down" —
-/// the former drops the window from the restore-on-next-launch set, the
-/// latter preserves it.
-struct QuitState {
-    quitting: AtomicBool,
-}
-
-#[tauri::command]
-fn is_quitting(state: tauri::State<'_, QuitState>) -> bool {
-    state.quitting.load(Ordering::SeqCst)
-}
 
 pub fn run() {
     tauri::Builder::default()
         .manage(WatcherState::new())
-        .manage(QuitState { quitting: AtomicBool::new(false) })
         .manage(FolderWatcherState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -42,21 +26,12 @@ pub fn run() {
             commands::files::resolve_folder_root,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
-            is_quitting,
             commands::folder_watcher::folder_watcher_start,
             commands::folder_watcher::folder_watcher_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // User picked Quit / Cmd-Q. Flip the flag *before* windows start
-            // closing so each window's close-requested handler can tell quit
-            // from a one-window user close.
-            if matches!(event, RunEvent::ExitRequested { .. }) {
-                if let Some(state) = app.try_state::<QuitState>() {
-                    state.quitting.store(true, Ordering::SeqCst);
-                }
-            }
             // macOS / file-association launches deliver paths via RunEvent::Opened
             // (not argv). Forward them to the frontend, which decides whether to
             // replace the current document, prompt-on-dirty, or open in a new
