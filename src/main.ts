@@ -53,7 +53,7 @@ import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reco
 import { recordRecent } from "./shell/recents";
 import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
 import { getFilePosition, setFilePosition, canonicalizePath } from "./shell/file-positions";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -624,8 +624,13 @@ async function bootstrap(): Promise<void> {
       }
     },
     closeWindow: async () => {
-      const win = getCurrentWindow();
-      await win.close();
+      // The Tauri menu is owned by the main window's JS context, so any
+      // action callback runs there — `getCurrentWindow()` would always return
+      // main regardless of which window has focus. Route Cmd-W to the truly
+      // focused window so it closes the frontmost one (and its
+      // close-requested handler runs the dirty prompt for its own doc).
+      const focused = (await Window.getFocusedWindow()) ?? getCurrentWindow();
+      await focused.close();
     },
     toggleMode: () => {
       currentMode = currentMode === "reading" ? "edit" : "reading";
