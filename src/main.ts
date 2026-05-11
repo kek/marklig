@@ -58,6 +58,12 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { buildAndAttachMenu } from "./shell/menus";
+import {
+  installMenuActionListener,
+  dispatchToFocused,
+  dispatchToAll,
+  type LocalMenuHandlers,
+} from "./shell/menu-actions";
 import { setActiveTheme } from "./editor/theme";
 import { loadRecents, clearRecents } from "./shell/recents";
 import { openSearchPanel } from "@codemirror/search";
@@ -607,7 +613,13 @@ async function bootstrap(): Promise<void> {
   }
   onFolderItemActivate = openWithDirtyPrompt;
 
-  await buildAndAttachMenu({
+  // Per-window menu handlers. The Tauri app menu fires its callbacks in
+  // whichever webview last set it (typically main), so without routing each
+  // action would run against that window's state regardless of focus. We
+  // install these as a listener in every window and have the menu dispatch
+  // the action to the focused window via emitTo. Theme is broadcast to all
+  // windows so light/dark stays in sync.
+  const localHandlers: LocalMenuHandlers = {
     openFile: async () => {
       const doc = await openFileViaDialog();
       if (doc) await loadAndApplyDoc(doc.path);
@@ -644,15 +656,6 @@ async function bootstrap(): Promise<void> {
         await message(`Could not reveal: ${String(err instanceof Error ? err.message : err)}`, { title: "Reveal in Finder" });
       }
     },
-    closeWindow: async () => {
-      // The Tauri menu is owned by the main window's JS context, so any
-      // action callback runs there — `getCurrentWindow()` would always return
-      // main regardless of which window has focus. Route Cmd-W to the truly
-      // focused window so it closes the frontmost one (and its
-      // close-requested handler runs the dirty prompt for its own doc).
-      const focused = (await Window.getFocusedWindow()) ?? getCurrentWindow();
-      await focused.close();
-    },
     toggleMode: () => {
       currentMode = currentMode === "reading" ? "edit" : "reading";
       setMode(view, currentMode, modeExtensions[currentMode]);
@@ -671,7 +674,6 @@ async function bootstrap(): Promise<void> {
     zoomReset: () => zoomResetFn(view),
     openFind: () => { openSearchPanel(view); },
     openReplace: () => { openSearchPanel(view); },
-    recents: async () => await loadRecents(),
     openRecent: async (path) => { await loadAndApplyDoc(path); },
     clearRecents: async () => { await clearRecents(); },
     exportHtml: async () => {
@@ -699,7 +701,52 @@ async function bootstrap(): Promise<void> {
       await openPreferences();
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
-  });
+  };
+  const unsubMenuActions = await installMenuActionListener(localHandlers);
+  window.addEventListener("beforeunload", () => unsubMenuActions());
+
+  // Only the main window owns the app menu. If every window installed it
+  // each one would clobber the previous handlers (last writer wins on
+  // macOS), which is exactly what produced the "Cmd-W closes the most
+  // recently opened window" bug. With one owner, routing via emitTo to
+  // the focused window is deterministic.
+  if (isMainWindow()) {
+    await buildAndAttachMenu({
+      openFile: () => dispatchToFocused({ type: "openFile" }),
+      openFolder: () => dispatchToFocused({ type: "openFolder" }),
+      newWindow: () => dispatchToFocused({ type: "newWindow" }),
+      saveFile: () => { void dispatchToFocused({ type: "saveFile" }); },
+      saveFileAs: () => dispatchToFocused({ type: "saveFileAs" }),
+      revealInFileManager: () => dispatchToFocused({ type: "revealInFileManager" }),
+      closeWindow: async () => {
+        // The Tauri menu is owned by the main window's JS context, so any
+        // action callback runs there — `getCurrentWindow()` would always
+        // return main regardless of which window has focus. Route Cmd-W to
+        // the truly focused window so it closes the frontmost one (and its
+        // close-requested handler runs the dirty prompt for its own doc).
+        const focused = (await Window.getFocusedWindow()) ?? getCurrentWindow();
+        await focused.close();
+      },
+      toggleMode: () => { void dispatchToFocused({ type: "toggleMode" }); },
+      toggleSidebar: () => { void dispatchToFocused({ type: "toggleSidebar" }); },
+      // Theme changes apply app-wide; broadcast so every window updates in
+      // lockstep instead of just the focused one.
+      setTheme: (theme) => { void dispatchToAll({ type: "setTheme", theme }); },
+      zoomIn: () => { void dispatchToFocused({ type: "zoomIn" }); },
+      zoomOut: () => { void dispatchToFocused({ type: "zoomOut" }); },
+      zoomReset: () => { void dispatchToFocused({ type: "zoomReset" }); },
+      openFind: () => { void dispatchToFocused({ type: "openFind" }); },
+      openReplace: () => { void dispatchToFocused({ type: "openReplace" }); },
+      recents: async () => await loadRecents(),
+      openRecent: (path) => dispatchToFocused({ type: "openRecent", path }),
+      clearRecents: () => dispatchToFocused({ type: "clearRecents" }),
+      exportHtml: () => dispatchToFocused({ type: "exportHtml" }),
+      printDocument: () => { void dispatchToFocused({ type: "printDocument" }); },
+      copyAsHtml: () => dispatchToFocused({ type: "copyAsHtml" }),
+      openPreferences: () => dispatchToFocused({ type: "openPreferences" }),
+      showKeyboardShortcuts: () => { void dispatchToFocused({ type: "showKeyboardShortcuts" }); },
+    });
+  }
 
   // Settings change from any source (prefs UI, future Tauri-store sync) →
   // refresh the decoration field so widgets that read settings at toDOM time
