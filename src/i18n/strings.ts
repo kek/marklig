@@ -32,6 +32,7 @@ export const EN = {
   "shortcuts.action.openFolder": "Open Folder…",
   "shortcuts.action.save": "Save",
   "shortcuts.action.print": "Print…",
+  "shortcuts.action.goToFile": "Go to file…",
   "shortcuts.action.closeWindow": "Close window",
   "shortcuts.action.toggleMode": "Toggle reading / edit mode",
   "shortcuts.action.toggleSidebar": "Toggle sidebar",
@@ -77,6 +78,7 @@ export const EN = {
   "menu.file.export": "Export",
   "menu.file.export.html": "HTML…",
   "menu.file.print": "Print…",
+  "menu.file.goToFile": "Go to File…",
   "menu.file.revealMac": "Reveal in Finder",
   "menu.file.revealWindows": "Show in Explorer",
   "menu.file.revealLinux": "Show in File Manager",
@@ -107,6 +109,15 @@ export const EN = {
   // Transient notices
   "notice.orphan": "This file is no longer on disk. Save As to choose a new location.",
   "notice.reloaded": "Reloaded from disk",
+
+  // Quick-open / fuzzy file finder palette (Cmd-P)
+  "quickOpen.title": "Go to file",
+  "quickOpen.inputLabel": "Search files in folder",
+  "quickOpen.placeholder": "Type to search files…",
+  "quickOpen.noFolder": "Open a folder to search files",
+  "quickOpen.noMatches": "No matching files",
+  "quickOpen.loading": "Loading files…",
+  "quickOpen.error": "Could not list files in this folder",
 
   // Toolbar buttons (icon buttons need a localized aria-label / title)
   "toolbar.edit": "Edit",

@@ -36,6 +36,7 @@ export interface MenuHandlers {
   openProject: (path: string) => Promise<void>;
   clearRecentProjects: () => Promise<void>;
   openProjectPalette: () => Promise<void> | void;
+  quickOpen: () => void;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
@@ -151,6 +152,12 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         action: () => { void handlers.openFolder(); },
       }),
       await Submenu.new({ text: t("menu.file.openRecent"), items: recentItems }),
+      await MenuItem.new({
+        id: "quick-open",
+        text: t("menu.file.goToFile"),
+        accelerator: "CmdOrCtrl+P",
+        action: () => handlers.quickOpen(),
+      }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "save",
@@ -186,7 +193,11 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await MenuItem.new({
         id: "print",
         text: t("menu.file.print"),
-        accelerator: "CmdOrCtrl+P",
+        // Cmd-P is reserved for "Go to File…" (VS Code / Sublime / Cursor
+        // convention). Print moves to Cmd-Alt-P; using a letter (not
+        // punctuation) keeps it accessible on Swedish keyboards where Alt
+        // is a dead key over many punctuation marks.
+        accelerator: "CmdOrCtrl+Alt+P",
         action: () => handlers.printDocument(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
