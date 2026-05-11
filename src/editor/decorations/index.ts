@@ -5,6 +5,7 @@ import { EditorView, Decoration } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { highlightCacheEffect } from "./codeblocks";
 import { mermaidCacheEffect } from "./mermaid";
+import { graphvizCacheEffect } from "./graphviz";
 
 /** Dispatch this when external state read by widgets at render time changes
  * (e.g. remote-image policy). Forces the decoration field to recompute even
@@ -50,6 +51,7 @@ export function buildDecorationField(
       for (const e of tr.effects) {
         if (e.is(highlightCacheEffect)) return compute(tr.state);
         if (e.is(mermaidCacheEffect)) return compute(tr.state);
+        if (e.is(graphvizCacheEffect)) return compute(tr.state);
         if (e.is(refreshDecorationsEffect)) return compute(tr.state);
       }
       if (!tr.docChanged) return prev;
