@@ -129,6 +129,38 @@ describe("loadWindowSession", () => {
     expect(s.windows).toEqual([]);
   });
 
+  it("accepts entries without folder/sidebarVisible (back-compat)", async () => {
+    // Older persisted entries don't carry folder/sidebarVisible. Loading them
+    // must still succeed; the missing fields are simply absent on the entry.
+    storeData.set("windowSession:main", entry("main"));
+    const s = await loadWindowSession();
+    expect(s.windows).toHaveLength(1);
+    expect(s.windows[0].folder).toBeUndefined();
+    expect(s.windows[0].sidebarVisible).toBeUndefined();
+  });
+
+  it("preserves folder/sidebarVisible when present", async () => {
+    storeData.set("windowSession:main", entry("main", {
+      folder: "/Users/me/notes",
+      sidebarVisible: true,
+    }));
+    const s = await loadWindowSession();
+    expect(s.windows[0].folder).toBe("/Users/me/notes");
+    expect(s.windows[0].sidebarVisible).toBe(true);
+  });
+
+  it("accepts a null folder (folder closed explicitly)", async () => {
+    storeData.set("windowSession:main", entry("main", { folder: null }));
+    const s = await loadWindowSession();
+    expect(s.windows[0].folder).toBeNull();
+  });
+
+  it("rejects entries with a wrong-typed folder field", async () => {
+    storeData.set("windowSession:main", { ...entry("main"), folder: 42 });
+    const s = await loadWindowSession();
+    expect(s.windows).toHaveLength(0);
+  });
+
   it("accepts entries with a null path (blank window)", async () => {
     storeData.set("windowSession", { windows: [entry("main", { path: null })] });
     const s = await loadWindowSession();
@@ -173,6 +205,24 @@ describe("recordCurrentWindowState", () => {
     expect(e.mode).toBe("edit");
     expect(e.path).toBe("/tmp/foo.md");
     expect(e.label).toBe("main");
+    // Folder/sidebar absent in input → folder null, sidebarVisible undefined.
+    expect(e.folder).toBeNull();
+    expect(e.sidebarVisible).toBeUndefined();
+  });
+
+  it("captures folder and sidebarVisible when supplied", async () => {
+    mockWin.label = "main";
+    await recordCurrentWindowState({
+      path: null,
+      scrollTop: 0,
+      mode: "reading",
+      folder: "/Users/me/notes",
+      sidebarVisible: true,
+    });
+    const session = await loadWindowSession();
+    const e = session.windows[0];
+    expect(e.folder).toBe("/Users/me/notes");
+    expect(e.sidebarVisible).toBe(true);
   });
 
   it("upserts an existing entry rather than appending duplicates", async () => {
