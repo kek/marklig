@@ -1,5 +1,6 @@
 mod commands;
 
+use commands::folder_watcher::FolderWatcherState;
 use commands::watcher::WatcherState;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager, RunEvent};
@@ -22,6 +23,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(WatcherState::new())
         .manage(QuitState { quitting: AtomicBool::new(false) })
+        .manage(FolderWatcherState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -41,6 +43,8 @@ pub fn run() {
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
             is_quitting,
+            commands::folder_watcher::folder_watcher_start,
+            commands::folder_watcher::folder_watcher_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

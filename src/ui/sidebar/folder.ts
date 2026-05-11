@@ -4,6 +4,9 @@ export interface FolderSidebarHandle {
   element: HTMLElement;
   /** Show files for `root`. Pass null to clear. */
   setFolder: (root: string | null) => Promise<void>;
+  /** Re-list files for the current root, preserving expansion + active. Used
+   * when an external watcher notices the tree changed on disk. */
+  refresh: () => Promise<void>;
   /** Mark which file is currently active (highlights matching entry). */
   setActiveFile: (path: string | null) => void;
   destroy: () => void;
@@ -110,6 +113,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   }
 
   let activePath: string | null = null;
+  let currentRoot: string | null = null;
   let tree: DirNode = { kind: "dir", name: "", relative: "", children: [] };
   /** Folder relative-paths (e.g. "docs/superpowers") that are user-expanded. */
   const expanded = new Set<string>();
@@ -213,6 +217,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   });
 
   async function setFolder(root: string | null): Promise<void> {
+    currentRoot = root;
     if (!root) {
       section.classList.add("hidden");
       list.innerHTML = "";
@@ -249,6 +254,37 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     render();
   }
 
+  async function refresh(): Promise<void> {
+    if (!currentRoot) return;
+    let files: MarkdownFileEntry[] = [];
+    try {
+      files = await listMarkdownFiles(currentRoot);
+    } catch {
+      // Folder may have been removed; leave the previous tree visible so
+      // the user isn't suddenly staring at an error after a transient I/O
+      // hiccup. A subsequent setFolder() (e.g. user picks a new project)
+      // resets state cleanly.
+      return;
+    }
+    tree = buildTree(files);
+    // Drop expanded entries whose folders no longer exist so stale paths
+    // don't linger if a user repeatedly creates/removes the same dir.
+    const present = new Set<string>();
+    const collectDirs = (node: TreeNode): void => {
+      if (node.kind !== "dir") return;
+      if (node.relative) present.add(node.relative);
+      for (const c of node.children) collectDirs(c);
+    };
+    for (const c of tree.children) collectDirs(c);
+    for (const rel of [...expanded]) if (!present.has(rel)) expanded.delete(rel);
+    // Reveal the active file's folder if it's still around.
+    if (activePath) {
+      const match = files.find((f) => f.path === activePath);
+      if (match) expandAncestors(dirnameOf(match.relative));
+    }
+    render();
+  }
+
   function setActiveFile(path: string | null): void {
     activePath = path;
     if (path) {
@@ -270,6 +306,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   return {
     element: section,
     setFolder,
+    refresh,
     setActiveFile,
     destroy() {
       section.remove();

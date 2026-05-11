@@ -112,7 +112,7 @@ pub struct MarkdownFileEntry {
 const MAX_FOLDER_DEPTH: u32 = 6;
 const MAX_FOLDER_ENTRIES: usize = 5_000;
 
-fn is_ignored(name: &str) -> bool {
+pub(crate) fn is_ignored(name: &str) -> bool {
     // Explicit list rather than a blanket dot-prefix rule. Many useful
     // doc directories start with a dot (.claude, .github, .config) and
     // hiding them silently was confusing — users opened a folder, saw no
