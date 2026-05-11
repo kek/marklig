@@ -31,7 +31,9 @@ export type MenuAction =
   | { type: "printDocument" }
   | { type: "copyAsHtml" }
   | { type: "openPreferences" }
-  | { type: "showKeyboardShortcuts" };
+  | { type: "showKeyboardShortcuts" }
+  | { type: "openProject"; path: string }
+  | { type: "clearRecentProjects" };
 
 export interface LocalMenuHandlers {
   openFile: () => Promise<void>;
@@ -55,6 +57,8 @@ export interface LocalMenuHandlers {
   copyAsHtml: () => Promise<void>;
   openPreferences: () => Promise<void>;
   showKeyboardShortcuts: () => void;
+  openProject: (path: string) => Promise<void>;
+  clearRecentProjects: () => Promise<void>;
 }
 
 const EVENT = "viewer:menu-action";
@@ -88,6 +92,8 @@ export async function installMenuActionListener(
       case "copyAsHtml": await handlers.copyAsHtml(); break;
       case "openPreferences": await handlers.openPreferences(); break;
       case "showKeyboardShortcuts": handlers.showKeyboardShortcuts(); break;
+      case "openProject": await handlers.openProject(a.path); break;
+      case "clearRecentProjects": await handlers.clearRecentProjects(); break;
     }
   });
 }

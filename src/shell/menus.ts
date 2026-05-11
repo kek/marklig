@@ -32,10 +32,14 @@ export interface MenuHandlers {
   copyAsHtml: () => Promise<void>;
   openPreferences: () => Promise<void>;
   showKeyboardShortcuts: () => void;
+  recentProjects: () => Promise<string[]>;
+  openProject: (path: string) => Promise<void>;
+  clearRecentProjects: () => Promise<void>;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
   const recents = await handlers.recents();
+  const projects = await handlers.recentProjects();
 
   const recentItems: Array<MenuItem | PredefinedMenuItem> = [];
   if (recents.length === 0) {
@@ -67,6 +71,41 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         text: t("menu.file.openRecent.clear"),
         action: () => {
           void handlers.clearRecents();
+        },
+      }),
+    );
+  }
+
+  const projectItems: Array<MenuItem | PredefinedMenuItem> = [];
+  if (projects.length === 0) {
+    projectItems.push(
+      await MenuItem.new({
+        id: "no-projects",
+        text: t("menu.projects.empty"),
+        enabled: false,
+        action: () => {},
+      }),
+    );
+  } else {
+    for (let i = 0; i < projects.length; i++) {
+      const p = projects[i];
+      projectItems.push(
+        await MenuItem.new({
+          id: `project-${i}`,
+          text: shortName(p),
+          action: () => {
+            void handlers.openProject(p);
+          },
+        }),
+      );
+    }
+    projectItems.push(await PredefinedMenuItem.new({ item: "Separator" }));
+    projectItems.push(
+      await MenuItem.new({
+        id: "clear-recent-projects",
+        text: t("menu.projects.clear"),
+        action: () => {
+          void handlers.clearRecentProjects();
         },
       }),
     );
@@ -291,8 +330,13 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
     ],
   });
 
+  const projectsMenu = await Submenu.new({
+    text: t("menu.projects"),
+    items: projectItems,
+  });
+
   const menu = await Menu.new({
-    items: [appMenu, fileMenu, editMenu, viewMenu, windowMenu, helpMenu],
+    items: [appMenu, fileMenu, projectsMenu, editMenu, viewMenu, windowMenu, helpMenu],
   });
   await menu.setAsAppMenu();
   return menu;
