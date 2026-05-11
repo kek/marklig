@@ -14,6 +14,7 @@ interface ShortcutGroup {
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 const mod = isMac ? "⌘" : "Ctrl";
 const shift = isMac ? "⇧" : "Shift";
+const alt = isMac ? "⌥" : "Alt";
 
 function buildGroups(): ShortcutGroup[] {
   return [
@@ -22,8 +23,9 @@ function buildGroups(): ShortcutGroup[] {
       entries: [
         { keys: `${mod}+O`, description: t("shortcuts.action.open") },
         { keys: `${mod}+${shift}+O`, description: t("shortcuts.action.openFolder") },
+        { keys: `${mod}+P`, description: t("shortcuts.action.goToFile") },
         { keys: `${mod}+S`, description: t("shortcuts.action.save") },
-        { keys: `${mod}+P`, description: t("shortcuts.action.print") },
+        { keys: `${mod}+${alt}+P`, description: t("shortcuts.action.print") },
         { keys: `${mod}+W`, description: t("shortcuts.action.closeWindow") },
       ],
     },

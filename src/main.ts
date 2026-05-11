@@ -36,6 +36,7 @@ import {
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { openProjectPalette } from "./ui/project-palette";
+import { openQuickOpenPalette } from "./ui/quick-open";
 import { t } from "./i18n/strings";
 import "katex/dist/katex.min.css";
 import {
@@ -796,6 +797,7 @@ async function bootstrap(): Promise<void> {
     openProject: async (path) => { await setCurrentFolder(path); },
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
+    quickOpen: () => { void openQuickOpenPalette(currentFolder); },
   };
   const unsubMenuActions = await installMenuActionListener(localHandlers);
   window.addEventListener("beforeunload", () => unsubMenuActions());
@@ -820,6 +822,29 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => {
     document.removeEventListener("keydown", onGlobalKey, true);
   });
+
+  // Per-window Cmd-P binding. The app menu accelerator (main window only)
+  // also fires this via dispatchToFocused, but a same-window keydown handler
+  // is more reliable when focus is deep inside CodeMirror and avoids any
+  // round-trip through Tauri's event bus. The palette should open even from
+  // inside the editor (CodeMirror doesn't bind Mod-p in its keymaps), but
+  // not while a non-editor <input>/<textarea> has focus — e.g. the sidebar's
+  // filter box, where the user is mid-typing and Cmd-P could feel intrusive.
+  const onQuickOpenKey = (e: KeyboardEvent): void => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.altKey || e.shiftKey) return;
+    if (e.key !== "p" && e.key !== "P") return;
+    const target = e.target as HTMLElement | null;
+    if (target && isPlainEditableInput(target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    localHandlers.quickOpen();
+  };
+  window.addEventListener("keydown", onQuickOpenKey, true);
+  window.addEventListener("beforeunload", () => {
+    window.removeEventListener("keydown", onQuickOpenKey, true);
+  });
+
 
   // Only the main window owns the app menu. If every window installed it
   // each one would clobber the previous handlers (last writer wins on
@@ -865,6 +890,7 @@ async function bootstrap(): Promise<void> {
       openProject: (path) => dispatchToFocused({ type: "openProject", path }),
       clearRecentProjects: () => dispatchToFocused({ type: "clearRecentProjects" }),
       openProjectPalette: () => dispatchToFocused({ type: "openProjectPalette" }),
+      quickOpen: () => { void dispatchToFocused({ type: "quickOpen" }); },
     });
   }
   window.addEventListener("beforeunload", () => {
@@ -1340,6 +1366,18 @@ function currentWindowLabel(): string {
 
 function defaultPlaceholder(): string {
   return "# Welcome to Viewer\n\nNo document opened. Use **File → Open** in Plan 3 once the menu lands.\n";
+}
+
+/** True when the element is a non-editor text input the user is plausibly
+ * typing into (sidebar filter, find panel, etc.). The CodeMirror editor is
+ * a contenteditable inside `.cm-content`, which we intentionally exclude so
+ * Cmd-P opens the palette from reading/edit mode alike. */
+function isPlainEditableInput(el: HTMLElement): boolean {
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  // Stay out of other contenteditables that aren't CodeMirror's content.
+  if (el.isContentEditable && !el.closest(".cm-content")) return true;
+  return false;
 }
 
 bootstrap().catch((err) => {
