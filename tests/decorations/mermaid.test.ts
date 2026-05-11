@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 
 import { parseMarkdown } from "../../src/editor/parser";
-import { mermaidProducer } from "../../src/editor/decorations/mermaid";
+import { mermaidCache, mermaidProducer } from "../../src/editor/decorations/mermaid";
+import { WidgetType } from "@codemirror/view";
 
 function specs(source: string) {
   const tokens = parseMarkdown(source);
@@ -49,4 +50,33 @@ describe("mermaidProducer", () => {
     const r = specs(src);
     expect(r.length).toBe(0);
   });
+
+  it("widget eq reports inequality when cache transitions from empty to filled", () => {
+    // Regression for #13: if eq returned true based on source alone, the
+    // loading-state widget would be considered equal to the rendered-result
+    // widget when the async render lands, and CodeMirror would reuse the
+    // existing DOM — leaving "Rendering…" on screen forever.
+    const src = "```mermaid\ngraph TD\nA-->B\n```\n";
+    const source = "graph TD\nA-->B\n";
+
+    // Force a clean cache state for this source.
+    // (Cache is module-level; in test runs it starts empty for fresh content.)
+    const loadingWidget = readWidget(src);
+
+    // Simulate the async render landing.
+    mermaidCache.set(source, { status: "ok", payload: "<svg></svg>" });
+
+    const loadedWidget = readWidget(src);
+
+    expect(loadingWidget.eq(loadedWidget)).toBe(false);
+    expect(loadedWidget.eq(loadedWidget)).toBe(true);
+  });
 });
+
+function readWidget(src: string): WidgetType {
+  const tokens = parseMarkdown(src);
+  const set = mermaidProducer({ source: src, tokens });
+  const cursor = set.iter();
+  const widget = (cursor.value!.spec as { widget: WidgetType }).widget;
+  return widget;
+}
