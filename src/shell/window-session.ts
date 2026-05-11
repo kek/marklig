@@ -37,6 +37,13 @@ export interface WindowSessionEntry {
   scrollTop: number;
   /** Reading vs. edit mode at time of close. */
   mode: WindowMode;
+  /** Folder root shown in the sidebar, or null if no folder was open. Optional
+   *  so older persisted entries (which didn't carry this field) still load. */
+  folder?: string | null;
+  /** Whether the sidebar was visible. Optional for the same back-compat
+   *  reason as `folder`. Treat absent as "not specified" — callers fall back
+   *  to their own default rather than assuming true/false. */
+  sidebarVisible?: boolean;
   /** Wall-clock at record time; used for newest-first ordering / debugging. */
   timestampMs: number;
 }
@@ -64,6 +71,15 @@ function entryKey(label: string): string {
 function isValidEntry(e: unknown): e is WindowSessionEntry {
   if (!e || typeof e !== "object") return false;
   const r = e as Record<string, unknown>;
+  // `folder` and `sidebarVisible` are optional. Older entries written before
+  // those fields were added must still load — only validate them when present
+  // and reject only on a clearly-wrong type.
+  const folderOk =
+    r.folder === undefined ||
+    r.folder === null ||
+    typeof r.folder === "string";
+  const sidebarOk =
+    r.sidebarVisible === undefined || typeof r.sidebarVisible === "boolean";
   return (
     typeof r.label === "string" &&
     (r.path === null || typeof r.path === "string") &&
@@ -73,6 +89,8 @@ function isValidEntry(e: unknown): e is WindowSessionEntry {
     typeof r.height === "number" &&
     typeof r.scrollTop === "number" &&
     (r.mode === "reading" || r.mode === "edit") &&
+    folderOk &&
+    sidebarOk &&
     typeof r.timestampMs === "number"
   );
 }
@@ -191,6 +209,8 @@ export interface RecordWindowStateInput {
   path: string | null;
   scrollTop: number;
   mode: WindowMode;
+  folder?: string | null;
+  sidebarVisible?: boolean;
 }
 
 /**
@@ -216,6 +236,8 @@ export async function recordCurrentWindowState(
       y: Math.round(pos.y / factor),
       scrollTop: Math.max(0, Math.round(input.scrollTop)),
       mode: input.mode,
+      folder: input.folder ?? null,
+      sidebarVisible: input.sidebarVisible,
       timestampMs: Date.now(),
     };
     // Write only this window's key — never load-modify-save the shared list.
@@ -247,12 +269,19 @@ export function installWindowSessionPersistence(getters: {
   currentPath: () => string | null;
   scrollTop: () => number;
   mode: () => WindowMode;
+  /** Optional — only windows that show a folder sidebar need to supply this.
+   *  Returning null indicates no folder is open. */
+  folder?: () => string | null;
+  /** Optional — same reason as `folder`. */
+  sidebarVisible?: () => boolean;
 }): () => void {
   const recordNow = (): Promise<void> =>
     recordCurrentWindowState({
       path: getters.currentPath(),
       scrollTop: getters.scrollTop(),
       mode: getters.mode(),
+      folder: getters.folder?.() ?? null,
+      sidebarVisible: getters.sidebarVisible?.(),
     });
 
   // Immediate write so even an instant-quit after launch still has state.
@@ -261,9 +290,10 @@ export function installWindowSessionPersistence(getters: {
   // Periodic write — keeps scrollTop/mode/path fresh during the session.
   const interval = window.setInterval(() => { void recordNow(); }, SESSION_TICK_MS);
 
-  // Best-effort flush on close: Tauri close-requested then DOM beforeunload.
-  // Either may "win" depending on platform; both are safe to call together
-  // because the underlying record is idempotent (per-label key overwrite).
+  // Quit-vs-close: when the user closes one window of several, drop that
+  // window from the restore-on-next-launch set. When the user picks Quit
+  // (Cmd-Q), the Rust side has already flipped a flag so we preserve every
+  // window's entry. `is_quitting` is the IPC that exposes it.
   let unlisten: (() => void) | null = null;
   let alreadyClosing = false;
   const win = getCurrentWindow();
@@ -271,11 +301,34 @@ export function installWindowSessionPersistence(getters: {
     if (alreadyClosing) return;
     alreadyClosing = true;
     event.preventDefault();
-    try { await recordNow(); } catch { /* ignore */ }
+    let quitting = false;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      quitting = await invoke<boolean>("is_quitting");
+    } catch {
+      // No is_quitting handler (older backend) — preserve the entry, since
+      // that matches the prior trunk behaviour of always saving.
+      quitting = true;
+    }
+    if (quitting) {
+      try { await recordNow(); } catch { /* ignore */ }
+    } else {
+      try { await removeWindowSessionEntry(win.label); } catch { /* ignore */ }
+    }
     try { await win.destroy(); } catch { /* ignore */ }
   }).then((u) => { unlisten = u; });
 
-  const beforeunloadHandler = (): void => { void recordNow(); };
+  // beforeunload is the last-line backstop. It fires fire-and-forget for both
+  // the user-close and the quit paths; the periodic tick (above) is the
+  // primary guarantor of fresh state, so beforeunload only needs to nudge a
+  // final write. On the user-close path the close-requested handler has
+  // already removed the entry, but a redundant recordNow here would re-add
+  // it before destroy lands — so we no-op on the close path by reading the
+  // alreadyClosing flag.
+  const beforeunloadHandler = (): void => {
+    if (alreadyClosing) return;
+    void recordNow();
+  };
   window.addEventListener("beforeunload", beforeunloadHandler);
 
   return () => {

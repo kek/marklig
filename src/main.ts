@@ -394,22 +394,30 @@ async function bootstrap(): Promise<void> {
   });
 
   let currentPath: string | null = initialDoc?.path ?? null;
+  // Per-window folder root, mirrored from the store so the periodic session
+  // tick can read it synchronously. setCurrentFolder() below is the only
+  // writer.
+  let currentFolder: string | null = null;
   if (currentPath) await recordRecent(currentPath);
 
-  // Multi-window session restore: snapshot this window's state on
-  // beforeunload. Captures path/scrollTop/mode at unload time so the next
+  // Multi-window session restore: snapshot this window's state on a periodic
+  // tick + on close. Captures path/scrollTop/mode/folder/sidebar so the next
   // launch can re-spawn the exact arrangement. Per-window — both main and
-  // secondary windows participate.
+  // secondary windows participate. Closing one window of several drops just
+  // that window from the next-launch set; Cmd-Q preserves all.
   const stopWindowSession = installWindowSessionPersistence({
     currentPath: () => currentPath,
     scrollTop: () => view.scrollDOM.scrollTop,
     mode: () => currentMode,
+    folder: () => currentFolder,
+    sidebarVisible: () => toc.isVisible(),
   });
   window.addEventListener("beforeunload", () => stopWindowSession());
 
   /** Open `root` as the current folder: persist it, list .md files in the
    * sidebar, ensure the sidebar is visible. Pass null to clear. */
   async function setCurrentFolder(root: string | null): Promise<void> {
+    currentFolder = root;
     await setValue("currentFolder", root);
     await folder.setFolder(root);
     if (root) {
@@ -423,17 +431,30 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Restore the last-opened folder (if any) so the file list is right where
-  // the user left it. Failures (folder moved/deleted/permission-denied) are
-  // silent — currentFolder stays null and the panel stays hidden.
+  // Restore the last-opened folder. Per-window session entry takes precedence
+  // over the legacy global `currentFolder` key — that's the path that keeps
+  // each window's own sidebar root distinct across relaunches. The global
+  // key is the fallback for first-launch / windows without a session entry.
   void (async () => {
-    const stored = await getValue<string | null>("currentFolder");
-    if (typeof stored === "string" && stored.length > 0) {
+    let target: string | null | undefined = sessionEntryForThisWindow?.folder;
+    if (target === undefined) {
+      target = await getValue<string | null>("currentFolder");
+    }
+    if (typeof target === "string" && target.length > 0) {
       try {
-        await setCurrentFolder(stored);
+        await setCurrentFolder(target);
       } catch {
+        // Folder moved / deleted / permission-denied — clear the global key
+        // so we don't keep retrying it, and leave the panel hidden.
         await setValue("currentFolder", null);
       }
+    }
+    // If the session entry explicitly stored `sidebarVisible: false`, honour
+    // that even when setCurrentFolder() would have opened the panel.
+    if (sessionEntryForThisWindow?.sidebarVisible === false) {
+      toc.setVisible(false);
+      recordExplicitToggle(false);
+      toolbar.setSidebarVisible(false);
     }
   })();
   let watcherHandle: WatcherHandle | null = null;
