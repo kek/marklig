@@ -52,6 +52,12 @@ export async function isDirectory(path: string): Promise<boolean> {
   return await invoke<boolean>("is_directory", { path });
 }
 
+/** Resolve the folder a file "belongs to": the nearest ancestor containing a
+ * VCS marker (.git, .jj, .hg, .svn), or the file's parent directory if none. */
+export async function resolveFolderRoot(path: string): Promise<string> {
+  return await invoke<string>("resolve_folder_root", { path });
+}
+
 /** Prompt for an HTML save destination and write the contents. Returns the
  * destination path on success, null if the user cancels. */
 export async function saveHtmlExport(

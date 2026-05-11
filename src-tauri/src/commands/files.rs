@@ -162,6 +162,37 @@ pub fn path_exists(path: String) -> bool {
     std::fs::metadata(&path).is_ok()
 }
 
+/// Resolve the folder a file "belongs to" for sidebar display:
+/// the nearest ancestor containing a VCS marker (.git, .jj, .hg, .svn) if any,
+/// otherwise the file's immediate parent directory. Returns the input
+/// unchanged if it's already a directory, or empty string if no parent exists.
+#[tauri::command]
+pub fn resolve_folder_root(path: String) -> String {
+    let p = std::path::Path::new(&path);
+    let start: &std::path::Path = if p.is_dir() {
+        p
+    } else {
+        match p.parent() {
+            Some(parent) => parent,
+            None => return String::new(),
+        }
+    };
+    const MARKERS: &[&str] = &[".git", ".jj", ".hg", ".svn"];
+    let mut cursor = start;
+    loop {
+        for m in MARKERS {
+            if cursor.join(m).exists() {
+                return cursor.to_string_lossy().to_string();
+            }
+        }
+        match cursor.parent() {
+            Some(parent) if parent != cursor => cursor = parent,
+            _ => break,
+        }
+    }
+    start.to_string_lossy().to_string()
+}
+
 /// Reveal a file in the platform's file manager. Highlights the file itself
 /// (rather than just opening the parent directory) where the platform
 /// supports it. Errors are surfaced as Strings — the command is best-effort
