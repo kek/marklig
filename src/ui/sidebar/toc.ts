@@ -27,6 +27,36 @@ export interface MountTocOptions {
   onActivate: (entry: TocEntry) => void;
 }
 
+/** Pure heading extraction. Exported for unit tests. Skips YAML/TOML
+ * frontmatter — markdown-it parses `---\n...\n---` as an hr followed by a
+ * setext H2 whose content is the YAML body, which would otherwise leak into
+ * the TOC as a stray entry. */
+export function extractTocEntries(source: string): TocEntry[] {
+  const tokens = parseMarkdown(source);
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i++) {
+    if (source.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  }
+  const fm = /^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1\r?\n/.exec(source);
+  let frontmatterEndLine = 0;
+  if (fm && fm.index === 0) {
+    for (let i = 0; i < fm[0].length; i++) {
+      if (source.charCodeAt(i) === 10) frontmatterEndLine++;
+    }
+  }
+  const out: TocEntry[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== "heading_open" || !t.map) continue;
+    if (t.map[0] < frontmatterEndLine) continue;
+    const level = Number(t.tag.replace("h", "")) as TocEntry["level"];
+    const inline = tokens[i + 1];
+    const text = inline?.content?.trim() ?? "";
+    out.push({ level, text, from: lineStarts[t.map[0]] });
+  }
+  return out;
+}
+
 const SIDEBAR_WIDTH_KEY = "viewer.sidebar.width";
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 480;
@@ -60,22 +90,7 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
   let visible = opts.initiallyVisible;
 
   function extractEntries(): TocEntry[] {
-    const source = opts.view.state.doc.toString();
-    const tokens = parseMarkdown(source);
-    const lineStarts = [0];
-    for (let i = 0; i < source.length; i++) {
-      if (source.charCodeAt(i) === 10) lineStarts.push(i + 1);
-    }
-    const out: TocEntry[] = [];
-    for (let i = 0; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (t.type !== "heading_open" || !t.map) continue;
-      const level = Number(t.tag.replace("h", "")) as TocEntry["level"];
-      const inline = tokens[i + 1];
-      const text = inline?.content?.trim() ?? "";
-      out.push({ level, text, from: lineStarts[t.map[0]] });
-    }
-    return out;
+    return extractTocEntries(opts.view.state.doc.toString());
   }
 
   function render(): void {
