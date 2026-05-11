@@ -113,12 +113,32 @@ const MAX_FOLDER_DEPTH: u32 = 6;
 const MAX_FOLDER_ENTRIES: usize = 5_000;
 
 fn is_ignored(name: &str) -> bool {
-    if name.starts_with('.') {
-        return true;
-    }
+    // Explicit list rather than a blanket dot-prefix rule. Many useful
+    // doc directories start with a dot (.claude, .github, .config) and
+    // hiding them silently was confusing — users opened a folder, saw no
+    // files, and didn't know the walker had skipped a subtree on purpose.
     matches!(
         name,
-        "node_modules" | "dist" | "build" | "target" | "out" | ".git" | "__pycache__"
+        "node_modules"
+            | "dist"
+            | "build"
+            | "target"
+            | "out"
+            | "__pycache__"
+            | ".git"
+            | ".jj"
+            | ".hg"
+            | ".svn"
+            | ".cache"
+            | ".next"
+            | ".nuxt"
+            | ".turbo"
+            | ".parcel-cache"
+            | ".svelte-kit"
+            | ".vercel"
+            | ".idea"
+            | ".vscode"
+            | ".venv"
     )
 }
 
