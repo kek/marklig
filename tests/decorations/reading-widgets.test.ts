@@ -40,10 +40,46 @@ describe("readingWidgetsProducer", () => {
     expect(lineCollapse.length).toBe(2);
   });
 
-  it("hides front matter entirely", () => {
-    const r = specs("---\ntitle: x\n---\n\n# Doc\n");
-    const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide-line"));
-    expect(hides.length).toBe(3);
+  it("replaces front matter with a single block widget", () => {
+    const src = "---\ntitle: x\n---\n\n# Doc\n";
+    const r = specs(src);
+    const fmWidgets = r.filter((x) => {
+      const spec = x.spec as { widget?: { constructor: { name: string } } };
+      return spec.widget?.constructor.name === "FrontmatterWidget";
+    });
+    expect(fmWidgets.length).toBe(1);
+    expect(fmWidgets[0].from).toBe(0);
+    expect(fmWidgets[0].to).toBe("---\ntitle: x\n---\n".length);
+  });
+
+  it("front matter widget renders a <dl> with key/value pairs", () => {
+    const src = "---\ntitle: Hi\nauthor: \"Bob\"\n---\n\n# Doc\n";
+    const r = specs(src);
+    const fm = r.find((x) => {
+      const spec = x.spec as { widget?: { constructor: { name: string } } };
+      return spec.widget?.constructor.name === "FrontmatterWidget";
+    });
+    type W = { widget: { toDOM: () => HTMLElement } };
+    const widget = (fm!.spec as W).widget;
+    const dom = widget.toDOM();
+    const dts = dom.querySelectorAll("dt");
+    const dds = dom.querySelectorAll("dd");
+    expect(Array.from(dts).map((d) => d.textContent)).toEqual(["title", "author"]);
+    expect(Array.from(dds).map((d) => d.textContent)).toEqual(["Hi", "Bob"]);
+  });
+
+  it("front matter widget falls back to raw <pre> for nested structures", () => {
+    const src = "---\nlist:\n  - one\n  - two\n---\n\n# Doc\n";
+    const r = specs(src);
+    const fm = r.find((x) => {
+      const spec = x.spec as { widget?: { constructor: { name: string } } };
+      return spec.widget?.constructor.name === "FrontmatterWidget";
+    });
+    type W = { widget: { toDOM: () => HTMLElement } };
+    const widget = (fm!.spec as W).widget;
+    const dom = widget.toDOM();
+    expect(dom.querySelector("dl")).toBeNull();
+    expect(dom.querySelector("pre")).not.toBeNull();
   });
 
   it("elides heading prefix `# `", () => {
