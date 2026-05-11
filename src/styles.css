@@ -179,6 +179,42 @@ html.theme-dark[data-mode="edit"] .cm-editor {
   color: var(--muted);
 }
 
+/* Graphviz diagrams. Visual treatment mirrors Mermaid so dot fences feel
+   consistent: centered SVG with breathing room, italic loading placeholder,
+   and a bordered error block that preserves the source for debugging. */
+.cm-md-graphviz {
+  padding: 14px 0;
+  display: flex;
+  justify-content: center;
+}
+.cm-md-graphviz svg { max-width: 100%; height: auto; }
+.cm-md-graphviz-loading {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.9em;
+  font-style: italic;
+}
+.cm-md-graphviz-error {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  padding: 10px 12px;
+}
+.cm-md-graphviz-error-message {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+.cm-md-graphviz-source {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+
 /* Remote-image policy placeholder. Bordered box with alt + URL — surfaces what
    the document points to without making a network request. The 'broken' variant
    is used for images that failed to load when the policy allows fetching. */

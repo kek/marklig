@@ -23,6 +23,7 @@ import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
+import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
 import { loadSettings, subscribeSettings, getAutoSave } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
@@ -141,7 +142,7 @@ async function bootstrap(): Promise<void> {
     frontmatterProducer,
     footnotesProducer,
   ];
-  const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer, mermaidProducer];
+  const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer, mermaidProducer, graphvizProducer];
 
   const editingSet = buildDecorationField(editingProducers);
   const readingSet = buildDecorationField(readingProducers);
@@ -788,6 +789,12 @@ async function bootstrap(): Promise<void> {
     view.dispatch({ effects: mermaidCacheEffect.of() });
   });
   window.addEventListener("beforeunload", () => unsubscribeMermaid());
+
+  const unsubscribeGraphviz = graphvizCache.subscribe(() => {
+    view.dispatch({ effects: graphvizCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeGraphviz());
+
 }
 
 async function resolveInitialDoc(sessionFallbackPath: string | null = null): Promise<OpenedDoc | null> {
