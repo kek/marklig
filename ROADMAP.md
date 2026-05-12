@@ -13,7 +13,7 @@ The Foundation sub-spec (A) shipped on 2026-05-08 across three implementation pl
 | **C. Export & print** | PDF, self-contained HTML, print pipeline | ✅ Shipped 2026-05-08 (PDF via OS print dialog; native print-to-PDF deferred) |
 | **D. OS integration** | File associations, drag-drop polish, OS-level Recents, native menu polish, optional folder/project tree, multi-window UX | ✅ Shipped 2026-05-12 for macOS (file associations + LaunchServices registration, folder tree with live project-tree watcher, multi-window with per-window watcher + per-window folder/sidebar state restore + multi-window-restore on launch, drag-drop refinements, last-file restore, per-file scroll memory, macOS NSDocumentController, Projects menu + recent-projects palette `Ctrl-R`, `Cmd-P` fuzzy file finder, window-aware menu routing via event bus, quit-vs-close lifecycle, `Cmd-W` closes focused window). Windows Jump List, Linux `RecentManager`, and Quick Look signing moved to [Future](#future). |
 | **E. Settings, updater, privacy** | Preferences UI, auto-update channel, network privacy toggles | ✅ Shipped 2026-05-09 as scoped (prefs UI + remote-image policy + auto-save toggle + keyboard-shortcut help). Auto-updater moved to [Future](#future). |
-| **F. A11y & i18n** | WCAG audit, screen-reader pass, i18n string extraction | 🟡 Mostly done 2026-05-09 (modal a11y + reduced-motion + keyboard-navigable TOC + i18n foundation + menu-string sweep + WCAG contrast on muted text; full screen-reader audit on reading-mode body deferred) |
+| **F. A11y & i18n** | WCAG audit, screen-reader pass, i18n string extraction | ✅ Shipped 2026-05-12 (modal a11y + reduced-motion + keyboard-navigable TOC + i18n foundation + menu-string sweep + WCAG contrast on muted text + reading-mode body screen-reader audit: ARIA on headings/lists/quotes/code/diagrams, MathML for math) |
 
 ---
 
@@ -92,18 +92,17 @@ A small, focused preferences surface and the privacy toggles.
 
 ---
 
-## Sub-spec F: A11y & i18n polish
+## Sub-spec F: A11y & i18n polish — shipped
 
-The home stretch for shipping a real product.
+Shipped in two batches: 2026-05-09 (modal a11y, reduced-motion, keyboard-navigable TOC, i18n foundation + menu-string sweep, WCAG AA contrast — see CHANGELOG 0.7.0 / 0.11.0) and 2026-05-12 (reading-mode body screen-reader audit — see CHANGELOG 0.12.0).
 
-**In scope:**
-- **Full keyboard navigation.** Every action reachable by mouse must be reachable by keyboard.
-- **Screen-reader audit.** Reading mode exposes semantic headings, alt text, link text, list structure. The editor side surfaces enough for a blind user to locate and edit.
-- **WCAG AA contrast.** Both light and dark themes audited and adjusted.
-- **Reduced-motion support.** Honors the OS setting; mode-toggle and scroll-to-jump animations skip when reduced-motion is on.
-- **i18n string extraction.** Every UI string lives in a translation table. Ship en-US on day one; the framework supports adding locales without code changes.
+**Reading-mode body audit (2026-05-12).** ARIA roles attached to line decorations so screen readers can navigate by structure: `role="heading"` + `aria-level` on each heading, `role="listitem"` on bullet/ordered/task list lines, `role="blockquote"` on quoted lines, `role="code"` on code-body lines (first body line carries `aria-label` with the fence language), `aria-hidden="true"` on collapsed fence lines. Opaque widgets (Mermaid, Graphviz) gain `role="img"` + localized `aria-label` for the success state, `role="status"` + `aria-live="polite"` for the loading state, `role="region"` for the error state. Decorative widgets (BulletWidget, SoftBreakWidget) are `aria-hidden`. Remote/broken image placeholders gain `role="img"` with the existing label text exposed via `aria-label`. KaTeX flipped to `htmlAndMathml` output so screen readers read math expressions as math.
 
-**Likely shape:** 1 spec → 1 plan. Lots of small, mechanical tasks; the audit findings drive the task list.
+All new AT-facing strings flow through `t()` / `tA11y()` in `src/i18n/strings.ts` under the `a11y.*` namespace.
+
+**Deferred to a future iteration:** semantic `<a>` for reading-mode links — depends on a reading-mode click-handler decision that's out of scope here. Tracked in [Future](#future).
+
+**Spec:** `docs/superpowers/specs/2026-05-12-reading-mode-screen-reader-audit-design.md`. **Plan:** `docs/superpowers/plans/2026-05-12-reading-mode-screen-reader-audit.md`.
 
 ---
 
@@ -117,6 +116,7 @@ De-scoped from the v1 sub-specs because they can't be meaningfully built or veri
 - **Auto-updater.** `tauri-plugin-updater` integration with stable / pre-release / off channels, consent-required apply. Blocked on signing keys (same Developer ID dependency as Quick Look on macOS) and an update-feed host. Pure infra blocker — the code shape is well-trodden.
 - **Native print-to-PDF.** A first-class "Export as PDF…" menu entry that doesn't route through the OS print dialog. Needs a Rust-side webview-to-PDF call from Tauri; currently the OS print dialog's "Save as PDF" covers the workflow.
 - **Mermaid in HTML exports.** Mermaid is async per-instance; rendering during a synchronous export pass would block. Either pre-render all diagrams ahead of `buildHtmlExport` or move the export pipeline to async. Fenced `mermaid` blocks currently export as source.
+- **Semantic `<a>` for reading-mode links.** Reading-mode links are styled via mark decorations on the literal `[text](url)` source, not real `<a>` elements — so screen readers don't announce them as links and there's no keyboard activation. Doing this properly requires a reading-mode click-handler design (when does the underlying source click pass through, when does it activate the link?). Out of scope for the F audit; tracked as a follow-up.
 
 When the infra/access blockers lift (Apple Developer cert + notarization pipeline; access to Windows + Linux dev environments), promote items back into a sub-spec.
 

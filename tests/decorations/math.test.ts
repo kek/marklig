@@ -109,7 +109,7 @@ describe("mathProducer", () => {
       cursor.next();
     }
     expect(widget).toBeTruthy();
-    const dom = widget!.toDOM();
+    const dom = widget!.toDOM(null as never);
     expect(dom.innerHTML).toMatch(/<math[\s>]/i);
   });
 
@@ -125,7 +125,7 @@ describe("mathProducer", () => {
       cursor.next();
     }
     expect(widget).toBeTruthy();
-    const dom = widget!.toDOM();
+    const dom = widget!.toDOM(null as never);
     expect(dom.innerHTML).toMatch(/<math[\s>]/i);
   });
 });

@@ -50,7 +50,7 @@ describe("mermaidProducer", () => {
     }
     expect(widget).toBeTruthy();
 
-    const loading = widget!.toDOM();
+    const loading = widget!.toDOM(null as never);
     expect(loading.getAttribute("role")).toBe("status");
     expect(loading.getAttribute("aria-live")).toBe("polite");
     expect(loading.getAttribute("aria-label")).toBe("Rendering Mermaid diagram");
@@ -65,7 +65,7 @@ describe("mermaidProducer", () => {
       if (spec.widget) { widget2 = spec.widget; break; }
       cursor2.next();
     }
-    const okDom = widget2!.toDOM();
+    const okDom = widget2!.toDOM(null as never);
     expect(okDom.getAttribute("role")).toBe("img");
     expect(okDom.getAttribute("aria-label")).toBe("Mermaid diagram");
   });
