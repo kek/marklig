@@ -17,6 +17,7 @@ export const headingsProducer: DecorationProducer = ({ source, tokens }) => {
     ranges.push(
       Decoration.line({
         class: `cm-md-heading cm-md-heading-${level}`,
+        attributes: { role: "heading", "aria-level": String(level) },
       }).range(from),
     );
   }
