@@ -5,6 +5,7 @@ import { createHighlighter, type Highlighter, type ThemedToken } from "shiki";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { tA11y } from "../../i18n/strings";
 
 let highlighter: Highlighter | null = null;
 const loadedLangs = new Set<string>();
@@ -99,18 +100,30 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
     // collision-with-fence-elide problem ran into that and broke ALL body
     // line styling.
     ranges.push(
-      Decoration.line({ class: "cm-md-code-fence cm-md-code-fence-open" })
+      Decoration.line({
+        class: "cm-md-code-fence cm-md-code-fence-open",
+        attributes: { "aria-hidden": "true" },
+      })
         .range(lineStarts[startLine]),
     );
     for (let line = startLine + 1; line < endLine - 1; line++) {
+      const isFirstBody = line === startLine + 1;
+      const attributes: Record<string, string> = { role: "code" };
+      if (isFirstBody) attributes["aria-label"] = tA11y("a11y.codeBlockWithLang", { lang });
       ranges.push(
-        Decoration.line({ class: `cm-md-code-body cm-md-code-lang-${lang}` })
+        Decoration.line({
+          class: `cm-md-code-body cm-md-code-lang-${lang}`,
+          attributes,
+        })
           .range(lineStarts[line]),
       );
     }
     if (endLine - 1 > startLine) {
       ranges.push(
-        Decoration.line({ class: "cm-md-code-fence cm-md-code-fence-close" })
+        Decoration.line({
+          class: "cm-md-code-fence cm-md-code-fence-close",
+          attributes: { "aria-hidden": "true" },
+        })
           .range(lineStarts[endLine - 1]),
       );
     }
