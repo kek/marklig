@@ -513,10 +513,14 @@ async function bootstrap(): Promise<void> {
     void emit("viewer:window-closed", { label: selfLabel });
   });
 
-  /** Switch the folder sidebar to the file's repo (nearest .git/.jj/.hg/.svn
-   * ancestor) or its parent directory if no repo is found. Best-effort —
-   * failures are swallowed so a folder lookup never blocks the open. */
+  /** Derive the folder sidebar root from a file path on cold-start — the file's
+   * repo (nearest .git/.jj/.hg/.svn ancestor) or its parent directory if no
+   * repo is found. No-op once a folder is already open: subsequent file opens
+   * never switch the sidebar root, even if the file lives elsewhere; the user
+   * picks a project, files come and go. Best-effort — lookup failures are
+   * swallowed. */
   async function syncFolderToFile(path: string): Promise<void> {
+    if (currentFolder) return;
     try {
       const root = await resolveFolderRoot(path);
       if (root) await setCurrentFolder(root);
