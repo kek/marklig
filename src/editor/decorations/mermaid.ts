@@ -4,6 +4,7 @@ import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { t } from "../../i18n/strings";
 
 interface MermaidEntry {
   status: "ok" | "error";
@@ -78,6 +79,9 @@ class MermaidWidget extends WidgetType {
     if (!entry) {
       wrap.classList.add("cm-md-mermaid-loading");
       wrap.textContent = "Rendering diagram…";
+      wrap.setAttribute("role", "status");
+      wrap.setAttribute("aria-live", "polite");
+      wrap.setAttribute("aria-label", t("a11y.mermaidDiagramLoading"));
       mermaidCache.request(this.source);
       return wrap;
     }
@@ -88,8 +92,12 @@ class MermaidWidget extends WidgetType {
       // <foreignObject>-wrapped labels Mermaid emits even in strict mode,
       // dropping the HTML label content. Skip the extra sanitize pass.
       wrap.innerHTML = entry.payload;
+      wrap.setAttribute("role", "img");
+      wrap.setAttribute("aria-label", t("a11y.mermaidDiagram"));
     } else {
       wrap.classList.add("cm-md-mermaid-error");
+      wrap.setAttribute("role", "region");
+      wrap.setAttribute("aria-label", t("a11y.mermaidDiagramFailed"));
       const msg = document.createElement("div");
       msg.className = "cm-md-mermaid-error-message";
       msg.textContent = entry.payload;

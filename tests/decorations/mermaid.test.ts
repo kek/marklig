@@ -37,6 +37,39 @@ describe("mermaidProducer", () => {
     expect(r.length).toBe(1);
   });
 
+  it("widget DOM exposes ARIA: loading announces via role=status; cached success uses role=img + aria-label", () => {
+    const src = "```mermaid\ngraph TD\nA-->B\n```\n";
+    const tokens = parseMarkdown(src);
+    const set = mermaidProducer({ source: src, tokens });
+    let widget: WidgetType | undefined;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as { widget?: WidgetType };
+      if (spec.widget) { widget = spec.widget; break; }
+      cursor.next();
+    }
+    expect(widget).toBeTruthy();
+
+    const loading = widget!.toDOM(null as never);
+    expect(loading.getAttribute("role")).toBe("status");
+    expect(loading.getAttribute("aria-live")).toBe("polite");
+    expect(loading.getAttribute("aria-label")).toBe("Rendering Mermaid diagram");
+
+    const sourceText = "graph TD\nA-->B\n";
+    mermaidCache.set(sourceText, { status: "ok", payload: "<svg></svg>" });
+    const set2 = mermaidProducer({ source: src, tokens });
+    let widget2: WidgetType | undefined;
+    const cursor2 = set2.iter();
+    while (cursor2.value) {
+      const spec = cursor2.value.spec as { widget?: WidgetType };
+      if (spec.widget) { widget2 = spec.widget; break; }
+      cursor2.next();
+    }
+    const okDom = widget2!.toDOM(null as never);
+    expect(okDom.getAttribute("role")).toBe("img");
+    expect(okDom.getAttribute("aria-label")).toBe("Mermaid diagram");
+  });
+
   it("handles multiple mermaid blocks in one document", () => {
     const src =
       "```mermaid\ngraph TD\nA-->B\n```\n\nbetween\n\n```mermaid\nflowchart LR\nx-->y\n```\n";

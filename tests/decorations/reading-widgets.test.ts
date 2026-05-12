@@ -16,6 +16,50 @@ function specs(source: string) {
 }
 
 describe("readingWidgetsProducer", () => {
+  it("BulletWidget and SoftBreakWidget are aria-hidden in their rendered DOM", () => {
+    const src = "- one\n- two\n\nFirst line\nsecond line\n";
+    const tokens = parseMarkdown(src);
+    const set = readingWidgetsProducer({ source: src, tokens });
+    const widgets: Array<{ name: string; dom: HTMLElement }> = [];
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as {
+        widget?: { constructor: { name: string }; toDOM: () => HTMLElement };
+      };
+      if (spec.widget) {
+        widgets.push({ name: spec.widget.constructor.name, dom: spec.widget.toDOM() });
+      }
+      cursor.next();
+    }
+    const bullets = widgets.filter((w) => w.name === "BulletWidget");
+    const softs = widgets.filter((w) => w.name === "SoftBreakWidget");
+    expect(bullets.length).toBeGreaterThanOrEqual(2);
+    expect(softs.length).toBeGreaterThanOrEqual(1);
+    for (const w of bullets) expect(w.dom.getAttribute("aria-hidden")).toBe("true");
+    for (const w of softs) expect(w.dom.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("remote-image placeholder exposes role=img with aria-label including the alt text", () => {
+    const src = "![A bird](https://example.com/bird.png)\n";
+    const tokens = parseMarkdown(src);
+    const set = readingWidgetsProducer({ source: src, tokens });
+    let dom: HTMLElement | null = null;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as {
+        widget?: { constructor: { name: string }; toDOM: () => HTMLElement };
+      };
+      if (spec.widget?.constructor.name === "ImageWidget") {
+        dom = spec.widget.toDOM();
+        break;
+      }
+      cursor.next();
+    }
+    expect(dom).not.toBeNull();
+    expect(dom!.getAttribute("role")).toBe("img");
+    expect(dom!.getAttribute("aria-label")).toBe("Remote image: A bird");
+  });
+
   it("hides link brackets and url, keeping inner text", () => {
     const r = specs("[t](u)\n");
     const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide"));

@@ -47,4 +47,25 @@ describe("listsProducer", () => {
     expect(r[1].class).toContain("cm-md-list-task");
     expect(r[1].class).not.toContain("cm-md-list-task-done");
   });
+
+  it("exposes role=listitem on bullet, ordered, and task list lines", () => {
+    const source =
+      "- first\n" +
+      "- second\n" +
+      "1. one\n" +
+      "2. two\n" +
+      "- [ ] todo\n" +
+      "- [x] done\n";
+    const tokens = parseMarkdown(source);
+    const set = listsProducer({ source, tokens });
+    const rows: Array<Record<string, string> | undefined> = [];
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as { attributes?: Record<string, string> };
+      rows.push(spec.attributes);
+      cursor.next();
+    }
+    expect(rows.length).toBe(6);
+    for (const r of rows) expect(r).toEqual({ role: "listitem" });
+  });
 });

@@ -64,6 +64,39 @@ describe("graphvizProducer", () => {
     expect(loadingWidget.eq(loadedWidget)).toBe(false);
     expect(loadedWidget.eq(loadedWidget)).toBe(true);
   });
+
+  it("widget DOM exposes ARIA: loading announces via role=status; cached success uses role=img + aria-label", () => {
+    const src = "```dot\ndigraph { A -> B }\n```\n";
+    const tokens = parseMarkdown(src);
+    const set = graphvizProducer({ source: src, tokens });
+    let widget: WidgetType | undefined;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as { widget?: WidgetType };
+      if (spec.widget) { widget = spec.widget; break; }
+      cursor.next();
+    }
+    expect(widget).toBeTruthy();
+
+    const loading = widget!.toDOM(null as never);
+    expect(loading.getAttribute("role")).toBe("status");
+    expect(loading.getAttribute("aria-live")).toBe("polite");
+    expect(loading.getAttribute("aria-label")).toBe("Rendering Graphviz diagram");
+
+    const sourceText = "digraph { A -> B }\n";
+    graphvizCache.set(sourceText, { status: "ok", payload: "<svg></svg>" });
+    const set2 = graphvizProducer({ source: src, tokens });
+    let widget2: WidgetType | undefined;
+    const cursor2 = set2.iter();
+    while (cursor2.value) {
+      const spec = cursor2.value.spec as { widget?: WidgetType };
+      if (spec.widget) { widget2 = spec.widget; break; }
+      cursor2.next();
+    }
+    const okDom = widget2!.toDOM(null as never);
+    expect(okDom.getAttribute("role")).toBe("img");
+    expect(okDom.getAttribute("aria-label")).toBe("Graphviz diagram");
+  });
 });
 
 function readWidget(src: string): WidgetType {

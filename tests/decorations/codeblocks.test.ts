@@ -96,6 +96,41 @@ describe("codeblocksProducer", () => {
       rwCursor.next();
     }
   });
+
+  it("exposes role=code on body lines, aria-hidden on fences, aria-label with lang on first body line", () => {
+    const source = "```rust\nfn main() {}\nlet x = 1;\n```\n";
+    const tokens = parseMarkdown(source);
+    const set = codeblocksProducer({ source, tokens });
+    const lineRows: Array<{ class: string; attrs: Record<string, string> | undefined }> = [];
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as {
+        class?: string;
+        attributes?: Record<string, string>;
+      };
+      const cls = spec.class ?? "";
+      if (cls.startsWith("cm-md-code-")) {
+        lineRows.push({ class: cls, attrs: spec.attributes });
+      }
+      cursor.next();
+    }
+    expect(lineRows.length).toBe(4);
+
+    expect(lineRows[0].class).toContain("cm-md-code-fence-open");
+    expect(lineRows[0].attrs).toEqual({ "aria-hidden": "true" });
+
+    expect(lineRows[1].class).toContain("cm-md-code-body");
+    expect(lineRows[1].attrs).toEqual({
+      role: "code",
+      "aria-label": "Code block, rust",
+    });
+
+    expect(lineRows[2].class).toContain("cm-md-code-body");
+    expect(lineRows[2].attrs).toEqual({ role: "code" });
+
+    expect(lineRows[3].class).toContain("cm-md-code-fence-close");
+    expect(lineRows[3].attrs).toEqual({ "aria-hidden": "true" });
+  });
 });
 
 it("emits token-color marks once a fence has been highlighted", async () => {

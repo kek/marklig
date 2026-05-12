@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.12.0] - 2026-05-12 — Sub-spec F: reading-mode screen-reader audit
+
+### Added
+
+- **ARIA semantics on reading-mode body.** Headings, list items, blockquotes, and code-body lines now carry the appropriate `role` and (for headings) `aria-level` so screen readers navigate the document by structure. The first body line of a code fence carries an `aria-label` announcing the language; fence open/close lines are `aria-hidden`. VoiceOver, NVDA, and Orca can now jump heading-to-heading in reading mode (rotor / `H` key).
+- **Opaque widget descriptions.** Mermaid and Graphviz diagrams expose `role="img"` + localized `aria-label` on success, `role="status"` + `aria-live="polite"` on first paint (so SRs announce when the diagram lands), and `role="region"` on the error path. Remote-image and broken-image placeholders gain `role="img"` with `aria-label` derived from the alt text.
+- **Math as math.** KaTeX flipped from `output: "html"` to `output: "htmlAndMathml"` — every rendered expression now ships a `<math>` MathML subtree that screen readers read as mathematics, not letter-by-letter. Visual rendering unchanged.
+- **`a11y.*` i18n namespace.** New keys under `a11y.*` in `src/i18n/strings.ts` for every AT-facing label, plus a `tA11y(key, params)` helper for `{lang}` / `{alt}` substitution.
+
+### Fixed
+
+- Decorative widgets (`BulletWidget`, `SoftBreakWidget`) no longer leak through to AT — both are now `aria-hidden="true"` so screen readers don't read out "bullet bullet bullet" or stray spaces.
+
+### Test surface
+
+- 10 new unit tests across 8 producer test files; existing tests unchanged.
+
 ## [0.11.0] - 2026-05-09 — More polish: auto-save, path readout, contrast, menu i18n
 
 ### Added
