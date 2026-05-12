@@ -5,6 +5,7 @@ import type { Range } from "@codemirror/state";
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
 import { sanitizeSvg } from "../../export/sanitize";
+import { t } from "../../i18n/strings";
 
 interface GraphvizEntry {
   status: "ok" | "error";
@@ -76,6 +77,9 @@ class GraphvizWidget extends WidgetType {
     if (!entry) {
       wrap.classList.add("cm-md-graphviz-loading");
       wrap.textContent = "Rendering diagram…";
+      wrap.setAttribute("role", "status");
+      wrap.setAttribute("aria-live", "polite");
+      wrap.setAttribute("aria-label", t("a11y.graphvizDiagramLoading"));
       graphvizCache.request(this.source);
       return wrap;
     }
@@ -83,8 +87,12 @@ class GraphvizWidget extends WidgetType {
       // Graphviz can emit foreignObject-wrapped HTML labels (the `<<table>…>`
       // syntax). Run through sanitizeSvg, which keeps SVG + HTML profiles.
       wrap.innerHTML = sanitizeSvg(entry.payload);
+      wrap.setAttribute("role", "img");
+      wrap.setAttribute("aria-label", t("a11y.graphvizDiagram"));
     } else {
       wrap.classList.add("cm-md-graphviz-error");
+      wrap.setAttribute("role", "region");
+      wrap.setAttribute("aria-label", t("a11y.graphvizDiagramFailed"));
       const msg = document.createElement("div");
       msg.className = "cm-md-graphviz-error-message";
       msg.textContent = entry.payload;
