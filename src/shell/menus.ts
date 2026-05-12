@@ -336,9 +336,9 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   // menu is set. Build it explicitly so Cmd+Q works and File/Help remain
   // visible in their normal slots.
   const appMenu = await Submenu.new({
-    text: "viewer",
+    text: "Märklig",
     items: [
-      await PredefinedMenuItem.new({ item: { About: null } }),
+      await PredefinedMenuItem.new({ item: { About: null }, text: "About Märklig" }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "preferences",
@@ -349,11 +349,11 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await PredefinedMenuItem.new({ item: "Separator" }),
       await PredefinedMenuItem.new({ item: "Services" }),
       await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Hide" }),
+      await PredefinedMenuItem.new({ item: "Hide", text: "Hide Märklig" }),
       await PredefinedMenuItem.new({ item: "HideOthers" }),
       await PredefinedMenuItem.new({ item: "ShowAll" }),
       await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Quit" }),
+      await PredefinedMenuItem.new({ item: "Quit", text: "Quit Märklig" }),
     ],
   });
 

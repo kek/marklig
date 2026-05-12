@@ -125,7 +125,7 @@ fn spawn_main_window(app: &AppHandle, initial_file: Option<String>) -> tauri::Re
     // don't toggle it here — that matches the `dragDropEnabled: true` in
     // tauri.conf.json for the declarative startup window.
     WebviewWindowBuilder::new(app, "main", url)
-        .title("Viewer")
+        .title("Märklig")
         .inner_size(1000.0, 760.0)
         .min_inner_size(480.0, 320.0)
         .build()?;

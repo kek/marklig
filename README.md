@@ -1,4 +1,4 @@
-# Viewer
+# Märklig
 
 A desktop Markdown reader and editor. The defining quality is that **rendered Markdown should look beautiful** — good enough to read long-form content in, not just edit. Editing is a secondary mode you switch into when you want to change something.
 
