@@ -900,7 +900,7 @@ async function bootstrap(): Promise<void> {
         try {
           const path = await invoke<string>("install_cli_tool");
           await message(
-            `Installed at ${path}.\n\nUsage:\n  mg              — open Märklig\n  mg <file.md>    — open a Markdown file\n  mg <directory>  — open a folder`,
+            `Installed at ${path}.\n\nUsage:\n  md              — open Märklig\n  md <file.md>    — open a Markdown file\n  md <directory>  — open a folder`,
             { title: "Command Line Tool" },
           );
         } catch (err) {
@@ -1022,7 +1022,7 @@ async function bootstrap(): Promise<void> {
   const unsubFileOpen = await listen<string[]>("file-open-request", async (e) => {
     if (!isMainWindow()) return;
     const paths = Array.isArray(e.payload) ? e.payload : [];
-    // `mg <directory>` (and Finder "Open With…" on a folder) deliver a single
+    // `md <directory>` (and Finder "Open With…" on a folder) deliver a single
     // directory path. Treat that the same as the drag-drop directory case:
     // route to an existing window already showing it, or set folder root.
     if (paths.length === 1 && (await isDirectory(paths[0]))) {

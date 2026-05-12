@@ -1,14 +1,14 @@
-// Install a `mg` shell script under /usr/local/bin so the user can launch
+// Install a `md` shell script under /usr/local/bin so the user can launch
 // Märklig from the terminal. macOS-only: the install path needs admin
 // privileges, which we get via `osascript … with administrator privileges`.
 //
 // The script resolves arguments to absolute paths before handing them to
 // `open -a Märklig`. Without that, `open` resolves relative paths against the
 // LaunchServices process cwd (usually /), not the shell's cwd, so a plain
-// `mg readme.md` would silently fail.
+// `md readme.md` would silently fail.
 
 #[cfg(target_os = "macos")]
-const CLI_INSTALL_PATH: &str = "/usr/local/bin/mg";
+const CLI_INSTALL_PATH: &str = "/usr/local/bin/md";
 
 #[cfg(target_os = "macos")]
 const CLI_SCRIPT: &str = r#"#!/bin/bash
@@ -39,7 +39,7 @@ pub fn install_cli_tool() -> Result<String, String> {
 
         // Stage the script in a temp file so the privileged shell step is just
         // a mv/chmod — keeping the elevated command short reduces escaping risk.
-        let staged = env::temp_dir().join("marklig-mg-install.sh");
+        let staged = env::temp_dir().join("marklig-md-install.sh");
         fs::write(&staged, CLI_SCRIPT).map_err(|e| format!("write staged script: {e}"))?;
 
         let staged_str = staged.to_string_lossy().to_string();
