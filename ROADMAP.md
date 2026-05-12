@@ -9,10 +9,10 @@ The Foundation sub-spec (A) shipped on 2026-05-08 across three implementation pl
 | Sub-spec | Scope | Status |
 |---|---|---|
 | **A. Foundation** | Tauri shell, decorated-source editor, reading↔editing modes, themes, file lifecycle, TOC sidebar, recents, crash recovery, native menus, zoom, find/replace, CI matrix | ✅ Shipped 2026-05-08 |
-| **B. Rich content** | Math (KaTeX), Mermaid, image rendering, remote-image policy, full HTML sanitization story | ✅ Shipped 2026-05-08 |
+| **B. Rich content** | Math (KaTeX), Mermaid, image rendering, remote-image policy, full HTML sanitization story | ✅ Shipped 2026-05-08 (Graphviz `dot`, paragraph soft-line-break reflow, and pretty YAML frontmatter added 2026-05-11) |
 | **C. Export & print** | PDF, self-contained HTML, print pipeline | ✅ Shipped 2026-05-08 (PDF via OS print dialog; native print-to-PDF deferred) |
-| **D. OS integration** | File associations, drag-drop polish, OS-level Recents, native menu polish, optional folder/project tree, multi-window UX | 🟡 Mostly done 2026-05-09 (file associations, folder tree, multi-window with per-window watcher, drag-drop refinements, last-file restore, macOS NSDocumentController; Windows Jump List + Linux RecentManager remain) |
-| **E. Settings, updater, privacy** | Preferences UI, auto-update channel, network privacy toggles | 🟡 Partial 2026-05-09 (prefs UI + remote-image policy + auto-save toggle + keyboard-shortcut help; auto-updater deferred) |
+| **D. OS integration** | File associations, drag-drop polish, OS-level Recents, native menu polish, optional folder/project tree, multi-window UX | ✅ Shipped 2026-05-12 for macOS (file associations + LaunchServices registration, folder tree with live project-tree watcher, multi-window with per-window watcher + per-window folder/sidebar state restore + multi-window-restore on launch, drag-drop refinements, last-file restore, per-file scroll memory, macOS NSDocumentController, Projects menu + recent-projects palette `Ctrl-R`, `Cmd-P` fuzzy file finder, window-aware menu routing via event bus, quit-vs-close lifecycle, `Cmd-W` closes focused window). Windows Jump List, Linux `RecentManager`, and Quick Look signing moved to [Future](#future). |
+| **E. Settings, updater, privacy** | Preferences UI, auto-update channel, network privacy toggles | ✅ Shipped 2026-05-09 as scoped (prefs UI + remote-image policy + auto-save toggle + keyboard-shortcut help). Auto-updater moved to [Future](#future). |
 | **F. A11y & i18n** | WCAG audit, screen-reader pass, i18n string extraction | 🟡 Mostly done 2026-05-09 (modal a11y + reduced-motion + keyboard-navigable TOC + i18n foundation + menu-string sweep + WCAG contrast on muted text; full screen-reader audit on reading-mode body deferred) |
 
 ---
@@ -47,6 +47,8 @@ Shipped as a single iterative pass on top of Foundation rather than a fresh spec
 
 **Test surface:** 104 unit tests across 24 files (was 89/22). Math producer (8), Mermaid producer (5), settings/URL classification (10), `sanitizeSvg` (3).
 
+**Post-ship additions (2026-05-11).** Graphviz `dot` fences render as SVG in reading mode (same async-cache pattern as Mermaid; loaded via `import("@viz-js/viz")` so the ~1.2 MB lives in its own chunk). Soft-line-break paragraph reflow in reading mode — single newlines inside a paragraph collapse to spaces visually while the source stays untouched. YAML frontmatter renders as a pretty key/value metadata block (table-styled) instead of literal source, and is excluded from the TOC. Mermaid widget `eq()` fixed so the async-rendered SVG actually replaces the "loading…" placeholder instead of being deduped against it.
+
 ---
 
 ## Sub-spec C: Export & print — shipped
@@ -63,30 +65,30 @@ Shipped as a single iterative pass on top of Foundation rather than a fresh spec
 
 ## Sub-spec D: OS integration
 
-A handful of polish items that turn the foundation into "feels like a real desktop app."
+A handful of polish items that turn the foundation into "feels like a real desktop app." Most landed across two batches: 2026-05-09 (initial pass — see CHANGELOG 0.6.0 / 0.8.0 / 0.9.0) and 2026-05-10 → 2026-05-12 (a long PR-driven polish pass, #6 → #39, not yet in the changelog).
 
-**In scope:**
-- **File associations.** Register the app as a handler for `.md` / `.markdown` / `.mdx` / `.mdown` on each OS. Handle "Open With…" properly (currently routed via CLI arg in A; D makes it native).
-- **Drag-drop refinements.** Drop a folder → optional folder/project tree opens; drop multiple files → multi-window.
-- **OS-level Recents.** macOS `LSRecentDocuments`, Windows Jump List, Linux RecentManager — sync our internal recents list with these.
-- **Native menu polish.** macOS "About" / "Services" / standard items; Windows app menu in title bar; per-platform accelerators.
-- **Optional folder/project tree.** Side panel listing `.md` files in an opened directory. Single-click to open, double-click to focus.
-- **Multi-window UX.** Per-window menu state, window cycling, session restore.
-
-**Likely shape:** 1 spec → 1–2 plans depending on whether the folder tree lands here or pushes to a future iteration.
+**Shipped:**
+- **File associations.** macOS `CFBundleDocumentTypes` + `UTExportedTypeDeclarations`, Windows registry entries, Linux `.desktop` MimeType for `.md` / `.markdown` / `.mdx` / `.mdown`. macOS also registers with LaunchServices (PR #9) so Finder routing works without re-opening the app. Files arrive via `RunEvent::Opened` and are forwarded to the frontend; cold-start waits up to 500 ms for the event before falling back to the open dialog. Finder-launched files prefer a window already showing the file's tree, otherwise spawn a new one (PR #28).
+- **Drag-drop refinements.** Folder → opens in the folder sidebar; multi-file drop → first opens here, the rest each spawn a new window pre-loaded with their file.
+- **OS-level Recents.** macOS `NSDocumentController.noteNewRecentDocumentURL` (objc2-app-kit, main-thread-only). Windows + Linux equivalents are in [Future](#future) — can't be tested on the current dev machine.
+- **Native menu polish.** Explicit application + Help submenus on macOS, platform-correct accelerators throughout, platform-aware "Reveal in Finder/Explorer/File Manager" label. Menu actions route to the focused window via a typed event bus (PR #22), not just the menu-owning main, so File/Edit/View work in any window.
+- **Folder/project tree.** Side panel listing `.md` files under an opened directory; recursive `list_markdown_files` (depth 6, 5,000 entries cap) skips `node_modules` / `.git` / `target` / `dist` / `build` / `out` but does traverse leading-dot dirs like `.claude` (PR #19) since users keep notes there. Substring filter input above the list. Project tree is now watched live (PR #30) so files appearing/disappearing on disk refresh the sidebar. Opening a file inside an already-open folder no longer switches the sidebar root (PR #38). Opening a file from outside the current root switches the sidebar to the file's repo or directory (PR #21).
+- **Multi-window UX.** `Cmd+N` spawns blank windows; per-window watcher and per-window folder/sidebar state. Window sizes/positions persist via Tauri store. Multi-window restore on launch (PR #8) re-opens whatever windows were open before quit. `Cmd-W` closes the focused window instead of the menu-owning main (PR #20). On macOS the app keeps running after the last window closes until explicit quit (PR #39), matching platform convention. Crash-recovery session-tick race fixed at close time (PR #37).
+- **Projects menu + palettes.** `Projects` menu lists recent project folders (PR #29). `Ctrl-R` opens the recent-projects palette (PR #32). `Cmd-P` opens a fuzzy file finder across the open project (PR #33); Print moved to `Cmd-Alt-P`.
+- **Per-file scroll memory.** Each file remembers its scrollTop, restored on re-open (PR #7).
+- **macOS Quick Look.** Extension target exists and renders Markdown via Quick Look (PR #10). Ship is blocked on Developer ID signing + notarization, so the binding is in [Future](#future) — do **not** re-investigate format/ExtensionKit angles.
 
 ---
 
-## Sub-spec E: Settings, updater, privacy
+## Sub-spec E: Settings, updater, privacy — shipped
 
-A small, focused preferences surface and a compliant updater.
+A small, focused preferences surface and the privacy toggles.
 
-**In scope:**
-- **Preferences window.** Theme (already wired via View menu — pref window adds the same control plus reading-mode font / size / measure, editor font, auto-save toggle, spell-check toggle/dictionary, default file associations, update channel).
-- **Auto-update.** Configurable channel (stable / pre-release / off). The user must consent to apply updates; no silent install.
-- **Network privacy toggles.** Allow remote images on/off (default off — even though Sub-spec B introduces remote images, the kill switch is a privacy commitment). Allow update checks on/off. The app makes zero outbound requests without explicit consent except in response to user content (remote `<img>`) or user action (Check for Updates).
+**Shipped:**
+- **Preferences window** (`Cmd/Ctrl + ,`). Appearance (system / light / dark), remote-image policy (placeholder / load / off), and an auto-save toggle. Keyboard shortcuts modal (`F1`) lists every binding with platform-correct glyphs.
+- **Network privacy.** Remote-image policy defaults to `placeholder` so no outbound image requests fire without explicit consent. No other outbound network paths exist.
 
-**Depends on:** Sub-spec B (remote-image policy must exist before E exposes a toggle for it).
+**Deferred to [Future](#future):** auto-updater (needs `tauri-plugin-updater`, signing keys, and an update-feed host — pure infra blocker, not a code one).
 
 ---
 
@@ -102,6 +104,21 @@ The home stretch for shipping a real product.
 - **i18n string extraction.** Every UI string lives in a translation table. Ship en-US on day one; the framework supports adding locales without code changes.
 
 **Likely shape:** 1 spec → 1 plan. Lots of small, mechanical tasks; the audit findings drive the task list.
+
+---
+
+## Future
+
+De-scoped from the v1 sub-specs because they can't be meaningfully built or verified on the current dev setup. Code-complete pieces are kept in-tree; the missing piece in each case is platform access or signing infrastructure, not implementation work. None of these block a v1 macOS ship.
+
+- **Windows OS-level Recents (Jump List).** Sync the internal recents list with the Windows Jump List. Needs a Windows machine for development and a CI runner for regression testing.
+- **Linux OS-level Recents (`RecentManager`).** Sync the internal recents list with GTK `RecentManager` / freedesktop recently-used spec. Needs a Linux desktop session for development; headless CI won't exercise the integration meaningfully.
+- **macOS Quick Look extension.** Extension target (PR #10) is code-complete and renders Markdown via Quick Look, but the bundle has to be signed with a Developer ID Application cert and notarized before macOS will load it from an installed app. Blocked on paid Apple Developer membership + notarization pipeline; do **not** re-investigate the format / ExtensionKit angles.
+- **Auto-updater.** `tauri-plugin-updater` integration with stable / pre-release / off channels, consent-required apply. Blocked on signing keys (same Developer ID dependency as Quick Look on macOS) and an update-feed host. Pure infra blocker — the code shape is well-trodden.
+- **Native print-to-PDF.** A first-class "Export as PDF…" menu entry that doesn't route through the OS print dialog. Needs a Rust-side webview-to-PDF call from Tauri; currently the OS print dialog's "Save as PDF" covers the workflow.
+- **Mermaid in HTML exports.** Mermaid is async per-instance; rendering during a synchronous export pass would block. Either pre-render all diagrams ahead of `buildHtmlExport` or move the export pipeline to async. Fenced `mermaid` blocks currently export as source.
+
+When the infra/access blockers lift (Apple Developer cert + notarization pipeline; access to Windows + Linux dev environments), promote items back into a sub-spec.
 
 ---
 
