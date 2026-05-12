@@ -19,7 +19,10 @@ export const blockquotesProducer: DecorationProducer = ({ source, tokens }) => {
         // Only mark lines that actually start with >
         if (lineText.startsWith(">")) {
           ranges.push(
-            Decoration.line({ class: "cm-md-blockquote" }).range(lineStart),
+            Decoration.line({
+              class: "cm-md-blockquote",
+              attributes: { role: "blockquote" },
+            }).range(lineStart),
           );
         }
       }
