@@ -37,6 +37,7 @@ export interface MenuHandlers {
   clearRecentProjects: () => Promise<void>;
   openProjectPalette: () => Promise<void> | void;
   quickOpen: () => void;
+  installCliTool: () => Promise<void>;
 }
 
 export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> {
@@ -335,26 +336,40 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
   // app-name slot), and never auto-injects About/Hide/Quit when a custom
   // menu is set. Build it explicitly so Cmd+Q works and File/Help remain
   // visible in their normal slots.
-  const appMenu = await Submenu.new({
-    text: "Märklig",
-    items: [
-      await PredefinedMenuItem.new({ item: { About: null }, text: "About Märklig" }),
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || "");
+  const appMenuItems: Array<MenuItem | PredefinedMenuItem | Submenu> = [
+    await PredefinedMenuItem.new({ item: { About: null }, text: "About Märklig" }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await MenuItem.new({
+      id: "preferences",
+      text: t("menu.app.settings"),
+      accelerator: "CmdOrCtrl+,",
+      action: () => { void handlers.openPreferences(); },
+    }),
+  ];
+  if (isMac) {
+    appMenuItems.push(
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
-        id: "preferences",
-        text: t("menu.app.settings"),
-        accelerator: "CmdOrCtrl+,",
-        action: () => { void handlers.openPreferences(); },
+        id: "install-cli-tool",
+        text: "Install Command Line Tool",
+        action: () => { void handlers.installCliTool(); },
       }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Services" }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Hide", text: "Hide Märklig" }),
-      await PredefinedMenuItem.new({ item: "HideOthers" }),
-      await PredefinedMenuItem.new({ item: "ShowAll" }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Quit", text: "Quit Märklig" }),
-    ],
+    );
+  }
+  appMenuItems.push(
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await PredefinedMenuItem.new({ item: "Services" }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await PredefinedMenuItem.new({ item: "Hide", text: "Hide Märklig" }),
+    await PredefinedMenuItem.new({ item: "HideOthers" }),
+    await PredefinedMenuItem.new({ item: "ShowAll" }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await PredefinedMenuItem.new({ item: "Quit", text: "Quit Märklig" }),
+  );
+  const appMenu = await Submenu.new({
+    text: "Märklig",
+    items: appMenuItems,
   });
 
   const projectsMenu = await Submenu.new({

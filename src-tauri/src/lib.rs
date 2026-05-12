@@ -34,6 +34,7 @@ pub fn run() {
             commands::recents_os::register_recent_document,
             commands::folder_watcher::folder_watcher_start,
             commands::folder_watcher::folder_watcher_stop,
+            commands::cli_tool::install_cli_tool,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

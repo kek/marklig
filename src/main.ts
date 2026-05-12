@@ -895,6 +895,20 @@ async function bootstrap(): Promise<void> {
       clearRecentProjects: () => dispatchToFocused({ type: "clearRecentProjects" }),
       openProjectPalette: () => dispatchToFocused({ type: "openProjectPalette" }),
       quickOpen: () => { void dispatchToFocused({ type: "quickOpen" }); },
+      installCliTool: async () => {
+        const { invoke } = await import("@tauri-apps/api/core");
+        try {
+          const path = await invoke<string>("install_cli_tool");
+          await message(
+            `Installed at ${path}.\n\nUsage:\n  mg              — open Märklig\n  mg <file.md>    — open a Markdown file\n  mg <directory>  — open a folder`,
+            { title: "Command Line Tool" },
+          );
+        } catch (err) {
+          const msg = String(err);
+          if (msg === "cancelled") return;
+          await message(`Could not install: ${msg}`, { title: "Command Line Tool", kind: "error" });
+        }
+      },
     });
   }
   window.addEventListener("beforeunload", () => {
@@ -1008,6 +1022,28 @@ async function bootstrap(): Promise<void> {
   const unsubFileOpen = await listen<string[]>("file-open-request", async (e) => {
     if (!isMainWindow()) return;
     const paths = Array.isArray(e.payload) ? e.payload : [];
+    // `mg <directory>` (and Finder "Open With…" on a folder) deliver a single
+    // directory path. Treat that the same as the drag-drop directory case:
+    // route to an existing window already showing it, or set folder root.
+    if (paths.length === 1 && (await isDirectory(paths[0]))) {
+      const dir = paths[0];
+      let matchedLabel: string | null = null;
+      for (const [label, folder] of folderByLabel) {
+        if (folder !== dir) continue;
+        const w = await WebviewWindow.getByLabel(label);
+        if (w) { matchedLabel = label; break; }
+        folderByLabel.delete(label);
+      }
+      if (matchedLabel) {
+        if (matchedLabel !== selfLabel) {
+          const w = await WebviewWindow.getByLabel(matchedLabel);
+          await w?.setFocus();
+        }
+      } else {
+        await dispatchToFocused({ type: "openProject", path: dir });
+      }
+      return;
+    }
     const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
     if (!md) return;
     let targetRoot: string | null = null;
