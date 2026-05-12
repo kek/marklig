@@ -126,6 +126,20 @@ export const EN = {
   "toolbar.read.title": "Switch to reading mode (Cmd/Ctrl+E)",
   "toolbar.toc": "Table of contents",
   "toolbar.toc.title": "Toggle table of contents",
+
+  // Reading-mode ARIA labels (announced to screen readers)
+  "a11y.codeBlock": "Code block",
+  "a11y.codeBlockWithLang": "Code block, {lang}",
+  "a11y.mermaidDiagram": "Mermaid diagram",
+  "a11y.mermaidDiagramFailed": "Mermaid diagram (failed to render)",
+  "a11y.mermaidDiagramLoading": "Rendering Mermaid diagram",
+  "a11y.graphvizDiagram": "Graphviz diagram",
+  "a11y.graphvizDiagramFailed": "Graphviz diagram (failed to render)",
+  "a11y.graphvizDiagramLoading": "Rendering Graphviz diagram",
+  "a11y.remoteImage": "Remote image",
+  "a11y.remoteImageWithAlt": "Remote image: {alt}",
+  "a11y.brokenImage": "Broken image",
+  "a11y.brokenImageWithAlt": "Broken image: {alt}",
 } as const;
 
 export type StringKey = keyof typeof EN;
@@ -136,6 +150,19 @@ let overrides: Partial<Record<StringKey, string>> = {};
 /** Look up a localized string. Returns the EN default when no override exists. */
 export function t(key: StringKey): string {
   return overrides[key] ?? EN[key];
+}
+
+/** Look up a localized string and substitute `{name}` placeholders.
+ * Example: tA11y("a11y.codeBlockWithLang", { lang: "rust" }) → "Code block, rust". */
+export function tA11y(
+  key: StringKey,
+  params: Record<string, string> = {},
+): string {
+  let s: string = overrides[key] ?? EN[key];
+  for (const [k, v] of Object.entries(params)) {
+    s = s.replaceAll(`{${k}}`, v);
+  }
+  return s;
 }
 
 /** Install a locale's strings. Pass an empty object to revert to EN. */
