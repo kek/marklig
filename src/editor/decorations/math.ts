@@ -15,7 +15,7 @@ class InlineMathWidget extends WidgetType {
       span.innerHTML = sanitizeHtml(katex.renderToString(this.expr, {
         displayMode: false,
         throwOnError: false,
-        output: "html",
+        output: "htmlAndMathml",
       }));
     } catch {
       span.textContent = `$${this.expr}$`;
@@ -35,7 +35,7 @@ class BlockMathWidget extends WidgetType {
       div.innerHTML = sanitizeHtml(katex.renderToString(this.expr, {
         displayMode: true,
         throwOnError: false,
-        output: "html",
+        output: "htmlAndMathml",
       }));
     } catch {
       div.textContent = `$$${this.expr}$$`;

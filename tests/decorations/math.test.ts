@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { WidgetType } from "@codemirror/view";
 
 import { parseMarkdown } from "../../src/editor/parser";
 import { mathProducer } from "../../src/editor/decorations/math";
@@ -94,5 +95,37 @@ describe("mathProducer", () => {
         (x.spec as { block?: boolean }).block !== true,
     );
     expect(inline.length).toBe(2);
+  });
+
+  it("rendered inline math contains a <math> element so screen readers can read it (MathML)", () => {
+    const src = "Pythagoras: $a^2 + b^2 = c^2$ done.\n";
+    const tokens = parseMarkdown(src);
+    const set = mathProducer({ source: src, tokens });
+    let widget: WidgetType | undefined;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as { widget?: WidgetType };
+      if (spec.widget) { widget = spec.widget; break; }
+      cursor.next();
+    }
+    expect(widget).toBeTruthy();
+    const dom = widget!.toDOM();
+    expect(dom.innerHTML).toMatch(/<math[\s>]/i);
+  });
+
+  it("rendered block math contains a <math> element for screen readers", () => {
+    const src = "$$\nx = y\n$$\n";
+    const tokens = parseMarkdown(src);
+    const set = mathProducer({ source: src, tokens });
+    let widget: WidgetType | undefined;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as { widget?: WidgetType };
+      if (spec.widget) { widget = spec.widget; break; }
+      cursor.next();
+    }
+    expect(widget).toBeTruthy();
+    const dom = widget!.toDOM();
+    expect(dom.innerHTML).toMatch(/<math[\s>]/i);
   });
 });
