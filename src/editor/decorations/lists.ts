@@ -27,7 +27,12 @@ export const listsProducer: DecorationProducer = ({ source, tokens }) => {
           taskMatch[1].toLowerCase() === "x" ? " cm-md-list-task-done" : ""
         }`;
       }
-      ranges.push(Decoration.line({ class: className }).range(lineStart));
+      ranges.push(
+        Decoration.line({
+          class: className,
+          attributes: { role: "listitem" },
+        }).range(lineStart),
+      );
     }
   }
 
