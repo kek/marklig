@@ -585,6 +585,7 @@ html.theme-dark  { color-scheme: dark; }
   flex-direction: column;
   gap: 1px;
   max-height: 40vh;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 .viewer-folder-item {
@@ -639,6 +640,7 @@ html.theme-dark  { color-scheme: dark; }
   padding: 18px 14px;
   font-family: -apple-system, system-ui, sans-serif;
   font-size: 13px;
+  overflow-x: hidden;
   overflow-y: auto;
   flex-shrink: 0;
 }
