@@ -49,6 +49,18 @@ impl WatcherState {
 
 const SELF_WRITE_WINDOW: Duration = Duration::from_millis(500);
 
+/// Pick the path we'll compare incoming watcher events against. `notify` v6
+/// canonicalizes the watch path before handing it to FSEvents, so the paths
+/// it reports back are canonical (symlinks resolved). Comparing the raw input
+/// path against those events silently drops every event for any file whose
+/// path traverses a symlink — including `/tmp` (→ `/private/tmp`) and any
+/// iCloud-Drive / network-mount layout. If canonicalization fails (e.g. the
+/// file doesn't exist yet) we fall back to the original — behaviorally
+/// unchanged from before this fix.
+fn canonical_match_path(target: &std::path::Path) -> PathBuf {
+    target.canonicalize().unwrap_or_else(|_| target.to_path_buf())
+}
+
 #[tauri::command]
 pub fn watcher_start(
     app: AppHandle,
@@ -61,7 +73,12 @@ pub fn watcher_start(
         .parent()
         .ok_or_else(|| "no parent directory".to_string())?
         .to_path_buf();
-    let target_for_handler = target.clone();
+    let target_for_handler = canonical_match_path(&target);
+    // Path reported back to the frontend is the *original* (un-canonicalized)
+    // path so it matches the value the frontend asked us to watch — callers
+    // that compare against `currentPath` shouldn't suddenly see `/private/tmp`
+    // when they handed us `/tmp`.
+    let report_path = target.to_string_lossy().to_string();
     let label = window.label().to_string();
     let app_for_handler = app.clone();
     let label_for_handler = label.clone();
@@ -90,7 +107,7 @@ pub fn watcher_start(
                     "viewer://file-changed",
                     WatcherEvent {
                         kind,
-                        path: target_for_handler.to_string_lossy().to_string(),
+                        path: report_path.clone(),
                     },
                 );
             }
@@ -144,5 +161,119 @@ fn _is_within_self_write_window(ts: Option<Instant>) -> bool {
     match ts {
         Some(t) => Instant::now().duration_since(t) < SELF_WRITE_WINDOW,
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::mpsc::channel;
+
+    /// End-to-end regression for issue #47: when a watched path traverses a
+    /// symlink (the common case on macOS where `/tmp` → `/private/tmp`), the
+    /// raw input path differs from the canonical path that notify reports back
+    /// for fs events. The pre-fix code compared the two directly and silently
+    /// dropped every event, so external edits never reached the frontend and
+    /// the clean buffer never auto-reloaded.
+    #[test]
+    fn touches_target_matches_canonical_event_paths_through_symlinks() {
+        // Build: <tmpdir>/real/file.md, then <tmpdir>/link → real/.
+        // Watching <tmpdir>/link/file.md must match events that come back as
+        // <tmpdir>/real/file.md (since notify canonicalizes).
+        let root = std::env::temp_dir().join(format!(
+            "marklig-watcher-test-{}",
+            std::process::id()
+        ));
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).expect("create real dir");
+        let real_file = real.join("file.md");
+        std::fs::write(&real_file, "# initial\n").expect("seed file");
+
+        let link = root.join("link");
+        let _ = std::fs::remove_file(&link);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).expect("create symlink");
+        #[cfg(not(unix))]
+        {
+            // Symlink semantics differ on Windows; the bug is platform-relevant
+            // mainly on macOS/Linux, so skip elsewhere.
+            let _ = root;
+            return;
+        }
+
+        let through_link = link.join("file.md");
+        let target_for_handler = canonical_match_path(&through_link);
+
+        // Sanity-check the symlink fixture: the canonical form of the path
+        // through the link must point at the real file. If not, the platform
+        // resolved symlinks early (some CI sandboxes do) and the test isn't
+        // exercising the bug — skip rather than report a false pass.
+        let real_canonical = real_file.canonicalize().expect("canon real_file");
+        if through_link == real_canonical {
+            eprintln!("skipping: symlink path is already canonical on this platform");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+
+        // Now wire up an actual debouncer the same way watcher_start does, and
+        // confirm events delivered for an external append match our handler's
+        // path comparison.
+        let parent = through_link.parent().unwrap().to_path_buf();
+        let (tx, rx) = channel();
+        let matcher = target_for_handler.clone();
+        let mut debouncer = new_debouncer(
+            Duration::from_millis(100),
+            None,
+            move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
+                if let Ok(events) = result {
+                    for ev in events {
+                        let matched = ev.paths.iter().any(|p| p == &matcher);
+                        let _ = tx.send((matched, ev.paths.clone()));
+                    }
+                }
+            },
+        )
+        .expect("debouncer");
+        debouncer
+            .watcher()
+            .watch(&parent, RecursiveMode::NonRecursive)
+            .expect("watch");
+
+        // Append externally.
+        std::thread::sleep(Duration::from_millis(150));
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&real_file)
+            .expect("open append");
+        writeln!(f, "external edit").expect("append");
+        drop(f);
+
+        // Look for at least one event that matches our path comparison.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut matched_any = false;
+        let mut saw_events = Vec::new();
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok((matched, paths)) => {
+                    saw_events.push(paths.clone());
+                    if matched {
+                        matched_any = true;
+                        break;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        // Clean up before asserting, so a failure doesn't leak fixture state.
+        drop(debouncer);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            matched_any,
+            "no event matched canonical target; saw events: {:?}",
+            saw_events
+        );
     }
 }
