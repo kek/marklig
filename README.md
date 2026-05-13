@@ -4,6 +4,8 @@ A desktop Markdown reader and editor. The defining quality is that **rendered Ma
 
 Built on Tauri 2 + CodeMirror 6 + markdown-it. Runs natively on macOS, Linux, and Windows.
 
+![Märklig in reading mode, showing a rendered README with folder and TOC sidebars](docs/images/reading-mode.png)
+
 ## Features
 
 - **Reading mode by default** — open any `.md` / `.markdown` / `.mdx` / `.mdown` file and see it fully rendered. Markdown markers are hidden, headings are typeset, code blocks are syntax-highlighted (Shiki), tables and footnotes render inline.
