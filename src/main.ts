@@ -9,7 +9,7 @@ import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoo
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar, computeDocStats } from "./ui/toolbar";
-import { setWindowTitle } from "./ui/titlebar";
+import { setWindowTitle, mountTitlebar, isMacPlatform, applyPlatformClass } from "./ui/titlebar";
 import { headingsProducer } from "./editor/decorations/headings";
 import { inlineProducer } from "./editor/decorations/inline";
 import { listsProducer } from "./editor/decorations/lists";
@@ -79,6 +79,9 @@ import { openSearchPanel } from "@codemirror/search";
 let recoveredDoc: { path: string; source: string } | null = null;
 
 async function bootstrap(): Promise<void> {
+  // Tag <html> with the platform class before any UI mounts — CSS rules for
+  // the overlay titlebar / legacy toolbar branch on `.platform-macos`.
+  applyPlatformClass();
   applyTheme(loadStoredTheme());
   watchSystemTheme(() => applyTheme(loadStoredTheme()));
   await loadSettings();
@@ -353,7 +356,13 @@ async function bootstrap(): Promise<void> {
 
   let currentMode: Mode = restoredMode;
 
-  const toolbar = mountToolbar(root, {
+  // On macOS the overlay titlebar absorbs the edit toggle / TOC toggle /
+  // file-name / stats — `mountTitlebar` returns the same ToolbarHandle shape
+  // so the rest of bootstrap doesn't care which surface is in play. On
+  // Windows/Linux the legacy toolbar stays; a custom titlebar there would
+  // mean re-implementing min/max/close, which is out of scope for #46.
+  const mountChrome = isMacPlatform() ? mountTitlebar : mountToolbar;
+  const toolbar = mountChrome(root, {
     view,
     modeExtensions,
     initialMode: restoredMode,
@@ -1361,6 +1370,10 @@ async function spawnNewWindow(initialFile?: string): Promise<void> {
     minWidth: 480,
     minHeight: 320,
     dragDropEnabled: true,
+    // macOS: hide native chrome so the custom titlebar can host the toggles
+    // and stats. Windows/Linux silently ignore these fields.
+    titleBarStyle: "overlay",
+    hiddenTitle: true,
     url,
   });
   win.once("tauri://error", (e) => {
@@ -1398,6 +1411,10 @@ async function spawnRestoredWindow(entry: WindowSessionEntry): Promise<void> {
     minWidth: 480,
     minHeight: 320,
     dragDropEnabled: true,
+    // Match the declarative window config so restored windows also get the
+    // custom titlebar treatment on macOS. Non-mac platforms ignore these.
+    titleBarStyle: "overlay",
+    hiddenTitle: true,
     url,
   });
   win.once("tauri://error", (e) => {

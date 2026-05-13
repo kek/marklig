@@ -151,8 +151,11 @@ test("toggle to edit mode, type, save", async ({ page }) => {
   // Reading mode: the heading should be rendered with the heading class.
   await expect(page.locator(".cm-md-heading-1")).toBeVisible();
 
-  // Click the mode-toggle button (first toolbar button switches reading ↔ edit).
-  await page.locator(".viewer-toolbar-btn").first().click();
+  // Click the mode-toggle button. Selector tolerates both window-chrome
+  // surfaces: the legacy `.viewer-toolbar` on Windows/Linux and the macOS
+  // overlay `.viewer-titlebar`. The first button in either is the edit
+  // toggle.
+  await page.locator(".viewer-toolbar-btn, .viewer-titlebar-btn").first().click();
 
   // In edit mode the raw "# Initial" marker should be visible in source.
   await expect(
@@ -180,15 +183,22 @@ test("toggle to edit mode, type, save", async ({ page }) => {
   await page.locator(".cm-content").focus();
   await page.keyboard.type(" extra");
 
-  // Dirty indicator should appear.
-  await expect(page.locator(".viewer-dirty-indicator")).toContainText("•");
+  // Dirty indicator should appear. The toolbar (Windows/Linux) and the
+  // macOS titlebar use different class names for the same affordance, so
+  // accept either.
+  await expect(
+    page.locator(".viewer-dirty-indicator, .viewer-titlebar-dirty"),
+  ).toContainText("•");
 
   // Save: Cmd+S on macOS, Control+S elsewhere.
   const isMac = process.platform === "darwin";
   await page.keyboard.press(isMac ? "Meta+s" : "Control+s");
 
-  // Dirty indicator should clear.
-  await expect(page.locator(".viewer-dirty-indicator")).toHaveText("");
+  // Dirty indicator should clear. Same dual-class concession as above —
+  // the indicator lives in whichever window-chrome surface is mounted.
+  await expect(
+    page.locator(".viewer-dirty-indicator, .viewer-titlebar-dirty"),
+  ).toHaveText("");
 
   // Verify the saved content includes our typed text.
   const writeContents = await page.evaluate(
