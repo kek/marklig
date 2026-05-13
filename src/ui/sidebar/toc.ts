@@ -1,6 +1,8 @@
 import type { EditorView } from "@codemirror/view";
 
 import { parseMarkdown } from "../../editor/parser";
+import { t } from "../../i18n/strings";
+import { getTocSectionOpen, setTocSectionOpen } from "../../shell/settings";
 
 export interface TocEntry {
   level: 1 | 2 | 3 | 4 | 5 | 6;
@@ -17,6 +19,9 @@ export interface TocSidebarHandle {
   setActive: (offset: number) => void;
   setVisible: (visible: boolean) => void;
   isVisible: () => boolean;
+  /** Update the section heading to match the currently-open document. Pass
+   * null/empty to fall back to the localised "Untitled" string. */
+  setDocumentTitle: (path: string | null) => void;
   destroy: () => void;
 }
 
@@ -24,7 +29,17 @@ export interface MountTocOptions {
   view: EditorView;
   parent: HTMLElement;
   initiallyVisible: boolean;
+  initialDocumentPath?: string | null;
   onActivate: (entry: TocEntry) => void;
+}
+
+/** Derive the heading label from a file path: basename without the markdown
+ * extension. Falls back to the localised "Untitled" when the path is empty. */
+export function documentHeadingFor(path: string | null): string {
+  if (!path) return t("sidebar.toc.untitled");
+  const base = path.split(/[\\/]/).pop() ?? path;
+  const stripped = base.replace(/\.(md|markdown|mdx|mdown)$/i, "");
+  return stripped.length > 0 ? stripped : t("sidebar.toc.untitled");
 }
 
 /** Pure heading extraction. Exported for unit tests. Skips YAML/TOML
@@ -75,17 +90,57 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
   installResizeHandle(aside);
 
   const headingId = "viewer-toc-heading";
-  const heading = document.createElement("h4");
+  const bodyId = "viewer-toc-body";
+  // Heading is a button so it's keyboard-activatable (Enter/Space) by default
+  // and presents the correct semantics for a collapsible section toggle.
+  const heading = document.createElement("button");
+  heading.type = "button";
   heading.id = headingId;
-  heading.textContent = "Contents";
+  heading.className = "viewer-sidebar-section-heading viewer-toc-heading";
+  heading.setAttribute("aria-controls", bodyId);
+
+  const chevron = document.createElement("span");
+  chevron.className = "viewer-folder-chevron viewer-sidebar-section-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+
+  const headingLabel = document.createElement("span");
+  headingLabel.className = "viewer-sidebar-section-heading-label";
+  headingLabel.textContent = documentHeadingFor(opts.initialDocumentPath ?? null);
+
+  heading.append(chevron, headingLabel);
   aside.append(heading);
 
-  // <nav> labelled by the heading so screen readers announce "Contents
+  const body = document.createElement("div");
+  body.id = bodyId;
+  body.className = "viewer-sidebar-section-body viewer-toc-body";
+
+  // <nav> labelled by the heading so screen readers announce "<filename>
   // navigation" instead of an unnamed landmark.
   const list = document.createElement("nav");
   list.className = "viewer-toc-list";
   list.setAttribute("aria-labelledby", headingId);
-  aside.append(list);
+  body.append(list);
+  aside.append(body);
+
+  let sectionOpen = getTocSectionOpen();
+  applySectionState();
+
+  heading.addEventListener("click", () => {
+    sectionOpen = !sectionOpen;
+    setTocSectionOpen(sectionOpen);
+    applySectionState();
+  });
+
+  function applySectionState(): void {
+    heading.setAttribute("aria-expanded", sectionOpen ? "true" : "false");
+    heading.setAttribute(
+      "aria-label",
+      sectionOpen ? t("sidebar.toc.collapse") : t("sidebar.toc.expand"),
+    );
+    chevron.textContent = sectionOpen ? "▾" : "▸";
+    body.hidden = !sectionOpen;
+    aside.classList.toggle("viewer-toc--collapsed", !sectionOpen);
+  }
 
   let visible = opts.initiallyVisible;
 
@@ -99,7 +154,7 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
     if (entries.length === 0) {
       const empty = document.createElement("p");
       empty.className = "viewer-toc-empty";
-      empty.textContent = "No headings in this document.";
+      empty.textContent = t("sidebar.toc.empty");
       list.append(empty);
       return;
     }
@@ -145,6 +200,11 @@ export function mountTocSidebar(opts: MountTocOptions): TocSidebarHandle {
       aside.classList.toggle("hidden", !v);
     },
     isVisible: () => visible,
+    setDocumentTitle(path) {
+      const label = documentHeadingFor(path);
+      headingLabel.textContent = label;
+      heading.title = path ?? label;
+    },
     destroy() { aside.remove(); },
   };
 }

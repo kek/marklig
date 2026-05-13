@@ -1,4 +1,6 @@
 import { listMarkdownFiles, type MarkdownFileEntry } from "../../shell/files";
+import { t, tA11y } from "../../i18n/strings";
+import { getFolderSectionOpen, setFolderSectionOpen } from "../../shell/settings";
 
 export interface FolderSidebarHandle {
   element: HTMLElement;
@@ -87,24 +89,62 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   const section = document.createElement("section");
   section.className = "viewer-folder hidden";
 
-  const heading = document.createElement("h4");
+  // Heading is a button: clicking toggles the collapsed/expanded state of the
+  // body (filter + list). The label is the folder's basename (or empty until
+  // a folder is opened); tooltip carries the full path.
+  const bodyId = "viewer-folder-body";
+  const heading = document.createElement("button");
+  heading.type = "button";
   heading.id = "viewer-folder-heading";
-  heading.textContent = "Folder";
+  heading.className = "viewer-sidebar-section-heading viewer-folder-heading";
+  heading.setAttribute("aria-controls", bodyId);
 
-  const folderName = document.createElement("div");
-  folderName.className = "viewer-folder-name";
+  const chevron = document.createElement("span");
+  chevron.className = "viewer-folder-chevron viewer-sidebar-section-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+
+  const headingLabel = document.createElement("span");
+  headingLabel.className = "viewer-sidebar-section-heading-label";
+
+  heading.append(chevron, headingLabel);
+
+  const body = document.createElement("div");
+  body.id = bodyId;
+  body.className = "viewer-sidebar-section-body viewer-folder-body";
 
   const filter = document.createElement("input");
   filter.type = "search";
   filter.className = "viewer-folder-filter";
-  filter.placeholder = "Filter…";
-  filter.setAttribute("aria-label", "Filter files in folder");
+  filter.placeholder = t("sidebar.folder.filter");
+  filter.setAttribute("aria-label", t("sidebar.folder.filterAriaLabel"));
 
   const list = document.createElement("nav");
   list.className = "viewer-folder-list";
   list.setAttribute("aria-labelledby", "viewer-folder-heading");
 
-  section.append(heading, folderName, filter, list);
+  body.append(filter, list);
+  section.append(heading, body);
+
+  // Initial open/closed reflects persisted setting.
+  let sectionOpen = getFolderSectionOpen();
+  applySectionState();
+
+  heading.addEventListener("click", () => {
+    sectionOpen = !sectionOpen;
+    setFolderSectionOpen(sectionOpen);
+    applySectionState();
+  });
+
+  function applySectionState(): void {
+    heading.setAttribute("aria-expanded", sectionOpen ? "true" : "false");
+    heading.setAttribute(
+      "aria-label",
+      sectionOpen ? t("sidebar.folder.collapse") : t("sidebar.folder.expand"),
+    );
+    chevron.textContent = sectionOpen ? "▾" : "▸";
+    body.hidden = !sectionOpen;
+    section.classList.toggle("viewer-folder--collapsed", !sectionOpen);
+  }
 
   if (opts.insertBefore) {
     opts.parent.insertBefore(section, opts.insertBefore);
@@ -150,7 +190,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     if (tree.children.length === 0) {
       const empty = document.createElement("p");
       empty.className = "viewer-folder-empty";
-      empty.textContent = "No Markdown files in this folder.";
+      empty.textContent = t("sidebar.folder.empty");
       list.append(empty);
       return;
     }
@@ -221,15 +261,16 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     if (!root) {
       section.classList.add("hidden");
       list.innerHTML = "";
-      folderName.textContent = "";
+      headingLabel.textContent = "";
+      heading.removeAttribute("title");
       tree = { kind: "dir", name: "", relative: "", children: [] };
       expanded.clear();
       currentFilter = "";
       filter.value = "";
       return;
     }
-    folderName.textContent = basename(root);
-    folderName.title = root;
+    headingLabel.textContent = basename(root);
+    heading.title = root;
     section.classList.remove("hidden");
 
     let files: MarkdownFileEntry[] = [];
@@ -239,7 +280,9 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
       list.innerHTML = "";
       const error = document.createElement("p");
       error.className = "viewer-folder-empty";
-      error.textContent = `Could not read folder: ${String(err instanceof Error ? err.message : err)}`;
+      error.textContent = tA11y("sidebar.folder.error", {
+        message: String(err instanceof Error ? err.message : err),
+      });
       list.append(error);
       return;
     }

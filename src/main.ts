@@ -182,6 +182,7 @@ async function bootstrap(): Promise<void> {
     view,
     parent: shell,
     initiallyVisible: shouldShowSidebar(initialTocPath, initialHeadings),
+    initialDocumentPath: initialDoc?.path ?? null,
     onActivate: (entry: TocEntry) => jumpTo(entry.from),
   });
 
@@ -682,6 +683,7 @@ async function bootstrap(): Promise<void> {
     diverged = false;
     await setWindowTitle(currentPath, false);
     toolbar.setPath(currentPath);
+    toc.setDocumentTitle(currentPath);
     folder.setActiveFile(currentPath);
     if (currentPath) {
       await recordRecent(currentPath);
@@ -737,6 +739,7 @@ async function bootstrap(): Promise<void> {
       diverged = false;
       await setWindowTitle(currentPath, false);
       toolbar.setPath(currentPath);
+      toc.setDocumentTitle(currentPath);
       await recordRecent(dest);
       await startWatching(dest);
       folder.setActiveFile(dest);
@@ -949,6 +952,7 @@ async function bootstrap(): Promise<void> {
         currentPath = null;
         void setWindowTitle(null, true);
         toolbar.setPath(null);
+        toc.setDocumentTitle(null);
       },
     });
   }
