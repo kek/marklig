@@ -43,6 +43,7 @@ html, body, #root {
   background: var(--bg);
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  overscroll-behavior-x: none;
 }
 
 /* CodeMirror reset — we control all visuals through .cm-md-* classes. */
@@ -50,6 +51,7 @@ html, body, #root {
 .cm-editor .cm-scroller {
   font-family: var(--serif);
   font-size: 16px;
+  overscroll-behavior-x: none;
 }
 /* Padding lives on .cm-content (not .cm-scroller) so CodeMirror's click→position
    mapping sees the same geometry it lays out against. */
@@ -587,6 +589,7 @@ html.theme-dark  { color-scheme: dark; }
   max-height: 40vh;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior-x: none;
 }
 .viewer-folder-item {
   display: flex;
@@ -642,6 +645,7 @@ html.theme-dark  { color-scheme: dark; }
   font-size: 13px;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior-x: none;
   flex-shrink: 0;
 }
 .viewer-toc.hidden { display: none; }
