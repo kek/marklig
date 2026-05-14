@@ -41,22 +41,20 @@ describe("applySpellcheckToView", () => {
     host = dom.window.document.getElementById("host")!;
   });
 
-  it("sets the contentDOM spellcheck property to false (default-OFF case)", () => {
+  it("sets the spellcheck attribute to 'false' (default-OFF case)", () => {
     const view = createEditor({ parent: host, source: "hello wrold" });
     applySpellcheckToView(view, false);
-    expect(view.contentDOM.spellcheck).toBe(false);
-    // The reflected HTML attribute is what the OS / webview actually reads —
-    // for the OFF case it must be the literal string "false".
+    // The attribute is what the OS / webview actually reads, and what
+    // CodeMirror's contentAttributes facet renders on .cm-content.
     expect(view.contentDOM.getAttribute("spellcheck")).toBe("false");
   });
 
-  it("flips the property live without re-creating the view", () => {
+  it("flips the attribute live without re-creating the view", () => {
     const view = createEditor({ parent: host, source: "x" });
     applySpellcheckToView(view, false);
     const beforeDom = view.contentDOM;
     applySpellcheckToView(view, true);
-    // Same node, not re-mounted — the toggle is a pure DOM-property write.
     expect(view.contentDOM).toBe(beforeDom);
-    expect(view.contentDOM.spellcheck).toBe(true);
+    expect(view.contentDOM.getAttribute("spellcheck")).toBe("true");
   });
 });

@@ -19,6 +19,11 @@ const readOnlyCompartment = new Compartment();
 const decorationsCompartment = new Compartment();
 const keymapCompartment = new Compartment();
 const selectionCompartment = new Compartment();
+const spellcheckCompartment = new Compartment();
+
+function spellcheckExtension(enabled: boolean): Extension {
+  return EditorView.contentAttributes.of({ spellcheck: enabled ? "true" : "false" });
+}
 
 // drawSelection() paints CM6's own .cm-selectionBackground rectangles based on
 // the logical selection range — the right call in EDIT mode, where it survives
@@ -38,6 +43,7 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
       decorationsCompartment.of([]),
       keymapCompartment.of(keymap.of(defaultKeymap)),
       selectionCompartment.of(readingModeSelection),
+      spellcheckCompartment.of(spellcheckExtension(false)),
     ],
   });
   return new EditorView({ state, parent: opts.parent });
@@ -64,10 +70,11 @@ export const compartments = {
   selection: selectionCompartment,
 };
 
-/** Toggle the native browser spell-checker on the editor's content surface.
- * The HTMLElement.spellcheck DOM property maps to the `spellcheck` attribute
- * the OS/webview reads; setting it live takes effect immediately for any
- * typing that follows. Safe to call before or after the editor is attached. */
+// CodeMirror writes the spellcheck attribute on .cm-content from its
+// contentAttributes facet on every view update — a direct DOM property write
+// gets overwritten. Reconfiguring a Compartment is the supported path.
 export function applySpellcheckToView(view: EditorView, enabled: boolean): void {
-  view.contentDOM.spellcheck = enabled;
+  view.dispatch({
+    effects: spellcheckCompartment.reconfigure(spellcheckExtension(enabled)),
+  });
 }
