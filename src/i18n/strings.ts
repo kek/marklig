@@ -20,6 +20,10 @@ export const EN = {
   "prefs.images.off": "Hide entirely",
   "prefs.autosave": "Auto-save",
   "prefs.autosave.label": "Save automatically after a short pause in typing",
+  "settings.spellcheck.heading": "Spell-check",
+  "settings.spellcheck.label": "Underline misspellings while editing",
+  "settings.spellcheck.help":
+    "Off by default. Many documents mix prose with code, URLs, and non-English terms where the OS spell-checker reports false positives.",
   "prefs.close": "Close",
 
   // Modal: keyboard shortcuts

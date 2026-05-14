@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { JSDOM } from "jsdom";
 
-import { createEditor, setMode } from "../../src/editor/editor";
+import { createEditor, setMode, applySpellcheckToView } from "../../src/editor/editor";
 
 describe("createEditor", () => {
   let host: HTMLElement;
@@ -29,5 +29,34 @@ describe("createEditor", () => {
     setMode(view, "edit");
     setMode(view, "reading");
     expect(view.state.readOnly).toBe(true);
+  });
+});
+
+describe("applySpellcheckToView", () => {
+  let host: HTMLElement;
+
+  beforeEach(() => {
+    const dom = new JSDOM('<!doctype html><div id="host"></div>');
+    globalThis.document = dom.window.document;
+    host = dom.window.document.getElementById("host")!;
+  });
+
+  it("sets the contentDOM spellcheck property to false (default-OFF case)", () => {
+    const view = createEditor({ parent: host, source: "hello wrold" });
+    applySpellcheckToView(view, false);
+    expect(view.contentDOM.spellcheck).toBe(false);
+    // The reflected HTML attribute is what the OS / webview actually reads —
+    // for the OFF case it must be the literal string "false".
+    expect(view.contentDOM.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("flips the property live without re-creating the view", () => {
+    const view = createEditor({ parent: host, source: "x" });
+    applySpellcheckToView(view, false);
+    const beforeDom = view.contentDOM;
+    applySpellcheckToView(view, true);
+    // Same node, not re-mounted — the toggle is a pure DOM-property write.
+    expect(view.contentDOM).toBe(beforeDom);
+    expect(view.contentDOM.spellcheck).toBe(true);
   });
 });

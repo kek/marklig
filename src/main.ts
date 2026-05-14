@@ -1,4 +1,4 @@
-import { createEditor, setMode } from "./editor/editor";
+import { createEditor, setMode, applySpellcheckToView } from "./editor/editor";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
@@ -24,7 +24,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
-import { loadSettings, subscribeSettings, getAutoSave } from "./shell/settings";
+import { loadSettings, subscribeSettings, getAutoSave, getSpellcheck } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
   loadWindowSession,
@@ -146,6 +146,11 @@ async function bootstrap(): Promise<void> {
     parent: shell,
     source: initialDoc?.source ?? defaultPlaceholder(),
   });
+  // Native spell-check on the CodeMirror content host. Defaults OFF per
+  // issue #63 — toggled live from the preferences modal via subscribeSettings
+  // below (the attribute is read directly by the browser, no decoration
+  // refresh needed).
+  applySpellcheckToView(view, getSpellcheck());
 
   const editingProducers = [
     headingsProducer,
@@ -946,6 +951,10 @@ async function bootstrap(): Promise<void> {
   // without needing a document reload.
   const unsubSettings = subscribeSettings(() => {
     view.dispatch({ effects: refreshDecorationsEffect.of() });
+    // Spell-check is a plain DOM property on contentDOM — no widget reads it
+    // at toDOM time, so a refreshDecorationsEffect isn't enough. Re-apply it
+    // here so toggling the preference takes effect without reload.
+    applySpellcheckToView(view, getSpellcheck());
   });
   window.addEventListener("beforeunload", () => unsubSettings());
 

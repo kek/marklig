@@ -63,3 +63,11 @@ export const compartments = {
   keymap: keymapCompartment,
   selection: selectionCompartment,
 };
+
+/** Toggle the native browser spell-checker on the editor's content surface.
+ * The HTMLElement.spellcheck DOM property maps to the `spellcheck` attribute
+ * the OS/webview reads; setting it live takes effect immediately for any
+ * typing that follows. Safe to call before or after the editor is attached. */
+export function applySpellcheckToView(view: EditorView, enabled: boolean): void {
+  view.contentDOM.spellcheck = enabled;
+}

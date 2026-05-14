@@ -4,6 +4,8 @@ import {
   setRemoteImagePolicy,
   getAutoSave,
   setAutoSave,
+  getSpellcheck,
+  setSpellcheck,
   type RemoteImagePolicy,
 } from "../shell/settings";
 import { t } from "../i18n/strings";
@@ -18,8 +20,35 @@ export function openPreferences(): Promise<void> {
       body.append(buildThemeSection());
       body.append(buildImagePolicySection());
       body.append(buildAutoSaveSection());
+      body.append(buildSpellcheckSection());
     },
   });
+}
+
+function buildSpellcheckSection(): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "viewer-prefs-section";
+
+  const label = document.createElement("h4");
+  label.textContent = t("settings.spellcheck.heading");
+  section.append(label);
+
+  const help = document.createElement("p");
+  help.className = "viewer-prefs-help";
+  help.textContent = t("settings.spellcheck.help");
+  section.append(help);
+
+  const wrap = document.createElement("label");
+  wrap.className = "viewer-prefs-radio"; // reuse the same row alignment
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = getSpellcheck();
+  input.addEventListener("change", () => setSpellcheck(input.checked));
+  const text = document.createElement("span");
+  text.textContent = t("settings.spellcheck.label");
+  wrap.append(input, text);
+  section.append(wrap);
+  return section;
 }
 
 function buildAutoSaveSection(): HTMLElement {

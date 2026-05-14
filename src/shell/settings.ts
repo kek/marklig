@@ -6,11 +6,16 @@ const DEFAULT_REMOTE_IMAGE_POLICY: RemoteImagePolicy = "placeholder";
 const DEFAULT_AUTO_SAVE: boolean = false;
 const DEFAULT_FOLDER_SECTION_OPEN: boolean = true;
 const DEFAULT_TOC_SECTION_OPEN: boolean = true;
+// Spell-check defaults OFF per REQUIREMENTS §7 / issue #63: most documents are
+// prose-plus-code mixed with identifiers/URLs/foreign words, and the native
+// red-underline noise is unwelcome by default. Users can opt-in from prefs.
+const DEFAULT_SPELLCHECK: boolean = false;
 
 let remoteImagePolicy: RemoteImagePolicy = DEFAULT_REMOTE_IMAGE_POLICY;
 let autoSave: boolean = DEFAULT_AUTO_SAVE;
 let folderSectionOpen: boolean = DEFAULT_FOLDER_SECTION_OPEN;
 let tocSectionOpen: boolean = DEFAULT_TOC_SECTION_OPEN;
+let spellcheck: boolean = DEFAULT_SPELLCHECK;
 const listeners = new Set<() => void>();
 
 export function getRemoteImagePolicy(): RemoteImagePolicy {
@@ -57,6 +62,17 @@ export function setTocSectionOpen(v: boolean): void {
   for (const l of listeners) l();
 }
 
+export function getSpellcheck(): boolean {
+  return spellcheck;
+}
+
+export function setSpellcheck(v: boolean): void {
+  if (spellcheck === v) return;
+  spellcheck = v;
+  void setValue("spellcheck", v);
+  for (const l of listeners) l();
+}
+
 export function subscribeSettings(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
@@ -80,6 +96,10 @@ export async function loadSettings(): Promise<void> {
     const storedTocOpen = await getValue<boolean>("tocSectionOpen");
     if (typeof storedTocOpen === "boolean") {
       tocSectionOpen = storedTocOpen;
+    }
+    const storedSpellcheck = await getValue<boolean>("spellcheck");
+    if (typeof storedSpellcheck === "boolean") {
+      spellcheck = storedSpellcheck;
     }
   } catch {
     // No store available (e.g. Node test env). Stick with defaults.
