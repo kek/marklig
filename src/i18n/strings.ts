@@ -23,7 +23,7 @@ export const EN = {
   "settings.spellcheck.heading": "Spell-check",
   "settings.spellcheck.label": "Underline misspellings while editing",
   "settings.spellcheck.help":
-    "Off by default. Many documents mix prose with code, URLs, and non-English terms where the OS spell-checker reports false positives.",
+    "Off by default. Many documents mix prose with code, URLs, and non-English terms where the OS spell-checker reports false positives. On macOS the change takes effect after relaunching the app, or right-click the editor and tick “Check Spelling While Typing” for an immediate toggle in this session.",
   "prefs.close": "Close",
 
   // Modal: keyboard shortcuts
