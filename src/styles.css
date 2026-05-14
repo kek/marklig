@@ -910,3 +910,157 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   color: var(--accent, #0a7);
   font-weight: 600;
 }
+
+/* ── macOS overlay titlebar ──────────────────────────────────────────────
+   When the window is built with `titleBarStyle: "Overlay"` + `hiddenTitle:
+   true`, the OS keeps the traffic-light buttons but drops the title strip;
+   the document area extends to the top of the window. We draw our own
+   titlebar in that strip — it hosts the edit/TOC toggles, file name, and
+   stats — and reserve room on the left for the traffic lights via
+   `--titlebar-traffic-lights`.
+
+   The whole bar is draggable (`-webkit-app-region: drag`) so the user can
+   grab it like a native title strip; interactive elements opt out
+   individually with `no-drag`. */
+:root {
+  --titlebar-height: 30px;
+  /* Width of the standard macOS traffic-light cluster + comfortable padding.
+     Close/min/max are ~52px wide together; 78px leaves ~26px gutter before
+     the first button. */
+  --titlebar-traffic-lights: 78px;
+}
+
+.viewer-titlebar {
+  display: none; /* enabled by .platform-macos below; non-mac builds keep the
+                    legacy toolbar instead. */
+}
+
+.platform-macos .viewer-titlebar {
+  display: flex;
+  align-items: center;
+  height: var(--titlebar-height);
+  padding: 0 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: 12px;
+  /* Drag the window from any pixel of the bar that isn't an interactive
+     element. Children that want clicks opt back out with `no-drag`. */
+  -webkit-app-region: drag;
+  /* Keep above the editor visually but stay in normal flow so it pushes
+     content down rather than overlapping. */
+  flex: 0 0 auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Hide the legacy toolbar entirely on macOS — its contents live in the
+   titlebar now. The toolbar code still mounts on Windows/Linux. */
+.platform-macos .viewer-toolbar {
+  display: none;
+}
+
+.viewer-titlebar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.viewer-titlebar-group--left {
+  flex: 0 0 auto;
+}
+.viewer-titlebar-group--centre {
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0; /* lets the nested name truncate instead of pushing the
+                   right group off-screen. */
+}
+.viewer-titlebar-group--right {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.viewer-titlebar-spacer-left {
+  display: inline-block;
+  width: var(--titlebar-traffic-lights);
+  height: 1px;
+  flex: 0 0 auto;
+}
+
+.viewer-titlebar-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg);
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  /* Buttons must accept clicks — explicitly opt out of the bar's drag region. */
+  -webkit-app-region: no-drag;
+}
+.viewer-titlebar-btn > svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.viewer-titlebar-btn:hover {
+  background: var(--code-bg);
+}
+.viewer-titlebar-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.viewer-titlebar-btn[aria-pressed="true"] {
+  background: var(--code-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.viewer-titlebar-btn[aria-pressed="true"]:hover {
+  background: var(--code-bg);
+}
+
+.viewer-titlebar-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.viewer-titlebar-dirty {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+}
+.viewer-titlebar-path {
+  color: var(--fg);
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.viewer-titlebar-stats {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* In fullscreen the OS hides its own chrome, including the traffic lights,
+   so the spacer's reservation is wasted left-padding. Recover it by
+   collapsing the spacer when the document enters fullscreen mode. The
+   `:fullscreen` pseudo-class targets the html element when any descendant
+   triggers fullscreen — covers both `requestFullscreen` and the system
+   green-button path on macOS (which sets a window-level fullscreen
+   attribute that browsers expose via the same pseudo). */
+.platform-macos:fullscreen .viewer-titlebar-spacer-left,
+.platform-macos :fullscreen .viewer-titlebar-spacer-left {
+  width: 0;
+}

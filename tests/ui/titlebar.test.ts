@@ -1,0 +1,196 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { JSDOM } from "jsdom";
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+
+import { mountTitlebar, isMacPlatform, applyPlatformClass } from "../../src/ui/titlebar";
+
+let host: HTMLElement;
+let dom: JSDOM;
+let originalNavigator: Navigator | undefined;
+
+beforeEach(() => {
+  dom = new JSDOM('<!doctype html><div id="host"></div>');
+  globalThis.document = dom.window.document;
+  // Capture the JSDOM-provided navigator so we can swap in stubs per test
+  // and restore it cleanly.
+  originalNavigator = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", {
+    value: dom.window.navigator,
+    configurable: true,
+    writable: true,
+  });
+  host = dom.window.document.getElementById("host")!;
+});
+
+afterEach(() => {
+  if (originalNavigator) {
+    Object.defineProperty(globalThis, "navigator", {
+      value: originalNavigator,
+      configurable: true,
+      writable: true,
+    });
+  }
+});
+
+function makeView(): EditorView {
+  return new EditorView({
+    state: EditorState.create({ doc: "" }),
+    parent: host,
+  });
+}
+
+function setNavigator(stub: Partial<Navigator>): void {
+  Object.defineProperty(globalThis, "navigator", {
+    value: stub,
+    configurable: true,
+    writable: true,
+  });
+}
+
+describe("isMacPlatform", () => {
+  it("returns true when navigator.platform reports macOS", () => {
+    setNavigator({ platform: "MacIntel", userAgent: "irrelevant" });
+    expect(isMacPlatform()).toBe(true);
+  });
+
+  it("returns true when only userAgent reports macOS", () => {
+    setNavigator({
+      platform: "",
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15",
+    });
+    expect(isMacPlatform()).toBe(true);
+  });
+
+  it("returns false for Windows", () => {
+    setNavigator({ platform: "Win32", userAgent: "Windows NT 10.0" });
+    expect(isMacPlatform()).toBe(false);
+  });
+
+  it("returns false for Linux", () => {
+    setNavigator({ platform: "Linux x86_64", userAgent: "X11; Linux" });
+    expect(isMacPlatform()).toBe(false);
+  });
+});
+
+describe("applyPlatformClass", () => {
+  it("adds .platform-macos to <html> when running on macOS", () => {
+    setNavigator({ platform: "MacIntel", userAgent: "" });
+    applyPlatformClass();
+    expect(document.documentElement.classList.contains("platform-macos")).toBe(true);
+  });
+
+  it("removes .platform-macos when not on macOS", () => {
+    document.documentElement.classList.add("platform-macos");
+    setNavigator({ platform: "Win32", userAgent: "" });
+    applyPlatformClass();
+    expect(document.documentElement.classList.contains("platform-macos")).toBe(false);
+  });
+});
+
+describe("mountTitlebar", () => {
+  it("renders Edit and TOC toggles as inline-SVG icon buttons", () => {
+    const view = makeView();
+    mountTitlebar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+    });
+
+    const bar = host.querySelector(".viewer-titlebar");
+    expect(bar).not.toBeNull();
+    const buttons = host.querySelectorAll<HTMLButtonElement>(".viewer-titlebar-btn");
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    const [editBtn, tocBtn] = [buttons[0], buttons[1]];
+
+    expect(editBtn.querySelector("svg")).not.toBeNull();
+    expect(tocBtn.querySelector("svg")).not.toBeNull();
+
+    expect(editBtn.getAttribute("aria-label")).toBeTruthy();
+    expect(editBtn.getAttribute("title")).toBeTruthy();
+    expect(tocBtn.getAttribute("aria-label")).toBeTruthy();
+    expect(tocBtn.getAttribute("title")).toBeTruthy();
+  });
+
+  it("reflects edit mode and sidebar visibility via aria-pressed", () => {
+    const view = makeView();
+    const handle = mountTitlebar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+      initialSidebarVisible: false,
+    });
+    const buttons = host.querySelectorAll<HTMLButtonElement>(".viewer-titlebar-btn");
+    const [editBtn, tocBtn] = [buttons[0], buttons[1]];
+
+    expect(editBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(tocBtn.getAttribute("aria-pressed")).toBe("false");
+
+    handle.setMode("edit");
+    expect(editBtn.getAttribute("aria-pressed")).toBe("true");
+
+    handle.setSidebarVisible(true);
+    expect(tocBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("renders the file name with a dirty indicator", () => {
+    const view = makeView();
+    const handle = mountTitlebar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+    });
+    handle.setPath("/Users/foo/notes/intro.md");
+    const path = host.querySelector(".viewer-titlebar-path") as HTMLElement;
+    expect(path.textContent).toBe("intro.md");
+    expect(path.title).toBe("/Users/foo/notes/intro.md");
+
+    const dirty = host.querySelector(".viewer-titlebar-dirty") as HTMLElement;
+    expect(dirty.textContent).toBe("");
+    handle.setDirty(true);
+    expect(dirty.textContent).toBe("•");
+    handle.setDirty(false);
+    expect(dirty.textContent).toBe("");
+  });
+
+  it("renders word/char/time stats", () => {
+    const view = makeView();
+    const handle = mountTitlebar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+    });
+    handle.setStats({ words: 1234, chars: 5678, readingMinutes: 7 });
+    const stats = host.querySelector(".viewer-titlebar-stats") as HTMLElement;
+    expect(stats.textContent).toContain("1,234");
+    expect(stats.textContent).toContain("5,678");
+    expect(stats.textContent).toContain("7 min");
+  });
+
+  it("reserves traffic-light space via a left spacer", () => {
+    const view = makeView();
+    mountTitlebar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+    });
+    const spacer = host.querySelector(".viewer-titlebar-spacer-left");
+    expect(spacer).not.toBeNull();
+  });
+});

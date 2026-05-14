@@ -129,6 +129,12 @@ fn spawn_main_window(app: &AppHandle, initial_file: Option<String>) -> tauri::Re
         .title("Märklig")
         .inner_size(1000.0, 760.0)
         .min_inner_size(480.0, 320.0)
+        // Match tauri.conf.json: hide native chrome on macOS so the frontend
+        // can draw a custom titlebar that hosts the edit/TOC toggles, file
+        // name, and stats. `hidden_title(true)` keeps the traffic lights and
+        // suppresses the centred title text.
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
         .build()?;
     Ok(())
 }
