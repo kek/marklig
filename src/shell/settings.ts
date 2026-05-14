@@ -4,9 +4,13 @@ export type RemoteImagePolicy = "load" | "placeholder" | "off";
 
 const DEFAULT_REMOTE_IMAGE_POLICY: RemoteImagePolicy = "placeholder";
 const DEFAULT_AUTO_SAVE: boolean = false;
+const DEFAULT_FOLDER_SECTION_OPEN: boolean = true;
+const DEFAULT_TOC_SECTION_OPEN: boolean = true;
 
 let remoteImagePolicy: RemoteImagePolicy = DEFAULT_REMOTE_IMAGE_POLICY;
 let autoSave: boolean = DEFAULT_AUTO_SAVE;
+let folderSectionOpen: boolean = DEFAULT_FOLDER_SECTION_OPEN;
+let tocSectionOpen: boolean = DEFAULT_TOC_SECTION_OPEN;
 const listeners = new Set<() => void>();
 
 export function getRemoteImagePolicy(): RemoteImagePolicy {
@@ -31,6 +35,28 @@ export function setAutoSave(v: boolean): void {
   for (const l of listeners) l();
 }
 
+export function getFolderSectionOpen(): boolean {
+  return folderSectionOpen;
+}
+
+export function setFolderSectionOpen(v: boolean): void {
+  if (folderSectionOpen === v) return;
+  folderSectionOpen = v;
+  void setValue("folderSectionOpen", v);
+  for (const l of listeners) l();
+}
+
+export function getTocSectionOpen(): boolean {
+  return tocSectionOpen;
+}
+
+export function setTocSectionOpen(v: boolean): void {
+  if (tocSectionOpen === v) return;
+  tocSectionOpen = v;
+  void setValue("tocSectionOpen", v);
+  for (const l of listeners) l();
+}
+
 export function subscribeSettings(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
@@ -46,6 +72,14 @@ export async function loadSettings(): Promise<void> {
     const storedAutoSave = await getValue<boolean>("autoSave");
     if (typeof storedAutoSave === "boolean") {
       autoSave = storedAutoSave;
+    }
+    const storedFolderOpen = await getValue<boolean>("folderSectionOpen");
+    if (typeof storedFolderOpen === "boolean") {
+      folderSectionOpen = storedFolderOpen;
+    }
+    const storedTocOpen = await getValue<boolean>("tocSectionOpen");
+    if (typeof storedTocOpen === "boolean") {
+      tocSectionOpen = storedTocOpen;
     }
   } catch {
     // No store available (e.g. Node test env). Stick with defaults.

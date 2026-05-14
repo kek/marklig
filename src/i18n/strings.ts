@@ -119,6 +119,18 @@ export const EN = {
   "quickOpen.loading": "Loading files…",
   "quickOpen.error": "Could not list files in this folder",
 
+  // Sidebar sections (folder tree + table of contents)
+  "sidebar.folder.filter": "Filter…",
+  "sidebar.folder.filterAriaLabel": "Filter files in folder",
+  "sidebar.folder.empty": "No Markdown files in this folder.",
+  "sidebar.folder.error": "Could not read folder: {message}",
+  "sidebar.folder.expand": "Expand folder section",
+  "sidebar.folder.collapse": "Collapse folder section",
+  "sidebar.toc.untitled": "Untitled",
+  "sidebar.toc.empty": "No headings in this document.",
+  "sidebar.toc.expand": "Expand contents section",
+  "sidebar.toc.collapse": "Collapse contents section",
+
   // Toolbar buttons (icon buttons need a localized aria-label / title)
   "toolbar.edit": "Edit",
   "toolbar.edit.title": "Switch to edit mode (Cmd/Ctrl+E)",
