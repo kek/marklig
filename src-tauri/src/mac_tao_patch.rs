@@ -30,6 +30,8 @@ use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
 use objc2::sel;
 use objc2_foundation::{NSArray, NSURL};
 
+use crate::PENDING_OPEN_PATHS;
+
 /// Original `application:openURLs:` IMP from tao. Saved so our replacement
 /// can forward the (filtered) call to it.
 static ORIGINAL_OPEN_URLS_IMP: OnceLock<Imp> = OnceLock::new();
@@ -91,22 +93,31 @@ unsafe extern "C" fn safe_open_urls(
     let count = urls_ref.count();
 
     let mut safe: Vec<Retained<NSURL>> = Vec::with_capacity(count);
+    let mut dropped_paths: Vec<String> = Vec::new();
     for i in 0..count {
-        // objectAtIndex is bounds-checked by `count`; the returned NSURL is
-        // already retained for us by objc2.
         let url = urls_ref.objectAtIndex(i);
-        // The actual fix: only keep URLs whose absoluteString is non-nil.
-        // (The original tao code does `.absoluteString().unwrap()`; that's
-        // the panic site.)
         if url.absoluteString().is_some() {
+            // Safe to hand to tao. tao will fire `RunEvent::Opened` for
+            // these and our run-loop callback in lib.rs handles delivery
+            // (buffering during cold-launch, emit-to-main when the app
+            // is already running).
             safe.push(url);
+        } else if let Some(path) = url.path() {
+            // tao would `.unwrap()` the nil absoluteString and panic. Drop
+            // the URL from tao's queue and stash its filesystem path
+            // ourselves so the frontend can pull it via the
+            // `take_pending_open_paths` command at bootstrap.
+            dropped_paths.push(path.to_string());
+        }
+    }
+
+    if !dropped_paths.is_empty() {
+        if let Ok(mut pending) = PENDING_OPEN_PATHS.lock() {
+            pending.extend(dropped_paths);
         }
     }
 
     if safe.is_empty() {
-        // Nothing tao can safely consume. Returning is fine — application
-        // launch continues, just without any opened documents. The user
-        // can still File→Open or drag-drop in.
         return;
     }
 

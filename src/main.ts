@@ -1143,6 +1143,19 @@ async function resolveInitial(sessionFallbackPath: string | null = null): Promis
   if (recoveredDoc) return { doc: recoveredDoc, folder: null };
   const argPath = await firstMarkdownArg();
   if (argPath) return { doc: await readDoc(argPath), folder: null };
+  // The Rust side buffers paths that the OS handed to us via
+  // RunEvent::Opened before the frontend was ready to receive events
+  // (and also paths from URLs that tao's broken application:openURLs:
+  // would have panicked on — see src-tauri/src/mac_tao_patch.rs).
+  // Pull them in before falling back to the listener-based wait.
+  const buffered = await takePendingOpenPaths();
+  const bufferedKind = await classifyOpenPaths(buffered);
+  if (bufferedKind?.kind === "file") {
+    return { doc: await readDoc(bufferedKind.path), folder: null };
+  }
+  if (bufferedKind?.kind === "directory") {
+    return { doc: null, folder: bufferedKind.path };
+  }
   // macOS file-association launches deliver the path via RunEvent::Opened,
   // which can fire after bootstrap starts. Wait briefly for it before
   // falling back to last-opened or the open dialog — otherwise double-
@@ -1282,6 +1295,33 @@ async function waitForOpenRequest(
       unlisten = u;
     });
   });
+}
+
+async function takePendingOpenPaths(): Promise<string[]> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string[]>("take_pending_open_paths");
+  } catch {
+    return [];
+  }
+}
+
+async function classifyOpenPaths(
+  paths: string[],
+): Promise<{ kind: "file" | "directory"; path: string } | null> {
+  if (paths.length === 0) return null;
+  const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+  if (md) return { kind: "file", path: md };
+  if (paths.length === 1) {
+    try {
+      if (await isDirectory(paths[0])) {
+        return { kind: "directory", path: paths[0] };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
 }
 
 async function firstMarkdownArg(): Promise<string | null> {

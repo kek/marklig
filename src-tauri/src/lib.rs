@@ -12,6 +12,37 @@ use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 use tauri::{Emitter, Manager};
 
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+use std::sync::Mutex;
+
+// macOS cold-launch with a path argument fires `RunEvent::Opened` *before*
+// Tauri runs its `setup` (which is what creates the configured main window).
+// If we spawn-or-emit at that moment, either we beat setup to creating "main"
+// (panic: webview already exists) or we have no window to emit to. Buffer the
+// paths instead, and replay them once `RunEvent::Ready` fires.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+static PENDING_OPEN_PATHS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Drain paths that the OS handed to us via `RunEvent::Opened` during launch,
+/// before the frontend was ready to receive events. The frontend calls this
+/// from its bootstrap before the open-request wait loop. Stable on all
+/// platforms even though only the apple/android platforms ever fill the
+/// buffer — returning an empty list on Windows/Linux is the right no-op.
+#[tauri::command]
+fn take_pending_open_paths() -> Vec<String> {
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+    {
+        PENDING_OPEN_PATHS
+            .lock()
+            .map(|mut v| std::mem::take(&mut *v))
+            .unwrap_or_default()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
+    {
+        Vec::new()
+    }
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(WatcherState::new())
@@ -37,6 +68,7 @@ pub fn run() {
             commands::folder_watcher::folder_watcher_start,
             commands::folder_watcher::folder_watcher_stop,
             commands::cli_tool::install_cli_tool,
+            take_pending_open_paths,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -92,13 +124,21 @@ pub fn run() {
             if paths.is_empty() {
                 return;
             }
+            // If Tauri hasn't yet run setup (the configured main window
+            // doesn't exist), stash the paths and let the Ready handler
+            // deliver them. Calling spawn_main_window here would race
+            // setup and panic with "webview `main` already exists".
+            if app.webview_windows().is_empty() {
+                if let Ok(mut pending) = PENDING_OPEN_PATHS.lock() {
+                    pending.extend(paths);
+                }
+                return;
+            }
             // Route to a single window, not all of them — when several
             // windows are open, broadcasting would have every window
             // run the open flow simultaneously. Prefer the currently
             // focused window; fall back to "main"; fall back to any
-            // window. If no window is alive at all (macOS only, since
-            // we prevent_exit on last-window-close above), spawn a
-            // fresh main window with the first path.
+            // window.
             let target = app
                 .webview_windows()
                 .into_iter()
@@ -110,19 +150,8 @@ pub fn run() {
                 })
                 .or_else(|| app.webview_windows().into_iter().next());
             if let Some((label, win)) = target {
-                // Bring the chosen window forward so the user sees the
-                // freshly opened document, not whatever was on top.
                 let _ = win.set_focus();
                 let _ = app.emit_to(label.as_str(), "file-open-request", paths);
-            } else {
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = spawn_main_window(app, Some(paths[0].clone()));
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = app.emit("file-open-request", paths);
-                }
             }
         }
         _ => {}
