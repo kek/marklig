@@ -67,13 +67,15 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
   bar.className = "viewer-titlebar";
   bar.setAttribute("role", "toolbar");
   bar.setAttribute("aria-label", "Window toolbar");
+  // Tauri 2 drives window-drag through the data attribute, not the legacy
+  // -webkit-app-region CSS. The handler matches on event.target directly,
+  // so every non-interactive descendant also needs the attribute or the
+  // bar only drags from its own background pixels.
+  bar.setAttribute("data-tauri-drag-region", "");
 
-  // Traffic-light spacer: the macOS overlay titlebar puts the close/min/max
-  // buttons over the content at the top-left. Reserve room for them so our
-  // own controls don't sit underneath. Width is exposed via a CSS variable
-  // (--titlebar-traffic-lights) so themes / debug can tweak it.
   const spacer = document.createElement("span");
   spacer.className = "viewer-titlebar-spacer-left";
+  spacer.setAttribute("data-tauri-drag-region", "");
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -105,29 +107,33 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
   // colour through CSS variables.
   const nameWrap = document.createElement("span");
   nameWrap.className = "viewer-titlebar-name";
+  nameWrap.setAttribute("data-tauri-drag-region", "");
   const dirty = document.createElement("span");
   dirty.className = "viewer-titlebar-dirty";
   dirty.textContent = "";
+  dirty.setAttribute("data-tauri-drag-region", "");
   const pathEl = document.createElement("span");
   pathEl.className = "viewer-titlebar-path";
+  pathEl.setAttribute("data-tauri-drag-region", "");
   nameWrap.append(dirty, pathEl);
 
   const stats = document.createElement("span");
   stats.className = "viewer-titlebar-stats";
+  stats.setAttribute("data-tauri-drag-region", "");
 
-  // Three groups: [traffic-lights][toggles] · [name] · [stats]. Flexbox with
-  // the centre group auto-sized lets the name truncate before pushing the
-  // edges off-screen.
   const left = document.createElement("span");
   left.className = "viewer-titlebar-group viewer-titlebar-group--left";
+  left.setAttribute("data-tauri-drag-region", "");
   left.append(spacer, toggle, sidebar);
 
   const centre = document.createElement("span");
   centre.className = "viewer-titlebar-group viewer-titlebar-group--centre";
+  centre.setAttribute("data-tauri-drag-region", "");
   centre.append(nameWrap);
 
   const right = document.createElement("span");
   right.className = "viewer-titlebar-group viewer-titlebar-group--right";
+  right.setAttribute("data-tauri-drag-region", "");
   right.append(stats);
 
   bar.append(left, centre, right);
