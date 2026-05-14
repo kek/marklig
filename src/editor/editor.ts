@@ -34,6 +34,14 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
     doc: opts.source,
     extensions: [
       EditorView.lineWrapping,
+      // CodeMirror defaults spellcheck="false" on .cm-content (sensible for
+      // code editors). This is a Markdown editor — prose-shaped content —
+      // so flip the attribute so the OS-level "Check Spelling While Typing"
+      // toggle (right-click menu on macOS) can actually drive underlines.
+      // Off-by-default at the underline layer still holds: WKWebView ships
+      // with continuous spell-checking OFF, and the right-click state is
+      // persisted across launches by the OS.
+      EditorView.contentAttributes.of({ spellcheck: "true" }),
       readOnlyCompartment.of(EditorState.readOnly.of(true)),
       decorationsCompartment.of([]),
       keymapCompartment.of(keymap.of(defaultKeymap)),
