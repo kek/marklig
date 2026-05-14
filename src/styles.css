@@ -90,6 +90,11 @@ html, body, #root {
                             text-decoration-color: rgba(44,93,138,0.4); text-underline-offset: 2px; }
 .cm-md-link-url          { color: var(--muted); font-family: var(--mono); font-size: 0.85em; }
 .cm-md-link-auto         { color: var(--link); text-decoration: underline; }
+/* In reading mode, link spans are clickable — give them an affordance.
+ * (Edit mode keeps the I-beam so the underlying cursor-on-click flow looks right.) */
+html[data-mode="reading"] .cm-md-link-text,
+html[data-mode="reading"] .cm-md-link-url,
+html[data-mode="reading"] .cm-md-link-auto { cursor: pointer; }
 .cm-md-image             { color: var(--muted); font-family: var(--mono); font-size: 0.9em; }
 
 /* Blockquotes */

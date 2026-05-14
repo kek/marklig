@@ -1,6 +1,12 @@
 import { createEditor, setMode } from "./editor/editor";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import {
+  linkClickExtension,
+  buildAnchorIndex,
+  type LinkClickHandlers,
+} from "./editor/link-clicks";
+import { openUrl as openExternalUrl } from "@tauri-apps/plugin-opener";
 import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/sidebar/toc";
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
@@ -732,6 +738,64 @@ async function bootstrap(): Promise<void> {
     await loadAndApplyDoc(path);
   }
   onFolderItemActivate = openWithDirtyPrompt;
+
+  // Reading-mode link clicks. The extension itself gates on
+  // view.state.readOnly so edit-mode cursor placement stays untouched.
+  // Local-markdown resolution needs `currentPath` to anchor relative refs;
+  // we read it through closures so subsequent file opens stay in sync.
+  const linkHandlers: LinkClickHandlers = {
+    openExternal: async (url) => {
+      try {
+        await openExternalUrl(url);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Surface failures non-modally — a broken URL shouldn't trap the user.
+        console.warn("openUrl failed", msg);
+      }
+    },
+    openLocalMarkdown: async (absPath) => {
+      try {
+        await openWithDirtyPrompt(absPath);
+      } catch (err) {
+        console.warn("openLocalMarkdown failed", err);
+      }
+    },
+    resolveRelativeMarkdown: async (rawPath) => {
+      if (!currentPath) return null;
+      // Strip query/fragment so dirname-relative resolution sees just the
+      // file path. `?` and `#` are not valid in POSIX filenames anyway.
+      const cleaned = rawPath.replace(/[?#].*$/, "");
+      try {
+        const { dirname, resolve, isAbsolute } = await import(
+          "@tauri-apps/api/path"
+        );
+        if (await isAbsolute(cleaned)) return cleaned;
+        const baseDir = await dirname(currentPath);
+        return await resolve(baseDir, cleaned);
+      } catch {
+        return null;
+      }
+    },
+    scrollToAnchor: (slug) => {
+      const decoded = (() => {
+        try {
+          return decodeURIComponent(slug);
+        } catch {
+          return slug;
+        }
+      })();
+      const index = buildAnchorIndex(view.state.doc.toString());
+      const offset = index.get(decoded);
+      if (offset == null) return false;
+      view.dispatch({
+        effects: EditorView.scrollIntoView(offset, { y: "start" }),
+      });
+      return true;
+    },
+  };
+  view.dispatch({
+    effects: StateEffect.appendConfig.of(linkClickExtension(linkHandlers)),
+  });
 
   // Per-window menu handlers. The Tauri app menu fires its callbacks in
   // whichever webview last set it (typically main), so without routing each
