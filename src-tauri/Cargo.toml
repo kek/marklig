@@ -24,6 +24,7 @@ thiserror = "2"
 notify = "6"
 notify-debouncer-full = "0.3"
 chrono = "0.4"
+ignore = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # OS-level recent-documents integration (NSDocumentController). Surfaces
