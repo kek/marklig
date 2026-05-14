@@ -65,6 +65,7 @@ pub fn run() {
             commands::files::resolve_folder_root,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
+            commands::spellcheck::set_continuous_spell_checking,
             commands::folder_watcher::folder_watcher_start,
             commands::folder_watcher::folder_watcher_stop,
             commands::cli_tool::install_cli_tool,

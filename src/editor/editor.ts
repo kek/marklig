@@ -2,6 +2,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
+import { invoke } from "@tauri-apps/api/core";
 
 export type Mode = "reading" | "edit";
 
@@ -70,11 +71,19 @@ export const compartments = {
   selection: selectionCompartment,
 };
 
-// CodeMirror writes the spellcheck attribute on .cm-content from its
-// contentAttributes facet on every view update — a direct DOM property write
-// gets overwritten. Reconfiguring a Compartment is the supported path.
+// Two layers have to agree for spell-check to actually surface underlines:
+//   1. The HTML `spellcheck` attribute on .cm-content. CodeMirror writes this
+//      from its contentAttributes facet on every view update, so a direct DOM
+//      property write gets clobbered — we reconfigure a Compartment instead.
+//   2. The native WebView's continuous-spell-checking flag. On macOS,
+//      WKWebView ships with it OFF, so the HTML attribute alone produces
+//      nothing until the user manually ticks "Check Spelling While Typing"
+//      from the contextual menu. Flip the platform flag via a Tauri command.
 export function applySpellcheckToView(view: EditorView, enabled: boolean): void {
   view.dispatch({
     effects: spellcheckCompartment.reconfigure(spellcheckExtension(enabled)),
   });
+  // Fire-and-forget; in non-Tauri test environments (jsdom) the invoke shim
+  // resolves harmlessly. macOS does the real work, other platforms are no-ops.
+  void invoke("set_continuous_spell_checking", { enabled }).catch(() => {});
 }
