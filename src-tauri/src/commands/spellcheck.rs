@@ -3,12 +3,17 @@
 // On macOS the WKWebView starts with continuous spell-checking OFF, so the
 // `spellcheck="true"` HTML attribute that CodeMirror sets isn't enough on
 // its own — without this, the user has to right-click the editor and tick
-// "Check Spelling While Typing" before any underlines appear. That same
-// menu item dispatches `toggleContinuousSpellChecking:`, an NSResponder
-// action that WKWebView itself doesn't expose as a property but does
-// forward through the responder chain. We drive the action ourselves via
-// `tryToPerform:with:`, tracking the global enabled/disabled state so we
-// only send the toggle when we actually need to flip.
+// "Check Spelling While Typing" before any underlines appear.
+//
+// `setContinuousSpellCheckingEnabled:` isn't part of WKWebView's public
+// API. The contextual-menu item routes `toggleContinuousSpellChecking:`
+// through the NSResponder chain, which only works when the WebView's
+// internal text input is first responder — that's true after a click in
+// the editor but not when the preferences window is focused. So we use
+// the underscored private setter `_setContinuousSpellCheckingEnabled:`,
+// which WKWebView exposes (declared in `WKWebViewPrivate.h`). It's gated
+// on `respondsToSelector:` so a future WebKit / wry that drops the SPI
+// degrades gracefully instead of crashing with NSInvalidArgumentException.
 //
 // Windows and Linux WebViews are no-ops; their spell-check is governed
 // by the host platform.
@@ -16,49 +21,38 @@
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, Ordering};
-
-#[cfg(target_os = "macos")]
-static MAC_SPELLCHECK_ENABLED: AtomicBool = AtomicBool::new(false);
-
-#[cfg(target_os = "macos")]
-fn toggle_on_webview(window: &tauri::WebviewWindow) {
+fn apply_to_webview(window: &tauri::WebviewWindow, enabled: bool) {
     use objc2::runtime::{AnyObject, Bool};
     use objc2::{msg_send, sel};
 
-    let _ = window.with_webview(|wv| unsafe {
+    let _ = window.with_webview(move |wv| unsafe {
         let webview: *mut AnyObject = wv.inner().cast();
-        // tryToPerform:with: walks the responder chain and returns whether
-        // anything handled the action. We don't care about the return value;
-        // if nothing responds, the toggle is silently dropped.
-        let _: Bool = msg_send![
-            webview,
-            tryToPerform: sel!(toggleContinuousSpellChecking:),
-            with: webview,
-        ];
-        let _: Bool = msg_send![
-            webview,
-            tryToPerform: sel!(toggleGrammarChecking:),
-            with: webview,
-        ];
+
+        let set_spell = sel!(_setContinuousSpellCheckingEnabled:);
+        let responds_spell: Bool = msg_send![webview, respondsToSelector: set_spell];
+        if responds_spell.as_bool() {
+            let _: () = msg_send![webview, _setContinuousSpellCheckingEnabled: enabled];
+        } else {
+            eprintln!(
+                "spellcheck: WKWebView doesn't respond to _setContinuousSpellCheckingEnabled:; skipping"
+            );
+        }
+
+        let set_grammar = sel!(_setGrammarCheckingEnabled:);
+        let responds_grammar: Bool = msg_send![webview, respondsToSelector: set_grammar];
+        if responds_grammar.as_bool() {
+            let _: () = msg_send![webview, _setGrammarCheckingEnabled: enabled];
+        }
     });
 }
 
+#[cfg(not(target_os = "macos"))]
+fn apply_to_webview(_window: &tauri::WebviewWindow, _enabled: bool) {}
+
 #[tauri::command]
 pub fn set_continuous_spell_checking(app: AppHandle, enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let previous = MAC_SPELLCHECK_ENABLED.swap(enabled, Ordering::SeqCst);
-        if previous == enabled {
-            return Ok(());
-        }
-        for (_, window) in app.webview_windows() {
-            toggle_on_webview(&window);
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, enabled);
+    for (_, window) in app.webview_windows() {
+        apply_to_webview(&window, enabled);
     }
     Ok(())
 }
