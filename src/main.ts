@@ -131,9 +131,9 @@ async function bootstrap(): Promise<void> {
       ? sessionEntryForThisWindow.path
       : null;
   // Secondary windows that were spawned from a session entry receive their
-  // path via ?file=… (see resolveInitialDoc) — same channel as multi-file
+  // path via ?file=… (see resolveInitial) — same channel as multi-file
   // drag-drop, so we don't need a separate code path.
-  const initialDoc = await resolveInitialDoc(sessionFallbackPath);
+  const { doc: initialDoc, folder: initialFolder } = await resolveInitial(sessionFallbackPath);
 
   const shell = document.createElement("div");
   shell.className = "viewer-app-shell";
@@ -530,10 +530,23 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Initial folder: derive from the opened file if there is one; otherwise
-  // restore from the per-window session entry (preferred) or the legacy
-  // global `currentFolder` key (fallback for first-launch / new windows).
-  if (currentPath) {
+  // Initial folder: prefer an explicit launch-time directory (e.g. `md <dir>`
+  // or Finder "Open With…" on a folder), then derive from the opened file if
+  // there is one; otherwise restore from the per-window session entry
+  // (preferred) or the legacy global `currentFolder` key (fallback for first-
+  // launch / new windows). The launch-time folder wins because the user just
+  // asked for it; we don't want a stale session folder to override it.
+  if (initialFolder) {
+    void (async () => {
+      try {
+        await setCurrentFolder(initialFolder);
+      } catch {
+        // Folder unreadable / disappeared between arg-parse and listing —
+        // leave the panel hidden; the file-open-request listener handles
+        // user-facing errors elsewhere.
+      }
+    })();
+  } else if (currentPath) {
     void syncFolderToFile(currentPath);
   } else {
     void (async () => {
@@ -1091,14 +1104,22 @@ async function bootstrap(): Promise<void> {
 
 }
 
-async function resolveInitialDoc(sessionFallbackPath: string | null = null): Promise<OpenedDoc | null> {
+interface InitialResolution {
+  doc: OpenedDoc | null;
+  /** Folder to open as sidebar root, e.g. when the user ran `md <dir>` or
+   * dropped a folder onto the app icon. Independent from `doc` — the user may
+   * launch with just a folder and no file. */
+  folder: string | null;
+}
+
+async function resolveInitial(sessionFallbackPath: string | null = null): Promise<InitialResolution> {
   // Secondary windows opened with ?file=… (drop-onto-window splits a multi-
   // file drop across windows, and multi-window session restore reuses the
   // same channel) load that file directly.
   const urlFile = fileFromUrlQuery();
   if (urlFile) {
     try {
-      return await readDoc(urlFile);
+      return { doc: await readDoc(urlFile), folder: null };
     } catch {
       // Fall through if the path can't be read; window stays blank.
     }
@@ -1108,25 +1129,31 @@ async function resolveInitialDoc(sessionFallbackPath: string | null = null): Pro
   // opens a file explicitly. Avoids two windows fighting over the same restore
   // flow and avoids surprising side effects (re-opening last file in a brand-
   // new window).
-  if (!isMainWindow()) return null;
+  if (!isMainWindow()) return { doc: null, folder: null };
 
-  if (recoveredDoc) return recoveredDoc;
+  if (recoveredDoc) return { doc: recoveredDoc, folder: null };
   const argPath = await firstMarkdownArg();
-  if (argPath) return await readDoc(argPath);
+  if (argPath) return { doc: await readDoc(argPath), folder: null };
   // macOS file-association launches deliver the path via RunEvent::Opened,
   // which can fire after bootstrap starts. Wait briefly for it before
   // falling back to last-opened or the open dialog — otherwise double-
-  // clicking a .md in Finder briefly shows a redundant open dialog
-  // before the doc loads.
-  const launched = await waitForFileOpenRequest(500);
-  if (launched) return await readDoc(launched);
+  // clicking a .md in Finder briefly shows a redundant open dialog before
+  // the doc loads. The payload can be a markdown file (open it) or a
+  // directory (open as sidebar root, see issue #48).
+  const launched = await waitForOpenRequest(500);
+  if (launched?.kind === "file") {
+    return { doc: await readDoc(launched.path), folder: null };
+  }
+  if (launched?.kind === "directory") {
+    return { doc: null, folder: launched.path };
+  }
   // Multi-window session restore for the main window: prefer the file the
   // main window had open last time over generic recents[0], so closing-
   // and-reopening preserves the exact arrangement. Falls through to recents
   // if the file is gone.
   if (sessionFallbackPath) {
     try {
-      return await readDoc(sessionFallbackPath);
+      return { doc: await readDoc(sessionFallbackPath), folder: null };
     } catch {
       // file missing/moved — fall through to recents/dialog
     }
@@ -1135,8 +1162,8 @@ async function resolveInitialDoc(sessionFallbackPath: string | null = null): Pro
   // most-recently-opened path, written on every successful open via
   // recordRecent). Falls through to the dialog if the file is gone.
   const lastOpened = await tryReopenLastFile();
-  if (lastOpened) return lastOpened;
-  return await openFileViaDialog();
+  if (lastOpened) return { doc: lastOpened, folder: null };
+  return { doc: await openFileViaDialog(), folder: null };
 }
 
 /**
@@ -1200,20 +1227,48 @@ async function tryReopenLastFile(): Promise<OpenedDoc | null> {
   }
 }
 
-async function waitForFileOpenRequest(timeoutMs: number): Promise<string | null> {
+/** Wait briefly for the OS to deliver an `Open With…` / `md <path>` request,
+ *  classifying the payload as either a markdown file or a directory. Resolves
+ *  to null on timeout. The same event is consumed by the post-bootstrap
+ *  listener that handles subsequent opens (drag-onto-dock while running),
+ *  but THAT listener is registered too late to receive the cold-launch event
+ *  on macOS — RunEvent::Opened fires once during builder.run and isn't
+ *  queued. Hence the early listener here. */
+async function waitForOpenRequest(
+  timeoutMs: number,
+): Promise<{ kind: "file" | "directory"; path: string } | null> {
   return new Promise((resolve) => {
     let unlisten: (() => void) | null = null;
     const timer = setTimeout(() => {
       unlisten?.();
       resolve(null);
     }, timeoutMs);
-    void listen<string[]>("file-open-request", (e) => {
+    void listen<string[]>("file-open-request", async (e) => {
       const paths = Array.isArray(e.payload) ? e.payload : [];
+      if (paths.length === 0) return;
+      // Prefer a markdown file when one is present; otherwise check whether
+      // the single argument is a directory. (We don't currently support
+      // launching with multiple folder args — `md a/ b/` would only open
+      // the first.)
       const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
-      if (!md) return;
-      clearTimeout(timer);
-      unlisten?.();
-      resolve(md);
+      if (md) {
+        clearTimeout(timer);
+        unlisten?.();
+        resolve({ kind: "file", path: md });
+        return;
+      }
+      if (paths.length === 1) {
+        try {
+          if (await isDirectory(paths[0])) {
+            clearTimeout(timer);
+            unlisten?.();
+            resolve({ kind: "directory", path: paths[0] });
+            return;
+          }
+        } catch {
+          // ignore — fall through to timeout
+        }
+      }
     }).then((u) => {
       unlisten = u;
     });
