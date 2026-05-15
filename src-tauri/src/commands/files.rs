@@ -149,6 +149,22 @@ fn is_markdown_ext(ext: &str) -> bool {
     )
 }
 
+/// Returns true when `path` is a directory that contains a `.git` entry — i.e.
+/// a nested git checkout. Same predicate catches:
+///   - Git worktrees (`.git` is a file pointing back to the parent repo's
+///     `worktrees/<name>` metadata).
+///   - Submodules (`.git` is a file or directory).
+///
+/// A `.git` directory at the *user-opened root* is the project itself and
+/// must NOT be excluded — callers handle that case by comparing against the
+/// root. This helper just answers the structural question.
+pub(crate) fn is_nested_checkout(path: &std::path::Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+    path.join(".git").exists()
+}
+
 #[tauri::command]
 pub fn is_directory(path: String) -> bool {
     std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false)
@@ -252,6 +268,7 @@ pub fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, FileE
 fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
     use ignore::WalkBuilder;
 
+    let root_for_filter = root.to_path_buf();
     let mut builder = WalkBuilder::new(root);
     builder
         .standard_filters(false)
@@ -265,12 +282,22 @@ fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
         // with the previous hand-rolled walker (which allowed depth up to and
         // including MAX_FOLDER_DEPTH) we pass MAX_FOLDER_DEPTH directly.
         .max_depth(Some(MAX_FOLDER_DEPTH as usize))
-        .filter_entry(|entry| {
+        .filter_entry(move |entry| {
             // Mirror the old explicit-skip list. Apply to every component;
             // WalkBuilder will short-circuit the subtree when this returns
             // false for a directory.
             let name = entry.file_name().to_string_lossy();
-            !is_ignored(name.as_ref())
+            if is_ignored(name.as_ref()) {
+                return false;
+            }
+            // Skip nested git checkouts (worktrees, submodules) — they're
+            // structurally separate repos, not "files in this project".
+            // The user-opened root is allowed even if it IS a checkout.
+            let p = entry.path();
+            if p != root_for_filter.as_path() && is_nested_checkout(p) {
+                return false;
+            }
+            true
         });
 
     let mut out: Vec<MarkdownFileEntry> = Vec::new();
@@ -421,6 +448,143 @@ mod tests {
     }
 
     #[test]
+    fn nested_checkout_with_git_file_is_excluded() {
+        // Synthesize a git worktree: `.git` is a FILE.
+        let root = unique_tempdir("nested-worktree");
+        git_init(&root);
+        std::fs::write(root.join("top.md"), b"# top\n").unwrap();
+        std::fs::create_dir_all(root.join("wt")).unwrap();
+        std::fs::write(
+            root.join("wt/.git"),
+            b"gitdir: /elsewhere/.git/worktrees/wt\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("wt/inner.md"), b"# inner\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let inner_visible = is_path_visible(&root, &root.join("wt/inner.md"));
+        let top_visible = is_path_visible(&root, &root.join("top.md"));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(got, vec!["top.md".to_string()]);
+        assert!(!inner_visible, "file inside nested worktree should be hidden");
+        assert!(top_visible, "file at root should remain visible");
+    }
+
+    #[test]
+    fn nested_checkout_with_git_dir_is_excluded() {
+        // Synthesize a submodule: `.git` is a DIRECTORY.
+        let root = unique_tempdir("nested-submodule");
+        git_init(&root);
+        std::fs::write(root.join("top.md"), b"# top\n").unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join("sub/.git")).unwrap();
+        std::fs::write(root.join("sub/.git/HEAD"), b"ref: refs/heads/main\n").unwrap();
+        std::fs::write(root.join("sub/inner.md"), b"# inner\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let inner_visible = is_path_visible(&root, &root.join("sub/inner.md"));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(got, vec!["top.md".to_string()]);
+        assert!(!inner_visible, "file inside nested submodule should be hidden");
+    }
+
+    #[test]
+    fn root_with_dot_git_is_not_excluded_from_itself() {
+        // The user-opened root IS a git repo — its own `.md` files and
+        // non-nested subdirs must surface. Only the `.git` directory itself
+        // is hidden (via `is_ignored`).
+        let root = unique_tempdir("root-is-repo");
+        git_init(&root);
+        std::fs::write(root.join("readme.md"), b"# readme\n").unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(root.join("docs/guide.md"), b"# guide\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let readme_visible = is_path_visible(&root, &root.join("readme.md"));
+        let guide_visible = is_path_visible(&root, &root.join("docs/guide.md"));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(
+            got,
+            vec!["docs/guide.md".to_string(), "readme.md".to_string()]
+        );
+        assert!(readme_visible);
+        assert!(guide_visible);
+    }
+
+    #[test]
+    fn nested_checkout_and_gitignore_combine() {
+        // Two nested checkouts: one inside a gitignored dir (gitignore wins
+        // first); one inside a non-ignored dir (the new rule wins). A
+        // sibling `.md` outside both is visible.
+        let root = unique_tempdir("nested-and-gitignore");
+        git_init(&root);
+        std::fs::write(root.join(".gitignore"), b"ignored/\n").unwrap();
+        std::fs::write(root.join("top.md"), b"# top\n").unwrap();
+
+        // Inside gitignored dir.
+        std::fs::create_dir_all(root.join("ignored/wt1")).unwrap();
+        std::fs::write(
+            root.join("ignored/wt1/.git"),
+            b"gitdir: /elsewhere/.git/worktrees/wt1\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("ignored/wt1/inner.md"), b"# inner1\n").unwrap();
+
+        // Inside a non-ignored dir.
+        std::fs::create_dir_all(root.join("agents/wt2")).unwrap();
+        std::fs::write(
+            root.join("agents/wt2/.git"),
+            b"gitdir: /elsewhere/.git/worktrees/wt2\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("agents/wt2/inner.md"), b"# inner2\n").unwrap();
+        std::fs::write(root.join("agents/sibling.md"), b"# sibling\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let v_inner1 = is_path_visible(&root, &root.join("ignored/wt1/inner.md"));
+        let v_inner2 = is_path_visible(&root, &root.join("agents/wt2/inner.md"));
+        let v_sibling = is_path_visible(&root, &root.join("agents/sibling.md"));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(
+            got,
+            vec!["agents/sibling.md".to_string(), "top.md".to_string()]
+        );
+        assert!(!v_inner1, "gitignore'd nested checkout content hidden");
+        assert!(!v_inner2, "non-ignored nested checkout content hidden");
+        assert!(v_sibling, "sibling outside the nested checkout is visible");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_to_dot_git_does_not_crash_walker() {
+        // A dangling/odd symlink at `.git` shouldn't panic the walker. The
+        // exact filter result isn't asserted — only that we get *some*
+        // answer without crashing.
+        let root = unique_tempdir("symlink-git");
+        git_init(&root);
+        std::fs::write(root.join("top.md"), b"# top\n").unwrap();
+        std::fs::create_dir_all(root.join("link-wt")).unwrap();
+        // Symlink to a non-existent target; .git "exists" only via the link
+        // resolving — std::path::Path::exists follows symlinks, so this is
+        // effectively a missing target.
+        std::os::unix::fs::symlink(
+            std::path::Path::new("/nonexistent-marklig-target"),
+            root.join("link-wt/.git"),
+        )
+        .unwrap();
+        std::fs::write(root.join("link-wt/inner.md"), b"# inner\n").unwrap();
+
+        // Just ensure neither call panics.
+        let _ = walk_for_markdown(&root);
+        let _ = is_path_visible(&root, &root.join("link-wt/inner.md"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn is_path_visible_respects_gitignore_and_hardcoded() {
         let root = unique_tempdir("visible");
         git_init(&root);
@@ -464,6 +628,26 @@ pub(crate) fn is_path_visible(root: &std::path::Path, path: &std::path::Path) ->
         if let std::path::Component::Normal(os) = component {
             if let Some(s) = os.to_str() {
                 if is_ignored(s) {
+                    return false;
+                }
+            }
+        }
+    }
+    // Reject paths whose strict ancestor (above `path`, at-or-below `root`)
+    // is a nested git checkout. The root itself is allowed even if it is a
+    // checkout — that's the project the user opened. Walk top-down from
+    // `root` so we stat each intermediate directory at most once.
+    {
+        let mut cursor = root.to_path_buf();
+        for component in rel.components() {
+            if let std::path::Component::Normal(os) = component {
+                cursor.push(os);
+                // Stop before checking `path` itself — only intermediate
+                // ancestors disqualify it.
+                if cursor.as_path() == path {
+                    break;
+                }
+                if is_nested_checkout(&cursor) {
                     return false;
                 }
             }
