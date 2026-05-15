@@ -235,51 +235,272 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, FileError> {
     let root_path = PathBuf::from(&root);
-    let mut out = Vec::new();
-    walk_for_markdown(&root_path, &root_path, 0, &mut out)?;
-    out.sort_by(|a, b| a.relative.cmp(&b.relative));
+    let out = walk_for_markdown(&root_path);
     Ok(out)
 }
 
-fn walk_for_markdown(
-    root: &std::path::Path,
-    current: &std::path::Path,
-    depth: u32,
-    out: &mut Vec<MarkdownFileEntry>,
-) -> Result<(), FileError> {
-    if depth > MAX_FOLDER_DEPTH || out.len() >= MAX_FOLDER_ENTRIES {
-        return Ok(());
-    }
-    let entries = match std::fs::read_dir(current) {
-        Ok(e) => e,
-        // Permission denied / unreadable: silently skip subtree.
-        Err(_) => return Ok(()),
-    };
-    for entry in entries.flatten() {
+/// Walk `root` collecting markdown files, honoring `.gitignore` (and friends)
+/// when the root is inside a Git repo. Uses `ignore::WalkBuilder` — same
+/// engine ripgrep uses — so nested ignores, `.git/info/exclude`, and the
+/// user's global `core.excludesFile` are all handled.
+///
+/// In addition to whatever git ignores, `is_ignored()` still applies as a
+/// `filter_entry` so non-Git projects (and Git projects that didn't bother to
+/// ignore `node_modules` etc.) stay clean. We keep `.hidden(false)` so
+/// directories like `.github` and `.claude`, which often hold real Markdown,
+/// remain visible — see the comment on `is_ignored`.
+fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
+    use ignore::WalkBuilder;
+
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .standard_filters(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(true) // only consult .gitignore when inside a Git repo
+        .hidden(false)
+        .parents(true)
+        // ignore::WalkBuilder depth counts the root as 0, so to keep parity
+        // with the previous hand-rolled walker (which allowed depth up to and
+        // including MAX_FOLDER_DEPTH) we pass MAX_FOLDER_DEPTH directly.
+        .max_depth(Some(MAX_FOLDER_DEPTH as usize))
+        .filter_entry(|entry| {
+            // Mirror the old explicit-skip list. Apply to every component;
+            // WalkBuilder will short-circuit the subtree when this returns
+            // false for a directory.
+            let name = entry.file_name().to_string_lossy();
+            !is_ignored(name.as_ref())
+        });
+
+    let mut out: Vec<MarkdownFileEntry> = Vec::new();
+    for result in builder.build() {
+        if out.len() >= MAX_FOLDER_ENTRIES {
+            break;
+        }
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue, // permission denied / broken symlink — skip
+        };
+        // Skip the root itself, dirs, and non-markdown files.
         let path = entry.path();
-        let name_owned = entry.file_name();
-        let name = name_owned.to_string_lossy();
-        if is_ignored(name.as_ref()) {
+        if path == root {
             continue;
         }
-        if path.is_dir() {
-            walk_for_markdown(root, &path, depth + 1, out)?;
-            if out.len() >= MAX_FOLDER_ENTRIES {
-                return Ok(());
-            }
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if is_markdown_ext(ext) {
-                let rel = path
-                    .strip_prefix(root)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
-                out.push(MarkdownFileEntry {
-                    path: path.to_string_lossy().to_string(),
-                    relative: rel,
-                });
+        let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
+        if !is_file {
+            continue;
+        }
+        let ext = match path.extension().and_then(|e| e.to_str()) {
+            Some(e) => e,
+            None => continue,
+        };
+        if !is_markdown_ext(ext) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+        out.push(MarkdownFileEntry {
+            path: path.to_string_lossy().to_string(),
+            relative: rel,
+        });
+    }
+    // Preserve the previous deterministic order: sort by the relative path.
+    // The WalkBuilder traversal isn't ordered the same way as the old
+    // hand-rolled walker, so this sort is what keeps snapshot tests stable.
+    out.sort_by(|a, b| a.relative.cmp(&b.relative));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn unique_tempdir(label: &str) -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir().join(format!(
+            "marklig-files-test-{}-{}-{}",
+            label,
+            std::process::id(),
+            n
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("create tempdir");
+        path
+    }
+
+    fn git_init(dir: &Path) {
+        // ignore::WalkBuilder treats a directory as a Git repo when it
+        // contains `.git` (file or dir). A bare marker file is enough.
+        std::fs::create_dir_all(dir.join(".git")).expect("create .git");
+        // Some `ignore` codepaths look for HEAD; create a minimal one.
+        std::fs::write(dir.join(".git/HEAD"), b"ref: refs/heads/main\n")
+            .expect("write HEAD");
+    }
+
+    fn relatives(entries: &[MarkdownFileEntry]) -> Vec<String> {
+        let mut v: Vec<String> = entries.iter().map(|e| e.relative.replace('\\', "/")).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn gitignore_directory_pattern_excludes_subtree() {
+        let root = unique_tempdir("gitignore-dir");
+        git_init(&root);
+        std::fs::write(root.join(".gitignore"), b"secret/\n").unwrap();
+        std::fs::write(root.join("notes.md"), b"# notes\n").unwrap();
+        std::fs::write(root.join("top.md"), b"# top\n").unwrap();
+        std::fs::create_dir_all(root.join("secret")).unwrap();
+        std::fs::write(root.join("secret/leaked.md"), b"# leaked\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(got, vec!["notes.md".to_string(), "top.md".to_string()]);
+    }
+
+    #[test]
+    fn gitignore_glob_pattern_excludes_matching_files() {
+        let root = unique_tempdir("gitignore-glob");
+        git_init(&root);
+        std::fs::write(root.join(".gitignore"), b"*.draft.md\n").unwrap();
+        std::fs::write(root.join("ok.md"), b"# ok\n").unwrap();
+        std::fs::write(root.join("foo.draft.md"), b"# draft\n").unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/bar.draft.md"), b"# nested draft\n").unwrap();
+        std::fs::write(root.join("sub/keep.md"), b"# keep\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(got, vec!["ok.md".to_string(), "sub/keep.md".to_string()]);
+    }
+
+    #[test]
+    fn non_git_root_ignores_gitignore_file() {
+        // .gitignore present, but no .git → ignore-crate skips it
+        // (require_git(true)). Only the hardcoded set applies.
+        let root = unique_tempdir("non-git");
+        std::fs::write(root.join(".gitignore"), b"secret/\n").unwrap();
+        std::fs::write(root.join("notes.md"), b"# notes\n").unwrap();
+        std::fs::create_dir_all(root.join("secret")).unwrap();
+        std::fs::write(root.join("secret/leaked.md"), b"# leaked\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let _ = std::fs::remove_dir_all(&root);
+
+        // Both files surface; the .gitignore is inert without a Git context.
+        assert_eq!(
+            got,
+            vec!["notes.md".to_string(), "secret/leaked.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn hardcoded_ignores_apply_inside_git_repo() {
+        let root = unique_tempdir("git-with-node_modules");
+        git_init(&root);
+        // No .gitignore — but node_modules should still be skipped because
+        // `is_ignored` runs as a `filter_entry`.
+        std::fs::write(root.join("readme.md"), b"# readme\n").unwrap();
+        std::fs::create_dir_all(root.join("node_modules/foo")).unwrap();
+        std::fs::write(root.join("node_modules/foo.md"), b"# pkg\n").unwrap();
+
+        let got = relatives(&walk_for_markdown(&root));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(got, vec!["readme.md".to_string()]);
+    }
+
+    #[test]
+    fn is_path_visible_respects_gitignore_and_hardcoded() {
+        let root = unique_tempdir("visible");
+        git_init(&root);
+        std::fs::write(root.join(".gitignore"), b"secret/\n").unwrap();
+        std::fs::create_dir_all(root.join("secret")).unwrap();
+        std::fs::write(root.join("secret/leaked.md"), b"# leaked\n").unwrap();
+        std::fs::create_dir_all(root.join("node_modules")).unwrap();
+        std::fs::write(root.join("node_modules/foo.md"), b"# pkg\n").unwrap();
+        std::fs::write(root.join("notes.md"), b"# notes\n").unwrap();
+
+        let hidden_by_git = root.join("secret/leaked.md");
+        let hidden_by_hardcoded = root.join("node_modules/foo.md");
+        let visible = root.join("notes.md");
+
+        let h1 = is_path_visible(&root, &hidden_by_git);
+        let h2 = is_path_visible(&root, &hidden_by_hardcoded);
+        let v = is_path_visible(&root, &visible);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(!h1, ".gitignore'd path should be hidden");
+        assert!(!h2, "hardcoded-ignored path should be hidden");
+        assert!(v, "tracked file should be visible");
+    }
+}
+
+/// Returns true when `path` would be surfaced by `list_markdown_files` from
+/// the perspective of ignore filtering — i.e. it isn't in a hard-coded ignore
+/// directory and isn't excluded by `.gitignore`/`.git/info/exclude`/global
+/// excludes when `root` is inside a Git repo.
+///
+/// `folder_watcher.rs` calls this to drop fs events for paths the file picker
+/// and sidebar would never show, so e.g. a `cargo build` writing into
+/// `target/` doesn't churn the project tree.
+pub(crate) fn is_path_visible(root: &std::path::Path, path: &std::path::Path) -> bool {
+    let rel = match path.strip_prefix(root) {
+        Ok(r) => r,
+        Err(_) => return true, // outside root — don't claim authority
+    };
+    // Hardcoded list first: cheap and applies even outside Git repos.
+    for component in rel.components() {
+        if let std::path::Component::Normal(os) = component {
+            if let Some(s) = os.to_str() {
+                if is_ignored(s) {
+                    return false;
+                }
             }
         }
     }
-    Ok(())
+    // Then ask the same ignore stack `list_markdown_files` uses.
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+    // Walk up from `root` looking for the enclosing .git so we know which
+    // .gitignore stack applies. ignore::Gitignore handles nested ignores
+    // automatically when fed each one.
+    let mut found_git = false;
+    let mut cursor = Some(root);
+    while let Some(dir) = cursor {
+        if dir.join(".git").exists() {
+            found_git = true;
+            break;
+        }
+        cursor = dir.parent();
+    }
+    if !found_git {
+        return true;
+    }
+    // Add .gitignore files along the relative path so nested ignores apply.
+    let mut walked = root.to_path_buf();
+    let _ = builder.add(walked.join(".gitignore"));
+    for component in rel.components() {
+        if let std::path::Component::Normal(os) = component {
+            walked.push(os);
+            if walked.is_dir() {
+                let _ = builder.add(walked.join(".gitignore"));
+            }
+        }
+    }
+    let gi = match builder.build() {
+        Ok(g) => g,
+        Err(_) => return true,
+    };
+    let is_dir = path.is_dir();
+    !gi.matched_path_or_any_parents(path, is_dir).is_ignore()
 }

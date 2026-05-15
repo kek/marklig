@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Window};
 
-use super::files::is_ignored;
+use super::files::is_path_visible;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct FolderWatcherEvent {
@@ -37,23 +37,13 @@ impl FolderWatcherState {
     }
 }
 
-/// True when any path component (relative to the watched root) is a directory
-/// the tree walker would skip — node_modules, .git, target, .cache, etc.
+/// True when `p` is a path the file picker / sidebar would never show — a
+/// hardcoded ignore directory (node_modules, .git, target, …) or a path
+/// excluded by the repo's `.gitignore`/`.git/info/exclude`/global excludes.
 /// Filtering events here saves the frontend from a refresh storm whenever a
 /// build tool churns through generated files.
 fn path_is_ignored(root: &Path, p: &Path) -> bool {
-    let rel = match p.strip_prefix(root) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    rel.components().any(|c| {
-        if let std::path::Component::Normal(os) = c {
-            if let Some(s) = os.to_str() {
-                return is_ignored(s);
-            }
-        }
-        false
-    })
+    !is_path_visible(root, p)
 }
 
 #[tauri::command]
