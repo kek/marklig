@@ -22,14 +22,15 @@ fn render_cli_script(bundle_path: &str) -> String {
     format!(
         r#"#!/bin/bash
 # Märklig command-line launcher.
+# Resolves each arg to an absolute path without requiring it to exist —
+# `md newfile.md` should open a fresh buffer pointing at that location,
+# not silently drop the arg and just focus the window.
 BUNDLE={bundle}
 args=()
 for arg in "$@"; do
-  if [ -e "$arg" ]; then
-    dir="$(cd "$(dirname "$arg")" 2>/dev/null && pwd)"
-    if [ -n "$dir" ]; then
-      args+=("$dir/$(basename "$arg")")
-    fi
+  dir="$(cd "$(dirname "$arg")" 2>/dev/null && pwd)"
+  if [ -n "$dir" ]; then
+    args+=("$dir/$(basename "$arg")")
   fi
 done
 if [ ${{#args[@]}} -eq 0 ]; then
@@ -159,5 +160,14 @@ mod tests {
         // against unusual install locations.
         let script = render_cli_script("/Users/o'mara/Apps/Märklig.app");
         assert!(script.contains(r#"BUNDLE='/Users/o'\''mara/Apps/Märklig.app'"#));
+    }
+
+    #[test]
+    fn rendered_script_forwards_nonexistent_paths() {
+        // `md newfile.md` should hand the would-be absolute path to `open`
+        // so the app can open a fresh editor buffer pointing at it. The old
+        // [ -e "$arg" ] guard silently dropped non-existent paths.
+        let script = render_cli_script("/Applications/Märklig.app");
+        assert!(!script.contains(r#"[ -e "$arg" ]"#));
     }
 }

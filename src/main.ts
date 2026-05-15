@@ -355,8 +355,12 @@ async function bootstrap(): Promise<void> {
   //      window, since secondary windows always go via the URL channel.
   // If either is absent the defaults (reading mode, scrollTop 0) win.
   const urlRestore = restoreParamsFromUrl();
-  const restoredMode: Mode =
-    urlRestore.mode ?? sessionEntryForThisWindow?.mode ?? "reading";
+  // A cold launch via `md newfile.md` lands here with initialDoc.isNew true.
+  // Force edit mode so the user can start typing immediately; otherwise the
+  // window opens in reading mode showing a blank document.
+  const restoredMode: Mode = initialDoc?.isNew
+    ? "edit"
+    : (urlRestore.mode ?? sessionEntryForThisWindow?.mode ?? "reading");
   const restoredScrollTop: number =
     urlRestore.scrollTop ?? sessionEntryForThisWindow?.scrollTop ?? 0;
 
@@ -434,7 +438,9 @@ async function bootstrap(): Promise<void> {
   // tree. Only the main window consults this map.
   const folderByLabel = new Map<string, string | null>();
   let folderWatcherHandle: FolderWatcherHandle | null = null;
-  if (currentPath) await recordRecent(currentPath);
+  // Skip recents for a brand-new (`md newfile.md`) buffer until first save —
+  // otherwise the recents list points at a path that doesn't exist on disk.
+  if (currentPath && !initialDoc?.isNew) await recordRecent(currentPath);
 
   // Multi-window session restore: snapshot this window's state on a periodic
   // tick + on close. Captures path/scrollTop/mode/folder/sidebar so the next
@@ -675,6 +681,13 @@ async function bootstrap(): Promise<void> {
       dirtyTracker.reset();
       diverged = false;
       await clearRecovery(currentPath);
+      // First save of a `md newfile.md` buffer: the watcher couldn't engage
+      // earlier because the path didn't exist on disk. It does now —
+      // start watching and add it to recents.
+      if (!watcherHandle) {
+        await recordRecent(currentPath);
+        await startWatching(currentPath);
+      }
     } catch (err) {
       console.error("save failed", err);
     }
@@ -714,8 +727,20 @@ async function bootstrap(): Promise<void> {
     toc.setDocumentTitle(currentPath);
     folder.setActiveFile(currentPath);
     if (currentPath) {
-      await recordRecent(currentPath);
-      await startWatching(currentPath);
+      if (doc.isNew) {
+        // Brand-new file: drop straight into edit mode so the user can start
+        // typing. Skip watcher + recents — both assume a real path; they'll
+        // engage normally on first save.
+        if (currentMode !== "edit") {
+          currentMode = "edit";
+          setMode(view, "edit", modeExtensions.edit);
+          toolbar.setMode("edit");
+          document.documentElement.dataset.mode = "edit";
+        }
+      } else {
+        await recordRecent(currentPath);
+        await startWatching(currentPath);
+      }
       await maybeRestorePositionFor(currentPath);
       await syncFolderToFile(currentPath);
     }
@@ -1057,7 +1082,9 @@ async function bootstrap(): Promise<void> {
     diverged = false;
   }
 
-  if (currentPath) {
+  // Skip the fs watcher for a new (not-yet-created) file. notify can't watch
+  // a path that doesn't exist; it'll start on first save via loadAndApplyDoc.
+  if (currentPath && !initialDoc?.isNew) {
     await startWatching(currentPath);
   }
 
