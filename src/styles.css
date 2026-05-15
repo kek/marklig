@@ -593,6 +593,10 @@ html.theme-dark  { color-scheme: dark; }
   flex: 1;
   min-width: 0;
   word-break: break-all;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 .viewer-folder-heading {
   /* Folder heading drops the bottom margin when its body is hidden so the
