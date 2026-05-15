@@ -4,6 +4,11 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 export interface OpenedDoc {
   path: string;
   source: string;
+  /** True when the path doesn't exist on disk yet — the buffer is a blank
+   * "new file" preview; saving will create the file. Callers use this to
+   * switch into edit mode and skip side-effects (watcher, recents) that
+   * assume the file is real. */
+  isNew?: boolean;
 }
 
 export async function openFileViaDialog(): Promise<OpenedDoc | null> {
@@ -19,6 +24,11 @@ export async function openFileViaDialog(): Promise<OpenedDoc | null> {
 }
 
 export async function readDoc(path: string): Promise<OpenedDoc> {
+  // `md <nonexistent.md>` (and the equivalent file-association launch with
+  // a not-yet-created path) lands here. Probe first instead of catching a
+  // read error so we don't mask genuine I/O failures from `read_text_file`.
+  const exists = await invoke<boolean>("path_exists", { path });
+  if (!exists) return { path, source: "", isNew: true };
   const source = await invoke<string>("read_text_file", { path });
   return { path, source };
 }
