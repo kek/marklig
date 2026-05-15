@@ -7,6 +7,7 @@ import {
 } from "@tauri-apps/api/menu";
 
 import { t } from "../i18n/strings";
+import { basename } from "./path-label";
 
 export interface MenuHandlers {
   openFile: () => Promise<void>;
@@ -392,7 +393,9 @@ function revealLabel(): string {
   return t("menu.file.revealLinux");
 }
 
+// Label for a Projects / Open-Recent menu entry. Always non-empty for a
+// non-empty path (issue #69: paths with a trailing separator used to
+// produce blank menu items that remained selectable).
 function shortName(path: string): string {
-  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return idx >= 0 ? path.slice(idx + 1) : path;
+  return basename(path);
 }

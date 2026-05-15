@@ -7,14 +7,12 @@
 import { t } from "../i18n/strings";
 import { loadRecentProjects } from "../shell/recent-projects";
 import { dispatchToFocused } from "../shell/menu-actions";
+import { splitPath as splitPathImpl } from "../shell/path-label";
 
-/** Split a path into basename + parent. Handles both POSIX and Windows
- * separators so Finder-style and File Explorer-style paths both render. */
-export function splitPath(path: string): { base: string; parent: string } {
-  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  if (idx < 0) return { base: path, parent: "" };
-  return { base: path.slice(idx + 1), parent: path.slice(0, idx) };
-}
+/** Split a path into basename + parent. Re-exported from the shared
+ * path-label helper (issue #69) so the palette and the Projects menu agree
+ * on edge cases like trailing separators. */
+export const splitPath = splitPathImpl;
 
 export interface ProjectMatch {
   path: string;
