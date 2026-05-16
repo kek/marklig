@@ -8,8 +8,21 @@
 
 # Tauri / Rust build output
 src-tauri/target/
-src-tauri/gen/
 target/
+
+# Tauri-generated schemas (regenerated from tauri.conf.json + capabilities)
+src-tauri/gen/schemas/
+
+# Tauri Android Gradle build artifacts (the scaffolded project itself is tracked
+# under src-tauri/gen/android/, but anything under .gradle / build is per-machine)
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/build/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/buildSrc/build/
+src-tauri/gen/android/buildSrc/.gradle/
+src-tauri/gen/android/local.properties
+src-tauri/gen/android/.idea/
+src-tauri/gen/android/captures/
 
 # Frontend build output
 node_modules/
