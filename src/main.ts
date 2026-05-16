@@ -1633,10 +1633,25 @@ function isPlainEditableInput(el: HTMLElement): boolean {
   return false;
 }
 
-bootstrap().catch((err) => {
-  console.error("bootstrap failed", err);
-  const root = document.getElementById("root");
-  if (root) {
-    root.textContent = `Failed to start: ${String(err)}`;
-  }
-});
+import { isMobile } from "./platform";
+
+if (isMobile()) {
+  // v2 mobile companion, step 1: render a bundled sample.md only. The
+  // mobile path is loaded lazily so the desktop bundle doesn't get the
+  // mobile-bootstrap module's eager imports on cold start.
+  import("./mobile-bootstrap")
+    .then((m) => m.mobileBootstrap())
+    .catch((err) => {
+      console.error("mobile bootstrap failed", err);
+      const root = document.getElementById("root");
+      if (root) root.textContent = `Failed to start: ${String(err)}`;
+    });
+} else {
+  bootstrap().catch((err) => {
+    console.error("bootstrap failed", err);
+    const root = document.getElementById("root");
+    if (root) {
+      root.textContent = `Failed to start: ${String(err)}`;
+    }
+  });
+}
