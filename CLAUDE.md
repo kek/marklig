@@ -84,6 +84,34 @@ The reading view itself doesn't innerHTML the document — it stays text + CM wi
 
 Print uses a hidden same-process iframe + `contentWindow.print()` (Tauri's webview doesn't reliably forward `window.print()` from a popup). PDF currently goes through the OS print dialog's Save-as-PDF — there's no native Rust-side webview-to-PDF path.
 
+### Mobile target (Android, v2 companion in progress)
+
+`src-tauri/gen/android/` is tracked. The Android target is scaffolded via
+`tauri android init` and renders the existing webview frontend through
+`TauriActivity`. Build outputs (`.gradle/`, `build/`, `local.properties`)
+are gitignored; the project itself (Gradle config, Kotlin entry-point,
+resources) is checked in.
+
+Desktop-only Rust code is gated behind `#[cfg(desktop)]`: the `watcher`,
+`folder_watcher`, `files`, `recents_os`, and `cli_tool` modules; the
+`.manage(WatcherState::new())` / `.manage(FolderWatcherState::new())`
+calls; and most of the `invoke_handler` chain. The mobile-only handler
+chain currently exposes just `take_pending_open_paths`. `pub fn run()`
+carries `#[cfg_attr(mobile, tauri::mobile_entry_point)]` so Tauri's
+Android JNI entry point is generated. When adding new commands, default
+to gating them desktop-only unless they're explicitly designed for both —
+Android does not have an FS watcher and does not have NSDocumentController.
+
+On the frontend, `src/main.ts` forks at the bottom on `isMobile()`
+(from `src/platform.ts`): mobile dynamically imports
+`src/mobile-bootstrap.ts`, which renders the bundled `src/sample.md`
+through the same decoration producer set as desktop reading mode. There
+is no mobile file shell yet — step 2 of the v2 plan adds Storage Access
+Framework integration.
+
+`npm run tauri:android:dev` runs the dev loop (requires `NDK_HOME` and a
+running emulator — see README "Android" section).
+
 ### Settings, i18n, recents
 
 - `src/shell/settings.ts` — settings store with `subscribeSettings()`. After mutating, dispatch `refreshDecorationsEffect` so widgets that read settings at `toDOM` time (notably `ImageWidget` honoring `remoteImagePolicy: load|placeholder|off`) pick up changes without a doc reload.

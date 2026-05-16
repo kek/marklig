@@ -11,6 +11,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:android:dev": "tauri android dev",
+    "tauri:android:build": "tauri android build",
+    "tauri:android:build:debug": "tauri android build --debug",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

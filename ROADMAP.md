@@ -106,6 +106,20 @@ All new AT-facing strings flow through `t()` / `tA11y()` in `src/i18n/strings.ts
 
 ---
 
+## v2: Mobile companion (in progress)
+
+Read-only Android companion app sharing the desktop renderer, with LAN-only sync between desktop and phone. Server-backed sync, iOS, and edit-on-phone are explicitly out of scope for v2.0. Spec: `docs/superpowers/specs/2026-05-17-mobile-companion-design.md`. Tracking issue: #70.
+
+- [ ] **Step 1 — Tauri Android init.** Scaffold the Android target; render a bundled `sample.md` in an emulator. Plan: `docs/superpowers/plans/2026-05-17-mobile-companion-1-tauri-android-init.md`.
+- [ ] **Step 2 — SAF MobileFileShell + share-sheet handler.** Open-from-share-sheet, folder picker via SAF tree URI, library indexer.
+- [ ] **Step 3 — Recents + library UI (v2.0-alpha ship).** Standalone reader is shippable here.
+- [ ] **Step 4 — Crypto core (`marklig-sync-core`).** Noise XK pairing handshake + per-file ChaCha20-Poly1305 envelope + sync op log. Tested desktop ↔ desktop in loopback.
+- [ ] **Step 5 — Desktop pairing UX.** QR modal, settings → Pairings pane, per-folder "Sync this folder to phone" menu action.
+- [ ] **Step 6 — LAN transport.** mDNS discovery (`_marklig-sync._tcp`) + direct TCP, WebRTC fallback.
+- [ ] **Step 7 — Phone pairing UX + sync wire-up.** Scan QR, resolve mDNS, run handshake, subscribe to folder, render synced content.
+- [ ] **Step 8 — Soft launch (v2.0).** Android internal track, then production.
+- [ ] **(v2.1+, deferred)** Blind-relay path for off-LAN sync. Separate spec.
+
 ## Future
 
 De-scoped from the v1 sub-specs because they can't be meaningfully built or verified on the current dev setup. Code-complete pieces are kept in-tree; the missing piece in each case is platform access or signing infrastructure, not implementation work. None of these block a v1 macOS ship.

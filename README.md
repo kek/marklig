@@ -26,6 +26,47 @@ npm run tauri:dev   # Tauri dev server (recommended)
 npm run dev         # Vite-only (browser, no native shell)
 ```
 
+### Android (mobile companion — v2.0, work in progress)
+
+The Android target is the first step of the v2 mobile companion (issue #70,
+spec at `docs/superpowers/specs/2026-05-17-mobile-companion-design.md`).
+At this stage the app renders a bundled `src/sample.md` only — no file
+picking, no share-sheet integration, no sync. Library UI and sync land in
+later steps.
+
+One-time setup:
+
+1. Install Android Studio → AVD Manager → create an ARM64 API 34+ emulator.
+2. Install the NDK via Android Studio's SDK Manager.
+3. Export `NDK_HOME` in your shell rc (`~/.config/fish/config.fish` for fish,
+   `~/.zshrc` / `~/.bashrc` otherwise):
+   ```sh
+   export NDK_HOME="$ANDROID_HOME/ndk/$(ls $ANDROID_HOME/ndk | tail -1)"
+   ```
+4. Add the Android Rust targets (only `aarch64-linux-android` is strictly
+   needed for Apple-Silicon ARM64 emulators; the others are for broader
+   device coverage in release builds):
+   ```sh
+   rustup target add aarch64-linux-android armv7-linux-androideabi \
+                      x86_64-linux-android i686-linux-android
+   ```
+
+Dev loop:
+
+```bash
+# 1. Launch an emulator from Android Studio's Device Manager.
+# 2. Confirm it's online:
+adb devices
+# 3. Run the Android dev server (first run is slow — downloads Gradle / AGP).
+npm run tauri:android:dev
+```
+
+Release / debug builds (no signing wired yet — debug only):
+
+```bash
+npm run tauri:android:build:debug
+```
+
 ## Test
 
 ```bash
