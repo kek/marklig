@@ -1,6 +1,8 @@
 mod commands;
 #[cfg(target_os = "macos")]
 mod mac_tao_patch;
+#[cfg(desktop)]
+mod pairing;
 
 #[cfg(desktop)]
 use commands::folder_watcher::FolderWatcherState;
@@ -61,6 +63,7 @@ pub fn run() {
     let builder = builder
         .manage(WatcherState::new())
         .manage(FolderWatcherState::new())
+        .manage(pairing::PairingState::new())
         .invoke_handler(tauri::generate_handler![
             commands::files::read_text_file,
             commands::files::write_text_file,
@@ -79,6 +82,12 @@ pub fn run() {
             commands::folder_watcher::folder_watcher_start,
             commands::folder_watcher::folder_watcher_stop,
             commands::cli_tool::install_cli_tool,
+            pairing::pairing_start,
+            pairing::pairing_cancel,
+            pairing::pairing_list,
+            pairing::pairing_unpair,
+            pairing::folder_sync_enable,
+            pairing::folder_sync_disable,
             take_pending_open_paths,
         ]);
 

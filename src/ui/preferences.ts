@@ -8,6 +8,7 @@ import {
 } from "../shell/settings";
 import { t } from "../i18n/strings";
 import { openModal } from "./modal";
+import { buildPairingsSection } from "./pairings-pane";
 
 /** Open the preferences modal. Resolves when the user closes it. */
 export function openPreferences(): Promise<void> {
@@ -18,6 +19,15 @@ export function openPreferences(): Promise<void> {
       body.append(buildThemeSection());
       body.append(buildImagePolicySection());
       body.append(buildAutoSaveSection());
+      // Pairings section is built asynchronously (it lists paired phones
+      // via a Tauri command). Append a placeholder, then swap it in once
+      // the list lands.
+      const placeholder = document.createElement("div");
+      placeholder.className = "viewer-prefs-section";
+      body.append(placeholder);
+      void buildPairingsSection().then((section) => {
+        placeholder.replaceWith(section);
+      });
     },
   });
 }
