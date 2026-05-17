@@ -46,6 +46,11 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
+import {
+  onOpenUrl,
+  getCurrent as getCurrentDeepLinkUrls,
+} from "@tauri-apps/plugin-deep-link";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 
 import sampleSource from "./sample.md?raw";
 import "katex/dist/katex.min.css";
@@ -55,10 +60,16 @@ export async function mobileBootstrap(): Promise<void> {
   watchSystemTheme(() => applyTheme(loadStoredTheme()));
   await loadSettings();
 
-  // Prime Shiki for the languages that appear in sample.md. The async
-  // highlight cache fills in afterward and dispatches highlightCacheEffect;
-  // our decoration StateField listens for it (see effects list below).
-  await primeHighlighter(["rust"]);
+  // Prime Shiki for a broad set of languages so user-opened docs colorize
+  // without waiting for an on-demand load. Matches the desktop bootstrap
+  // priming list in src/main.ts. The async highlight cache then fills in
+  // afterward and dispatches highlightCacheEffect; our decoration
+  // StateField listens for it via the cache-effect subscriptions below.
+  await primeHighlighter([
+    "javascript", "typescript", "python", "go", "rust",
+    "java", "c", "cpp", "shell", "json", "yaml", "sql",
+    "html", "css", "markdown",
+  ]);
 
   const root = document.getElementById("root");
   if (!root) throw new Error("no #root");
@@ -120,5 +131,33 @@ export async function mobileBootstrap(): Promise<void> {
   });
   graphvizCache.subscribe(() => {
     view.dispatch({ effects: graphvizCacheEffect.of() });
+  });
+
+  // Share-sheet / file-open: when Android hands us an ACTION_VIEW or
+  // ACTION_SEND with a Markdown URI, swap the editor's doc for that
+  // file's contents. Tauri 2's plugin-fs readTextFile resolves content://
+  // URIs on Android via the SAF temporary grant carried by the intent.
+  // Errors (revoked permission, deleted file) leave the bundled sample
+  // visible — we don't blank the editor on failure.
+  const openUri = async (uri: string): Promise<void> => {
+    try {
+      const source = await readTextFile(uri);
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: source },
+      });
+    } catch (err) {
+      console.error("failed to open URI", uri, err);
+    }
+  };
+
+  // Cold-launch case: the OS started the app to handle a share intent.
+  const initial = await getCurrentDeepLinkUrls();
+  if (initial && initial.length > 0) {
+    await openUri(initial[0]);
+  }
+
+  // Warm-launch case: app was already running, a new share came in.
+  await onOpenUrl(async (urls) => {
+    if (urls.length > 0) await openUri(urls[0]);
   });
 }
