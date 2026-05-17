@@ -1,7 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "App-level capability: core IPC, dialogs, file IO, store, menu, and webview-window creation. Applies to the main window plus any secondary 'window-*' windows spawned from File -> New Window.",
+  "description": "App-level capability for desktop: core IPC, dialogs, file IO, store, menu, and webview-window creation. Applies to the main window plus any secondary 'window-*' windows spawned from File -> New Window. Mobile gets a slimmer surface via capabilities/mobile.json.",
+  "platforms": ["macOS", "windows", "linux"],
   "windows": ["main", "window-*"],
   "permissions": [
     "core:default",

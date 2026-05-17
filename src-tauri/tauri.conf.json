@@ -24,6 +24,13 @@
     ],
     "security": { "csp": null }
   },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        { "scheme": ["file", "content"] }
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
