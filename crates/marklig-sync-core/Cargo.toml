@@ -1,0 +1,25 @@
+[package]
+name = "marklig-sync-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+description = "E2E-encrypted pairing handshake, per-file envelope, and sync op log for the Märklig mobile companion (v2.0+)."
+
+[lib]
+name = "marklig_sync_core"
+
+[dependencies]
+snow = "0.10"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+rand_core = "0.6"
+getrandom = "0.2"
+base64 = "0.22"
+
+[dev-dependencies]
+hex = "0.4"
+serde_json = "1"
