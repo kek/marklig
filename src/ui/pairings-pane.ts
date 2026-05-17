@@ -1,16 +1,24 @@
 // Settings → Pairings pane. Lists paired phones, lets the user unpair,
-// surfaces per-phone synced-folder lists. Wired into the preferences
-// modal as an additional section so users discover it where the rest of
-// the settings live.
+// surfaces per-phone synced-folder lists. The "Pair with a phone" flow
+// is rendered INLINE inside this pane rather than as a separate modal:
+// the existing modal harness in modal.ts refuses to open a second modal
+// while one is already up, so a sibling modal launched from inside the
+// preferences pane was a no-op (issue surfaced 2026-05-17).
+
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import QRCode from "qrcode";
 
 import { t } from "../i18n/strings";
 import {
+  startPairing,
+  cancelPairing,
   listPairings,
   unpair,
+  folderSyncEnable,
   folderSyncDisable,
   type PairingMeta,
 } from "../shell/pairings";
-import { openPairingModal } from "./pairing-modal";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 
 function formatAgo(unix: number): string {
   if (unix <= 0) return "never";
@@ -36,21 +44,132 @@ export async function buildPairingsSection(): Promise<HTMLElement> {
   heading.textContent = t("pairings.pane.title");
   section.appendChild(heading);
 
-  const addBtn = document.createElement("button");
-  addBtn.type = "button";
-  addBtn.className = "pairings-pane__add";
-  addBtn.textContent = t("pairing.modal.title");
-  addBtn.addEventListener("click", () => {
-    void openPairingModal().then(() => renderList(listContainer));
-  });
-  section.appendChild(addBtn);
+  // Pair-in-progress sub-card lives here. When idle, it holds the
+  // "Pair with a phone" button. While pairing, it shows the QR + cancel.
+  const pairArea = document.createElement("div");
+  pairArea.className = "pairings-pane__pair-area";
+  section.appendChild(pairArea);
 
   const listContainer = document.createElement("div");
   listContainer.className = "pairings-pane__list";
   section.appendChild(listContainer);
 
+  renderIdle(pairArea, listContainer);
   await renderList(listContainer);
   return section;
+}
+
+function renderIdle(pairArea: HTMLElement, listContainer: HTMLElement): void {
+  pairArea.innerHTML = "";
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "pairings-pane__add";
+  addBtn.textContent = t("pairing.modal.title");
+  addBtn.addEventListener("click", () => {
+    void renderPairFlow(pairArea, listContainer);
+  });
+  pairArea.appendChild(addBtn);
+}
+
+async function renderPairFlow(
+  pairArea: HTMLElement,
+  listContainer: HTMLElement,
+): Promise<void> {
+  pairArea.innerHTML = "";
+
+  const card = document.createElement("div");
+  card.className = "pairings-pane__pair-card";
+  pairArea.appendChild(card);
+
+  const title = document.createElement("h5");
+  title.className = "pairings-pane__pair-title";
+  title.textContent = t("pairing.modal.title");
+  card.appendChild(title);
+
+  const status = document.createElement("p");
+  status.className = "pairings-pane__pair-status";
+  status.textContent = t("pairing.modal.starting");
+  card.appendChild(status);
+
+  const qrWrap = document.createElement("div");
+  qrWrap.className = "pairings-pane__qr";
+  qrWrap.style.display = "none";
+  card.appendChild(qrWrap);
+
+  const note = document.createElement("p");
+  note.className = "pairings-pane__pair-note";
+  note.textContent = t("pairing.modal.scan_hint");
+  note.style.display = "none";
+  card.appendChild(note);
+
+  const urlField = document.createElement("textarea");
+  urlField.className = "pairing-modal__qr-payload";
+  urlField.readOnly = true;
+  urlField.rows = 2;
+  urlField.style.display = "none";
+  urlField.setAttribute("aria-label", t("pairing.modal.qr_payload_aria"));
+  card.appendChild(urlField);
+
+  const buttons = document.createElement("div");
+  buttons.className = "pairings-pane__pair-buttons";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "pairings-pane__pair-cancel";
+  cancelBtn.textContent = t("pairing.modal.close");
+  buttons.appendChild(cancelBtn);
+  card.appendChild(buttons);
+
+  // Listen for the pairing:paired event so we can transition without
+  // polling. unlisten is called from cleanup paths below.
+  let unlisten: UnlistenFn | null = null;
+  unlisten = await listen<PairingMeta>("pairing:paired", async () => {
+    if (unlisten) {
+      unlisten();
+      unlisten = null;
+    }
+    await renderList(listContainer);
+    renderIdle(pairArea, listContainer);
+  });
+
+  const cleanup = async (cancelOnRust: boolean) => {
+    if (unlisten) {
+      unlisten();
+      unlisten = null;
+    }
+    if (cancelOnRust) {
+      try {
+        await cancelPairing();
+      } catch {
+        /* best effort */
+      }
+    }
+    renderIdle(pairArea, listContainer);
+  };
+
+  cancelBtn.addEventListener("click", () => {
+    void cleanup(true);
+  });
+
+  try {
+    const started = await startPairing();
+    status.textContent = t("pairing.modal.ready");
+    urlField.value = started.qr_payload;
+    urlField.style.display = "";
+    note.style.display = "";
+
+    // Render the QR as an SVG. Tauri webview supports inline SVG.
+    const svg = await QRCode.toString(started.qr_payload, {
+      type: "svg",
+      width: 280,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: { dark: "#000000", light: "#ffffff00" },
+    });
+    qrWrap.innerHTML = svg;
+    qrWrap.style.display = "";
+  } catch (err) {
+    status.textContent = t("pairing.modal.failed_prefix") + String(err);
+  }
 }
 
 async function renderList(container: HTMLElement): Promise<void> {
@@ -142,6 +261,18 @@ function renderPairing(p: PairingMeta, container: HTMLElement): HTMLElement {
 
   const actions = document.createElement("div");
   actions.className = "pairings-pane__actions";
+
+  const addFolder = document.createElement("button");
+  addFolder.type = "button";
+  addFolder.className = "pairings-pane__add-folder";
+  addFolder.textContent = t("pairings.pane.add_folder");
+  addFolder.addEventListener("click", async () => {
+    const picked = await openFolderDialog({ directory: true, multiple: false });
+    if (!picked || typeof picked !== "string") return;
+    await folderSyncEnable(p.pair_id_hex, picked);
+    await renderList(container);
+  });
+  actions.appendChild(addFolder);
 
   const unpairBtn = document.createElement("button");
   unpairBtn.type = "button";

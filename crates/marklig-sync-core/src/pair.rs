@@ -51,37 +51,98 @@ impl PairId {
     }
 }
 
-/// What the desktop encodes into the QR. The phone scans this, resolves
-/// the desktop via mDNS using `mdns_instance_name`, opens a TCP socket,
-/// and runs the handshake against `responder_static_pubkey`.
+/// What the desktop encodes into the QR. The phone scans this and gets
+/// everything it needs to drive a handshake:
+/// - `responder_static_pubkey`: authenticates the desktop;
+/// - `host`: the desktop's reachable LAN address (v2.0-alpha — once
+///   mDNS lands in v2.x, the host is resolved from `mdns_instance_name`
+///   instead and this field can be empty);
+/// - `mdns_instance_name`: forward-compat placeholder for v2.x;
+/// - `expiry_unix`: a short window after which the QR is stale.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct QrPayload {
     pub responder_static_pubkey: [u8; 32],
+    pub host: String,
     pub mdns_instance_name: String,
     pub expiry_unix: u64,
 }
 
 impl QrPayload {
-    /// Encode as `marklig-pair://v1/<base64url(pubkey || u16le name_len ||
-    /// name_utf8 || u64le expiry)>`. The base64-url alphabet (`A-Za-z0-9-_`)
-    /// fits cleanly inside a QR's alphanumeric mode for compactness.
+    /// Encode as `marklig-pair://v2/<base64url(...)>`. The base64-url
+    /// alphabet (`A-Za-z0-9-_`) fits cleanly inside a QR's alphanumeric
+    /// mode for compactness.
+    ///
+    /// Binary layout:
+    /// ```text
+    /// pubkey[32] || u16le host_len || host_utf8 || u16le mdns_len || mdns_utf8 || u64le expiry
+    /// ```
     pub fn encode(&self) -> String {
-        let name_bytes = self.mdns_instance_name.as_bytes();
-        let mut buf = Vec::with_capacity(32 + 2 + name_bytes.len() + 8);
+        let host_bytes = self.host.as_bytes();
+        let mdns_bytes = self.mdns_instance_name.as_bytes();
+        let mut buf =
+            Vec::with_capacity(32 + 2 + host_bytes.len() + 2 + mdns_bytes.len() + 8);
         buf.extend_from_slice(&self.responder_static_pubkey);
-        buf.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
-        buf.extend_from_slice(name_bytes);
+        buf.extend_from_slice(&(host_bytes.len() as u16).to_le_bytes());
+        buf.extend_from_slice(host_bytes);
+        buf.extend_from_slice(&(mdns_bytes.len() as u16).to_le_bytes());
+        buf.extend_from_slice(mdns_bytes);
         buf.extend_from_slice(&self.expiry_unix.to_le_bytes());
-        format!("marklig-pair://v1/{}", URL_SAFE_NO_PAD.encode(&buf))
+        format!("marklig-pair://v2/{}", URL_SAFE_NO_PAD.encode(&buf))
     }
 
+    /// Decode a payload string. Accepts both v2 (current; includes host)
+    /// and v1 (host omitted; phone falls back to manual IP entry).
     pub fn decode(s: &str) -> Result<Self, PairError> {
-        let body = s
-            .strip_prefix("marklig-pair://v1/")
-            .ok_or(PairError::QrSchemeMismatch)?;
-        let buf = URL_SAFE_NO_PAD
-            .decode(body)
-            .map_err(|_| PairError::QrBase64)?;
+        if let Some(body) = s.strip_prefix("marklig-pair://v2/") {
+            let buf = URL_SAFE_NO_PAD
+                .decode(body)
+                .map_err(|_| PairError::QrBase64)?;
+            return Self::decode_v2(&buf);
+        }
+        if let Some(body) = s.strip_prefix("marklig-pair://v1/") {
+            let buf = URL_SAFE_NO_PAD
+                .decode(body)
+                .map_err(|_| PairError::QrBase64)?;
+            return Self::decode_v1(&buf);
+        }
+        Err(PairError::QrSchemeMismatch)
+    }
+
+    fn decode_v2(buf: &[u8]) -> Result<Self, PairError> {
+        if buf.len() < 32 + 2 + 2 + 8 {
+            return Err(PairError::QrTruncated);
+        }
+        let mut pubkey = [0u8; 32];
+        pubkey.copy_from_slice(&buf[0..32]);
+        let host_len = u16::from_le_bytes([buf[32], buf[33]]) as usize;
+        let host_end = 34 + host_len;
+        if buf.len() < host_end + 2 {
+            return Err(PairError::QrTruncated);
+        }
+        let host = std::str::from_utf8(&buf[34..host_end])
+            .map_err(|_| PairError::QrInvalidUtf8)?
+            .to_string();
+        let mdns_len =
+            u16::from_le_bytes([buf[host_end], buf[host_end + 1]]) as usize;
+        let mdns_start = host_end + 2;
+        let mdns_end = mdns_start + mdns_len;
+        if buf.len() < mdns_end + 8 {
+            return Err(PairError::QrTruncated);
+        }
+        let mdns_instance_name = std::str::from_utf8(&buf[mdns_start..mdns_end])
+            .map_err(|_| PairError::QrInvalidUtf8)?
+            .to_string();
+        let mut exp = [0u8; 8];
+        exp.copy_from_slice(&buf[mdns_end..mdns_end + 8]);
+        Ok(QrPayload {
+            responder_static_pubkey: pubkey,
+            host,
+            mdns_instance_name,
+            expiry_unix: u64::from_le_bytes(exp),
+        })
+    }
+
+    fn decode_v1(buf: &[u8]) -> Result<Self, PairError> {
         if buf.len() < 32 + 2 + 8 {
             return Err(PairError::QrTruncated);
         }
@@ -97,11 +158,11 @@ impl QrPayload {
             .to_string();
         let mut exp = [0u8; 8];
         exp.copy_from_slice(&buf[name_end..name_end + 8]);
-        let expiry_unix = u64::from_le_bytes(exp);
         Ok(QrPayload {
             responder_static_pubkey: pubkey,
+            host: String::new(), // v1 didn't carry it — caller falls back to manual entry
             mdns_instance_name,
-            expiry_unix,
+            expiry_unix: u64::from_le_bytes(exp),
         })
     }
 }
