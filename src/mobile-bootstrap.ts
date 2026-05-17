@@ -23,13 +23,23 @@ import { tablesProducer } from "./editor/decorations/tables";
 import {
   codeblocksProducer,
   primeHighlighter,
+  highlightCache,
+  highlightCacheEffect,
 } from "./editor/decorations/codeblocks";
 import { frontmatterProducer } from "./editor/decorations/frontmatter";
 import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
-import { mermaidProducer } from "./editor/decorations/mermaid";
-import { graphvizProducer } from "./editor/decorations/graphviz";
+import {
+  mermaidProducer,
+  mermaidCache,
+  mermaidCacheEffect,
+} from "./editor/decorations/mermaid";
+import {
+  graphvizProducer,
+  graphvizCache,
+  graphvizCacheEffect,
+} from "./editor/decorations/graphviz";
 import { loadSettings } from "./shell/settings";
 import {
   applyTheme,
@@ -93,5 +103,22 @@ export async function mobileBootstrap(): Promise<void> {
     ],
   });
 
-  new EditorView({ state, parent: root });
+  const view = new EditorView({ state, parent: root });
+
+  // Bridge async cache fills to the decoration StateField. Without these
+  // subscriptions the highlight / mermaid / graphviz producers return their
+  // synchronous placeholder on first compute, the async work eventually
+  // populates the cache, and… nothing dispatches an effect to make the
+  // StateField recompute. Symptoms on Android WebView (smoke run, 2026-05-17):
+  // code fences stayed unstyled, Mermaid stuck on "Rendering diagram…".
+  // Desktop wires these in src/main.ts at bootstrap; mobile needs its own copy.
+  highlightCache.subscribe(() => {
+    view.dispatch({ effects: highlightCacheEffect.of() });
+  });
+  mermaidCache.subscribe(() => {
+    view.dispatch({ effects: mermaidCacheEffect.of() });
+  });
+  graphvizCache.subscribe(() => {
+    view.dispatch({ effects: graphvizCacheEffect.of() });
+  });
 }
