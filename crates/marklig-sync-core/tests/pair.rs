@@ -71,14 +71,15 @@ fn handshake_with_wrong_responder_pubkey_fails_to_finish() {
 }
 
 #[test]
-fn qr_codec_roundtrip() {
+fn qr_codec_roundtrip_v2() {
     let payload = QrPayload {
         responder_static_pubkey: [7u8; 32],
+        host: "192.168.1.110".to_string(),
         mdns_instance_name: "marklig-laptop-1234".to_string(),
         expiry_unix: 1_715_900_000,
     };
     let encoded = payload.encode();
-    assert!(encoded.starts_with("marklig-pair://v1/"));
+    assert!(encoded.starts_with("marklig-pair://v2/"));
     let decoded = QrPayload::decode(&encoded).unwrap();
     assert_eq!(payload, decoded);
 }
@@ -86,23 +87,43 @@ fn qr_codec_roundtrip() {
 #[test]
 fn qr_rejects_wrong_scheme() {
     assert!(QrPayload::decode("https://example.com/").is_err());
-    assert!(QrPayload::decode("marklig-pair://v2/abc").is_err());
+    assert!(QrPayload::decode("marklig-pair://v3/abc").is_err());
 }
 
 #[test]
 fn qr_rejects_truncated() {
+    assert!(QrPayload::decode("marklig-pair://v2/AAAA").is_err());
     assert!(QrPayload::decode("marklig-pair://v1/AAAA").is_err());
 }
 
 #[test]
-fn qr_roundtrips_unicode_instance_names() {
+fn qr_roundtrips_unicode_host_and_name() {
     let payload = QrPayload {
         responder_static_pubkey: [0u8; 32],
+        host: "fe80::1234".to_string(),
         mdns_instance_name: "Märklig-Skrivbord".to_string(),
         expiry_unix: 42,
     };
     let decoded = QrPayload::decode(&payload.encode()).unwrap();
     assert_eq!(payload, decoded);
+}
+
+#[test]
+fn qr_v1_backwards_compat() {
+    // Hand-construct a v1 payload (pre-host field). Should decode with
+    // host = "" so the phone can fall back to manual IP entry.
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&[1u8; 32]);
+    let name = b"old-instance";
+    buf.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    buf.extend_from_slice(name);
+    buf.extend_from_slice(&100u64.to_le_bytes());
+    let url = format!("marklig-pair://v1/{}", URL_SAFE_NO_PAD.encode(&buf));
+    let decoded = QrPayload::decode(&url).unwrap();
+    assert_eq!(decoded.host, "");
+    assert_eq!(decoded.mdns_instance_name, "old-instance");
+    assert_eq!(decoded.expiry_unix, 100);
 }
 
 #[test]

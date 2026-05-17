@@ -530,6 +530,38 @@ html.theme-dark  { color-scheme: dark; }
   border: 1px solid var(--accent-error, #d44); border-radius: 4px;
   cursor: pointer;
 }
+
+/* Inline pair-in-progress card (replaces the modal-in-modal anti-pattern). */
+.pairings-pane__pair-card {
+  padding: 14px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.18));
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.04));
+}
+.pairings-pane__pair-title { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.pairings-pane__pair-status { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.pairings-pane__qr {
+  display: flex; justify-content: center;
+  padding: 12px;
+  background: white;
+  border-radius: 6px;
+  margin: 0 0 10px;
+  max-width: 320px;
+}
+.pairings-pane__qr svg { width: 100%; height: auto; max-width: 260px; display: block; }
+.pairings-pane__pair-note { font-size: 12px; color: var(--muted); margin: 8px 0; line-height: 1.5; }
+.pairings-pane__pair-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.pairings-pane__pair-cancel {
+  background: transparent; border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.3));
+  padding: 6px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; color: inherit;
+}
+.pairings-pane__add-folder {
+  padding: 4px 10px; font-size: 12px;
+  background: transparent; color: inherit;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.3)); border-radius: 4px;
+  cursor: pointer; margin-right: 8px;
+}
 .viewer-shortcut-keys {
   font-family: var(--mono);
   color: var(--muted);

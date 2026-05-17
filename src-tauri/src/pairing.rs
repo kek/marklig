@@ -242,8 +242,12 @@ pub fn pairing_start<R: Runtime>(
 ) -> Result<PairingStarted, PairingError> {
     let kp = ensure_keypair(&app, state.inner())?;
     let instance = mdns_instance_name();
+    let host = local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
     let payload = QrPayload {
         responder_static_pubkey: kp.public,
+        host,
         mdns_instance_name: instance.clone(),
         expiry_unix: now_unix() + 300,
     };

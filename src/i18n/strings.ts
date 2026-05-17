@@ -186,6 +186,17 @@ export const EN = {
   "mobile.synced.synced_n": "Synced {n} files.",
   "mobile.synced.failed_prefix": "Sync failed: ",
   "mobile.synced.prompt_host": "Desktop LAN IP",
+  "mobile.pair.scan_instructions":
+    "Point the camera at the QR code shown in the desktop's Settings → Pairings.",
+  "mobile.pair.scan_starting": "Starting camera…",
+  "mobile.pair.scan_ready": "Aim at the QR code.",
+  "mobile.pair.invalid_qr": "Not a Märklig pairing QR — try again.",
+  "mobile.pair.no_camera": "No camera detected.",
+  "mobile.pair.camera_failed_prefix": "Camera failed: ",
+  "mobile.pair.manual_entry": "Enter manually",
+  "mobile.pair.use_camera": "Use camera",
+  "mobile.pair.confirm_title": "Pair with this desktop?",
+  "mobile.pair.confirm_host_prefix": "Detected desktop at",
 
   // Desktop pairing UX (step 5 of the v2 mobile companion).
   "pairing.modal.title": "Pair with a phone",
