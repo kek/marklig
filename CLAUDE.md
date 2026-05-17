@@ -84,6 +84,33 @@ The reading view itself doesn't innerHTML the document — it stays text + CM wi
 
 Print uses a hidden same-process iframe + `contentWindow.print()` (Tauri's webview doesn't reliably forward `window.print()` from a popup). PDF currently goes through the OS print dialog's Save-as-PDF — there's no native Rust-side webview-to-PDF path.
 
+### Sync crypto (workspace crate)
+
+`crates/marklig-sync-core` holds the E2E-encrypted pairing handshake,
+the per-file envelope, and the sync op log format. Pure Rust; no
+dependency on Tauri. Wired into `src-tauri/Cargo.toml` as a path dep
+and compiles for `aarch64-linux-android` via the Tauri Android build
+chain.
+
+Three modules:
+
+- `pair`: Noise XK handshake (via `snow`), QR payload codec
+  (`marklig-pair://v1/…`), and HKDF-SHA256 derivation of the long-term
+  `PairKey` + stable `PairId` from the handshake hash.
+- `envelope`: per-file ChaCha20-Poly1305 with HKDF-derived keys
+  (`info = b"file:" || folder_id || relpath`). 12-byte nonce + tag.
+- `ops`: append-only sync op log + Lamport clock + deterministic
+  conflict resolution.
+
+**ABI stability:** HKDF salt / info strings and the `marklig-pair://v1/`
+QR payload format are part of the wire ABI — once a phone is in the
+wild with a derived pair key, changing them invalidates every paired
+device. Bump the `-v1` suffix as a deliberate migration when changing.
+
+Tests live alongside the crate (`crates/marklig-sync-core/tests/`).
+The crate has no consumers in code yet — steps 5 (desktop pairing UX),
+6 (LAN transport), and 7 (phone pairing UI) wire it up.
+
 ### Mobile target (Android, v2 companion in progress)
 
 `src-tauri/gen/android/` is tracked. The Android target is scaffolded via
