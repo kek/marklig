@@ -406,16 +406,68 @@ pub fn finalize_pairing<R: Runtime>(
         .get(STORE_KEY_PAIRINGS)
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
-    map.insert(
-        pair_id_hex,
-        serde_json::to_value(&meta)
-            .map_err(|e| PairingError::Storage(format!("encode pairing: {e}")))?,
-    );
+    // Persist the pair_key alongside the meta so the sync engine can
+    // derive per-file keys later. v2.0-alpha shortcut: key bytes live in
+    // tauri-plugin-store rather than the OS keychain. Documented at the
+    // module level.
+    let mut entry = serde_json::to_value(&meta)
+        .map_err(|e| PairingError::Storage(format!("encode pairing: {e}")))?;
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert(
+            "pair_key_hex".to_string(),
+            serde_json::Value::String(encode_hex(&transport.pair_key.0)),
+        );
+    }
+    map.insert(pair_id_hex, entry);
     store.set(STORE_KEY_PAIRINGS, serde_json::Value::Object(map));
     store
         .save()
         .map_err(|e| PairingError::Storage(e.to_string()))?;
     Ok(meta)
+}
+
+/// Load a paired phone's pair_key from the registry by pair_id_hex.
+/// Returns None if no such pairing exists or the entry doesn't have a
+/// stored pair_key (e.g. it was created before v2.0-alpha-sync landed).
+pub fn load_pair_key<R: Runtime>(
+    app: &AppHandle<R>,
+    pair_id_hex: &str,
+) -> Result<Option<[u8; 32]>, PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let map = store
+        .get(STORE_KEY_PAIRINGS)
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    let entry = match map.get(pair_id_hex) {
+        Some(v) => v.clone(),
+        None => return Ok(None),
+    };
+    let hex = entry
+        .get("pair_key_hex")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    Ok(hex.and_then(|h| decode_hex_32(&h)))
+}
+
+/// Load the full meta for a single pair_id, including synced_folders.
+pub fn load_pairing<R: Runtime>(
+    app: &AppHandle<R>,
+    pair_id_hex: &str,
+) -> Result<Option<PairingMeta>, PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let map = store
+        .get(STORE_KEY_PAIRINGS)
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    let entry = match map.get(pair_id_hex) {
+        Some(v) => v.clone(),
+        None => return Ok(None),
+    };
+    let meta: PairingMeta = serde_json::from_value(entry)
+        .map_err(|e| PairingError::Storage(format!("decode pairing: {e}")))?;
+    Ok(Some(meta))
 }
 
 // Suppress unused-warning for the in-progress handshake fields that the

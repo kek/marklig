@@ -87,6 +87,7 @@ pub async fn mobile_pairing_start<R: Runtime>(
         &args.friendly_name,
         &fingerprint,
         &transport.pair_key.0,
+        &args.host,
     )?;
 
     Ok(MobilePairResult {
@@ -148,6 +149,7 @@ fn persist_phone_pairing<R: Runtime>(
     friendly_name: &str,
     fingerprint: &str,
     pair_key: &[u8; 32],
+    last_host: &str,
 ) -> Result<(), String> {
     let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
         .map_err(|e| e.to_string())?;
@@ -165,6 +167,7 @@ fn persist_phone_pairing<R: Runtime>(
             "paired_at_unix": now,
             "last_seen_at_unix": now,
             "pair_key": hex_32(pair_key),
+            "last_host": last_host,
         }),
     );
     store.set("mobile.pairings", serde_json::Value::Object(map));

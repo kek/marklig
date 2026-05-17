@@ -21,3 +21,5 @@ pub mod watcher;
 // the handshake itself.
 #[cfg(mobile)]
 pub mod mobile_pairing;
+#[cfg(mobile)]
+pub mod mobile_sync;

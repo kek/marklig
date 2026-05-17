@@ -61,11 +61,15 @@ import {
   uriDisplayName,
 } from "./shell/mobile-recents";
 import { mountMobileLibrary } from "./ui/mobile-library";
-import { listMobilePairings } from "./shell/mobile-pairings";
+import {
+  listMobilePairings,
+  type MobilePairing,
+} from "./shell/mobile-pairings";
 import {
   mountMobilePairForm,
   showMobilePairSuccess,
 } from "./ui/mobile-pair-form";
+import { mountMobileSynced } from "./ui/mobile-synced-view";
 import { t } from "./i18n/strings";
 
 import sampleSource from "./sample.md?raw";
@@ -75,7 +79,8 @@ import "./styles-mobile.css";
 type Route =
   | { kind: "library" }
   | { kind: "document"; source: string; uriForRecents?: string }
-  | { kind: "pair" };
+  | { kind: "pair" }
+  | { kind: "synced"; pairing: MobilePairing };
 
 export async function mobileBootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
@@ -130,22 +135,8 @@ export async function mobileBootstrap(): Promise<void> {
         onPairTap: () => {
           void renderRoute({ kind: "pair" });
         },
-        onPairedDesktopTap: () => {
-          // v2.0-alpha+: pairing exists but no sync engine yet — tapping
-          // a paired desktop currently does nothing. Step "sync"
-          // (TaskCreate #11) wires this up to show synced folders.
-          // Surface a transient hint until then.
-          const wrap = root.querySelector(".mobile-library");
-          let note = wrap?.querySelector(
-            ".mobile-library__pair-unavailable",
-          ) as HTMLParagraphElement | null;
-          if (!note) {
-            note = document.createElement("p");
-            note.className = "mobile-library__pair-unavailable";
-            note.textContent =
-              "Sync engine not wired yet — pairing only verifies the handshake.";
-            (wrap ?? root).appendChild(note);
-          }
+        onPairedDesktopTap: (pairing) => {
+          void renderRoute({ kind: "synced", pairing });
         },
       });
       return;
@@ -159,6 +150,23 @@ export async function mobileBootstrap(): Promise<void> {
           });
         },
         onCancel: () => {
+          void renderRoute({ kind: "library" });
+        },
+      });
+      return;
+    }
+
+    if (route.kind === "synced") {
+      await mountMobileSynced(root, route.pairing, {
+        onOpenFile: async (file) => {
+          try {
+            const source = await readTextFile(file.abs_path);
+            await renderRoute({ kind: "document", source });
+          } catch (err) {
+            console.error("failed to open synced file", file.abs_path, err);
+          }
+        },
+        onBack: () => {
           void renderRoute({ kind: "library" });
         },
       });

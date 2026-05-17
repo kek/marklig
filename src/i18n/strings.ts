@@ -179,6 +179,13 @@ export const EN = {
     "Verification code: {fingerprint}. If it matches what the desktop shows, you're done.",
   "mobile.pair.failed_prefix": "Pairing failed: ",
   "mobile.pair.dismiss": "Back to library",
+  "mobile.synced.sync_now": "Sync now",
+  "mobile.synced.empty":
+    "No synced files yet. Tap Sync now to pull from the desktop.",
+  "mobile.synced.syncing": "Syncing…",
+  "mobile.synced.synced_n": "Synced {n} files.",
+  "mobile.synced.failed_prefix": "Sync failed: ",
+  "mobile.synced.prompt_host": "Desktop LAN IP",
 
   // Desktop pairing UX (step 5 of the v2 mobile companion).
   "pairing.modal.title": "Pair with a phone",

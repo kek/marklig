@@ -104,6 +104,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         take_pending_open_paths,
         commands::mobile_pairing::mobile_pairing_start,
+        commands::mobile_sync::mobile_sync_now,
     ]);
 
     let app = builder
