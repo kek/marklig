@@ -104,13 +104,37 @@ Android does not have an FS watcher and does not have NSDocumentController.
 
 On the frontend, `src/main.ts` forks at the bottom on `isMobile()`
 (from `src/platform.ts`): mobile dynamically imports
-`src/mobile-bootstrap.ts`, which renders the bundled `src/sample.md`
-through the same decoration producer set as desktop reading mode. There
-is no mobile file shell yet — step 2 of the v2 plan adds Storage Access
-Framework integration.
+`src/mobile-bootstrap.ts`, which renders the existing decoration
+producer set in reading mode.
+
+`mobile-bootstrap.ts` carries a tiny 2-state router (`library` /
+`document`):
+
+- **Library route.** Mounts the vanilla-DOM library home from
+  `src/ui/mobile-library.ts`, listing recent files from
+  `src/shell/mobile-recents.ts` (persisted in `tauri-plugin-store`
+  under `mobile.recents`). Tap-to-open re-routes to the document.
+- **Document route.** Mounts CodeMirror with the reading-mode
+  decoration set. A back-bar appears only when the document has a
+  `uriForRecents` (i.e. the user reached it via a share or by tapping
+  a recent) so a fresh-install user reading the bundled `sample.md`
+  isn't trapped on an empty library.
+
+Share-sheet flow: `tauri-plugin-deep-link` configured with
+`scheme: ["file", "content"]` in `plugins.deep-link.mobile`
+(`tauri.conf.json`). `MainActivity.onCreate` forwards the launch
+intent through `onNewIntent` so cold-launch share targets aren't
+dropped. `@tauri-apps/plugin-fs.readTextFile` resolves `content://`
+URIs via SAF on Android.
+
+Mobile-only styles live in `src/styles-mobile.css`, imported from
+`mobile-bootstrap.ts` so desktop builds don't pull them in. The
+back-bar and library padding honor `env(safe-area-inset-top)` so
+content isn't hidden behind the system status bar
+(`enableEdgeToEdge()` is on).
 
 `npm run tauri:android:dev` runs the dev loop (requires `NDK_HOME` and a
-running emulator — see README "Android" section).
+running emulator or connected device — see README "Android" section).
 
 ### Settings, i18n, recents
 

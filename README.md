@@ -67,6 +67,23 @@ Release / debug builds (no signing wired yet — debug only):
 npm run tauri:android:build:debug
 ```
 
+**Gotcha — switching between `dev` and `build`:** `tauri android dev`
+injects the host machine's LAN IP as `devUrl` into Gradle's
+intermediate config (`src-tauri/gen/android/app/build/intermediates/`).
+A subsequent `tauri android build --debug` *reuses* that stale
+intermediate even though the source `tauri.conf.json` is clean — the
+WebView in the installed APK then tries to fetch from `http://<host
+LAN IP>:1420/` and fails with "Failed to request …". Workaround:
+delete the intermediates before switching modes:
+
+```bash
+rm -rf src-tauri/gen/android/app/build/intermediates
+npm run tauri:android:build:debug
+```
+
+This is a Tauri 2.11 / Gradle incremental-cache interaction; if it
+gets fixed upstream the workaround becomes harmless.
+
 ## Test
 
 ```bash
