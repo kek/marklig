@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-base",
+  "description": "Mobile-only capability: deep-link reception (ACTION_VIEW / ACTION_SEND) and SAF-backed text-file reads. v2 mobile companion step 2.",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "deep-link:default",
+    "fs:default",
+    "fs:allow-read-text-file"
+  ]
+}
