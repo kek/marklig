@@ -152,6 +152,17 @@ export const EN = {
   "a11y.remoteImageWithAlt": "Remote image: {alt}",
   "a11y.brokenImage": "Broken image",
   "a11y.brokenImageWithAlt": "Broken image: {alt}",
+
+  // Mobile companion (v2.0). Library home + back navigation. Pairing copy
+  // is a placeholder for v2.1 — the CTA only shows a "coming soon" hint
+  // until step 5/7 of the mobile plan lands the real flow.
+  "mobile.library.title": "Märklig",
+  "mobile.library.recents": "Recent files",
+  "mobile.library.empty":
+    "Open a Markdown file from the share sheet or pair with a desktop to see it here.",
+  "mobile.library.pair_cta": "Pair with a desktop",
+  "mobile.library.pair_unavailable": "Pairing arrives in v2.1.",
+  "mobile.library.back": "Back to library",
 } as const;
 
 export type StringKey = keyof typeof EN;
