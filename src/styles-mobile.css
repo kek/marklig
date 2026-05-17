@@ -1,0 +1,131 @@
+/* Mobile-only styles. Loaded from src/mobile-bootstrap.ts so desktop
+   builds don't include them. Variables (--text, --bg, etc.) come from
+   the existing src/styles.css theme. */
+
+/* enableEdgeToEdge() lets the app draw under the system status bar and
+   gesture bar. Honor the safe-area insets so content isn't clipped. */
+.mobile-library {
+  padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  padding-right: 20px;
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  padding-left: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+  font-family: var(--font-prose, system-ui, sans-serif);
+}
+
+.mobile-library__title {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+}
+
+.mobile-library__section {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+  font-weight: 600;
+  margin: 24px 0 4px;
+}
+
+.mobile-library__empty {
+  opacity: 0.75;
+  line-height: 1.55;
+  margin: 16px 0 20px;
+  font-size: 1rem;
+}
+
+.mobile-library__pair-cta {
+  display: inline-block;
+  padding: 12px 18px;
+  background: var(--accent, #4f6df0);
+  color: white;
+  border: 0;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.mobile-library__pair-cta:active {
+  opacity: 0.85;
+}
+
+.mobile-library__pair-unavailable {
+  margin-top: 12px;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.mobile-library__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mobile-library__item {
+  margin: 0;
+}
+
+.mobile-library__item-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 12px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.18);
+}
+.mobile-library__item-btn:active {
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.mobile-library__item-name {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.mobile-library__item-when {
+  font-size: 0.8rem;
+  opacity: 0.55;
+}
+
+/* Document view: thin back-bar sticks to the top, editor fills the rest. */
+.mobile-document {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.mobile-document__back {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  /* Padding-top includes the safe-area inset so the button doesn't hide
+     behind the status bar (Android draws under it because of
+     enableEdgeToEdge in MainActivity). */
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+  background: var(--bg, white);
+  color: inherit;
+  border: 0;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.18);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.mobile-document__back:active {
+  background: rgba(127, 127, 127, 0.06);
+}
