@@ -241,7 +241,6 @@ pub fn pairing_start<R: Runtime>(
     state: State<'_, PairingState>,
 ) -> Result<PairingStarted, PairingError> {
     let kp = ensure_keypair(&app, state.inner())?;
-    let responder = HandshakeResponder::new(&kp.private)?;
     let instance = mdns_instance_name();
     let payload = QrPayload {
         responder_static_pubkey: kp.public,
@@ -250,31 +249,33 @@ pub fn pairing_start<R: Runtime>(
     };
     let qr = payload.encode();
 
-    let mut stage = state.stage.lock().map_err(|e| {
-        PairingError::State(format!("stage lock poisoned: {e}"))
-    })?;
-    *stage = HandshakeStage::Responding {
-        responder: Box::new(responder),
-        mdns_instance_name: instance,
-        qr_payload: qr.clone(),
-    };
+    // Arm the WebSocket server so the next inbound connection drives a
+    // handshake against our static private key. The private key never
+    // crosses the IPC boundary — it lives in the WS server state held by
+    // the Rust process.
+    crate::pairing_ws::arm(&app, kp.private)
+        .map_err(|e| PairingError::State(format!("arm WS: {e}")))?;
 
-    // The verification fingerprint is computed from the eventual pair
-    // key, which we don't have until the handshake completes. Return an
-    // empty placeholder; the frontend should display it only after the
-    // first inbound handshake message arrives (step 6 wires that path).
     Ok(PairingStarted {
         qr_payload: qr,
+        // Verification fingerprint is computed from the eventual pair
+        // key, which we don't have until the handshake completes. The
+        // frontend listens for `pairing:paired` events to learn the
+        // final fingerprint.
         verification_fingerprint: String::new(),
     })
 }
 
 #[tauri::command]
-pub fn pairing_cancel(state: State<'_, PairingState>) -> Result<(), PairingError> {
+pub fn pairing_cancel<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, PairingState>,
+) -> Result<(), PairingError> {
     let mut stage = state.stage.lock().map_err(|e| {
         PairingError::State(format!("stage lock poisoned: {e}"))
     })?;
     *stage = HandshakeStage::Idle;
+    let _ = crate::pairing_ws::disarm(&app);
     Ok(())
 }
 

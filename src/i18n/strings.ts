@@ -162,7 +162,23 @@ export const EN = {
     "Open a Markdown file from the share sheet or pair with a desktop to see it here.",
   "mobile.library.pair_cta": "Pair with a desktop",
   "mobile.library.pair_unavailable": "Pairing arrives in v2.1.",
+  "mobile.library.paired_desktops": "Paired desktops",
   "mobile.library.back": "Back to library",
+  "mobile.pair.title": "Pair with a desktop",
+  "mobile.pair.qr_label": "Paste the QR URL shown on the desktop",
+  "mobile.pair.qr_placeholder": "marklig-pair://v1/…",
+  "mobile.pair.host_label": "Desktop LAN IP or hostname",
+  "mobile.pair.host_placeholder": "192.168.1.110",
+  "mobile.pair.name_label": "What should the desktop call this phone?",
+  "mobile.pair.name_placeholder": "My phone",
+  "mobile.pair.submit": "Pair",
+  "mobile.pair.cancel": "Cancel",
+  "mobile.pair.in_progress": "Pairing…",
+  "mobile.pair.success_prefix": "Paired with ",
+  "mobile.pair.success_fingerprint":
+    "Verification code: {fingerprint}. If it matches what the desktop shows, you're done.",
+  "mobile.pair.failed_prefix": "Pairing failed: ",
+  "mobile.pair.dismiss": "Back to library",
 
   // Desktop pairing UX (step 5 of the v2 mobile companion).
   "pairing.modal.title": "Pair with a phone",
