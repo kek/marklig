@@ -112,7 +112,8 @@ Read-only Android companion app sharing the desktop renderer, with LAN-only sync
 
 - [x] **Step 1 — Tauri Android init.** Scaffold the Android target; render a bundled `sample.md` on hardware. Plan: `docs/superpowers/plans/2026-05-17-mobile-companion-1-tauri-android-init.md`. PRs: #81 (spec), #82 (impl). Verified on Pixel 8 Pro 2026-05-17.
 - [x] **Step 2 — Share-sheet (`tauri-plugin-deep-link` + `plugin-fs`).** Cold-launch and warm-launch ACTION_VIEW intents with `content://` URIs render the shared file. Plan: `docs/superpowers/plans/2026-05-17-mobile-companion-2-saf-fileshell.md`. PR #83. SAF folder picker / library indexer deferred to a later iteration.
-- [x] **Step 3 — Recents + library UI.** Persistent recents via `tauri-plugin-store`. Tap-to-reopen, back-bar to library, first-launch shows bundled sample. v2.0-alpha–shippable as a standalone reader. Plan: `docs/superpowers/plans/2026-05-17-mobile-companion-3-library-ui.md`. PR #_.
+- [x] **Step 3 — Recents + library UI.** Persistent recents via `tauri-plugin-store`. Tap-to-reopen, back-bar to library, first-launch shows bundled sample. v2.0-alpha–shippable as a standalone reader. Plan: `docs/superpowers/plans/2026-05-17-mobile-companion-3-library-ui.md`. PR #84.
+- [x] **Step 4 — Crypto core (`marklig-sync-core`).** Workspace crate with Noise XK pairing, ChaCha20-Poly1305 envelope, sync op log + Lamport clock. 25 unit tests; builds for Android via Tauri. No consumers in code yet — steps 5+ wire it up. Plan: `docs/superpowers/plans/2026-05-17-mobile-companion-4-crypto-core.md`. PR #_.
 - [ ] **Step 4 — Crypto core (`marklig-sync-core`).** Noise XK pairing handshake + per-file ChaCha20-Poly1305 envelope + sync op log. Tested desktop ↔ desktop in loopback.
 - [ ] **Step 5 — Desktop pairing UX.** QR modal, settings → Pairings pane, per-folder "Sync this folder to phone" menu action.
 - [ ] **Step 6 — LAN transport.** mDNS discovery (`_marklig-sync._tcp`) + direct TCP, WebRTC fallback.
