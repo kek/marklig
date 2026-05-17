@@ -14,3 +14,10 @@ pub mod folder_watcher;
 pub mod recents_os;
 #[cfg(desktop)]
 pub mod watcher;
+
+// Mobile-only commands. v2.0 mobile companion: WebSocket-based pairing
+// flow that drives Noise XK initiator from Rust (Tauri tokio runtime),
+// so the JS side just invokes a single command rather than implementing
+// the handshake itself.
+#[cfg(mobile)]
+pub mod mobile_pairing;

@@ -1,29 +1,23 @@
-// Mobile library home — vanilla DOM, no framework, matches the desktop
-// codebase's UI approach (see src/ui/toolbar.ts, src/ui/titlebar.ts).
-//
-// Two surfaces:
-// 1. Empty state — invite the user to share a Markdown file or pair with
-//    a desktop. The pair CTA is a v2.1 placeholder; tapping it shows a
-//    transient "pairing arrives in v2.1" hint.
-// 2. Recents list — render the persisted recents as tap-to-open rows.
-//
-// "Synced folders" from the spec §10 wireframe is intentionally absent
-// in v2.0 — sync ships in steps 4–7 and there's nothing meaningful to
-// show until then. When the empty state's CTA-card UX is built in v2.1,
-// it'll move from this file's empty-state branch into a dedicated
-// section that sits alongside Recents whether or not pairing exists.
+// Mobile library home. Three surfaces:
+// 1. Paired desktops — listed at the top if any pairings exist.
+// 2. Recents — share-sheet-opened files (persisted via mobile-recents).
+// 3. Empty CTA — when both sections are empty, invite the user to share
+//    a file or pair with a desktop.
 
 import { t } from "../i18n/strings";
 import type { MobileRecent } from "../shell/mobile-recents";
+import type { MobilePairing } from "../shell/mobile-pairings";
 
 export interface MobileLibraryHandlers {
   onOpenRecent: (uri: string) => void;
   onPairTap: () => void;
+  onPairedDesktopTap: (pairing: MobilePairing) => void;
 }
 
 export function mountMobileLibrary(
   root: HTMLElement,
   recents: MobileRecent[],
+  pairings: MobilePairing[],
   handlers: MobileLibraryHandlers,
 ): void {
   root.innerHTML = "";
@@ -36,23 +30,27 @@ export function mountMobileLibrary(
   title.textContent = t("mobile.library.title");
   wrap.appendChild(title);
 
-  if (recents.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "mobile-library__empty";
-    empty.textContent = t("mobile.library.empty");
-    wrap.appendChild(empty);
+  const hasAnything = recents.length > 0 || pairings.length > 0;
 
-    const cta = document.createElement("button");
-    cta.type = "button";
-    cta.className = "mobile-library__pair-cta";
-    cta.textContent = t("mobile.library.pair_cta");
-    cta.addEventListener("click", () => handlers.onPairTap());
-    wrap.appendChild(cta);
-  } else {
-    const section = document.createElement("h2");
-    section.className = "mobile-library__section";
-    section.textContent = t("mobile.library.recents");
-    wrap.appendChild(section);
+  if (pairings.length > 0) {
+    const heading = document.createElement("h2");
+    heading.className = "mobile-library__section";
+    heading.textContent = t("mobile.library.paired_desktops");
+    wrap.appendChild(heading);
+
+    const list = document.createElement("ul");
+    list.className = "mobile-library__list";
+    for (const p of pairings) {
+      list.appendChild(renderPairingRow(p, handlers));
+    }
+    wrap.appendChild(list);
+  }
+
+  if (recents.length > 0) {
+    const heading = document.createElement("h2");
+    heading.className = "mobile-library__section";
+    heading.textContent = t("mobile.library.recents");
+    wrap.appendChild(heading);
 
     const list = document.createElement("ul");
     list.className = "mobile-library__list";
@@ -61,6 +59,25 @@ export function mountMobileLibrary(
     }
     wrap.appendChild(list);
   }
+
+  if (!hasAnything) {
+    const empty = document.createElement("p");
+    empty.className = "mobile-library__empty";
+    empty.textContent = t("mobile.library.empty");
+    wrap.appendChild(empty);
+  }
+
+  // "Pair with a desktop" CTA: shown in empty state as a prominent
+  // button, and as a small secondary button when there's already a
+  // pairings list (so users can add another desktop).
+  const cta = document.createElement("button");
+  cta.type = "button";
+  cta.className = hasAnything
+    ? "mobile-library__pair-cta mobile-library__pair-cta--secondary"
+    : "mobile-library__pair-cta";
+  cta.textContent = t("mobile.library.pair_cta");
+  cta.addEventListener("click", () => handlers.onPairTap());
+  wrap.appendChild(cta);
 
   root.appendChild(wrap);
 }
@@ -87,6 +104,32 @@ function renderRecentRow(
 
   btn.appendChild(name);
   btn.appendChild(when);
+  li.appendChild(btn);
+  return li;
+}
+
+function renderPairingRow(
+  p: MobilePairing,
+  handlers: MobileLibraryHandlers,
+): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "mobile-library__item mobile-library__item--paired";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "mobile-library__item-btn";
+  btn.addEventListener("click", () => handlers.onPairedDesktopTap(p));
+
+  const name = document.createElement("span");
+  name.className = "mobile-library__item-name";
+  name.textContent = p.friendly_name || p.pair_id_hex.slice(0, 12);
+
+  const fp = document.createElement("span");
+  fp.className = "mobile-library__item-when";
+  fp.textContent = p.verification_fingerprint;
+
+  btn.appendChild(name);
+  btn.appendChild(fp);
   li.appendChild(btn);
   return li;
 }

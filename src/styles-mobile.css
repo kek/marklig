@@ -129,3 +129,66 @@
 .mobile-document__back:active {
   background: rgba(127, 127, 127, 0.06);
 }
+
+/* Pair form: phone-side pairing UX. v2.0-alpha+. */
+.mobile-pair-form {
+  padding-top: calc(20px + env(safe-area-inset-top, 0px));
+  padding-right: 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.mobile-pair-form__title { font-size: 1.6rem; font-weight: 700; margin: 0 0 16px; }
+.mobile-pair-form__form { display: flex; flex-direction: column; gap: 14px; }
+.mobile-pair-form__field { display: flex; flex-direction: column; gap: 4px; }
+.mobile-pair-form__field-label { font-size: 0.9rem; opacity: 0.75; }
+.mobile-pair-form__input {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.06);
+  color: inherit;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9rem;
+}
+.mobile-pair-form__input:focus { outline: 2px solid var(--accent, #4f6df0); outline-offset: 1px; }
+.mobile-pair-form__status { margin: 4px 0 0; font-size: 0.9rem; opacity: 0.75; min-height: 1.2em; }
+.mobile-pair-form__buttons {
+  display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px;
+}
+.mobile-pair-form__cancel,
+.mobile-pair-form__submit {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.mobile-pair-form__cancel {
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+}
+.mobile-pair-form__submit {
+  background: var(--accent, #4f6df0);
+  color: white;
+  border: 0;
+}
+.mobile-pair-form__submit:disabled,
+.mobile-pair-form__cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+.mobile-pair-form__success-hint { line-height: 1.5; margin: 12px 0; }
+
+.mobile-library__item--paired .mobile-library__item-when {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+}
+.mobile-library__pair-cta--secondary {
+  margin-top: 24px;
+  background: transparent;
+  color: var(--accent, #4f6df0);
+  border: 1px solid var(--accent, #4f6df0);
+}

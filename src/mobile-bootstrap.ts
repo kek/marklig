@@ -61,6 +61,11 @@ import {
   uriDisplayName,
 } from "./shell/mobile-recents";
 import { mountMobileLibrary } from "./ui/mobile-library";
+import { listMobilePairings } from "./shell/mobile-pairings";
+import {
+  mountMobilePairForm,
+  showMobilePairSuccess,
+} from "./ui/mobile-pair-form";
 import { t } from "./i18n/strings";
 
 import sampleSource from "./sample.md?raw";
@@ -69,7 +74,8 @@ import "./styles-mobile.css";
 
 type Route =
   | { kind: "library" }
-  | { kind: "document"; source: string; uriForRecents?: string };
+  | { kind: "document"; source: string; uriForRecents?: string }
+  | { kind: "pair" };
 
 export async function mobileBootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
@@ -104,8 +110,11 @@ export async function mobileBootstrap(): Promise<void> {
     root.innerHTML = "";
 
     if (route.kind === "library") {
-      const recents = await loadRecents();
-      mountMobileLibrary(root, recents, {
+      const [recents, pairings] = await Promise.all([
+        loadRecents(),
+        listMobilePairings(),
+      ]);
+      mountMobileLibrary(root, recents, pairings, {
         onOpenRecent: async (uri) => {
           try {
             const source = await readTextFile(uri);
@@ -119,17 +128,38 @@ export async function mobileBootstrap(): Promise<void> {
           }
         },
         onPairTap: () => {
-          // v2.1 placeholder — surface a transient hint, no real action.
-          let note = root.querySelector(
+          void renderRoute({ kind: "pair" });
+        },
+        onPairedDesktopTap: () => {
+          // v2.0-alpha+: pairing exists but no sync engine yet — tapping
+          // a paired desktop currently does nothing. Step "sync"
+          // (TaskCreate #11) wires this up to show synced folders.
+          // Surface a transient hint until then.
+          const wrap = root.querySelector(".mobile-library");
+          let note = wrap?.querySelector(
             ".mobile-library__pair-unavailable",
           ) as HTMLParagraphElement | null;
           if (!note) {
             note = document.createElement("p");
             note.className = "mobile-library__pair-unavailable";
-            note.textContent = t("mobile.library.pair_unavailable");
-            const wrap = root.querySelector(".mobile-library");
+            note.textContent =
+              "Sync engine not wired yet — pairing only verifies the handshake.";
             (wrap ?? root).appendChild(note);
           }
+        },
+      });
+      return;
+    }
+
+    if (route.kind === "pair") {
+      mountMobilePairForm(root, {
+        onPaired: (result) => {
+          showMobilePairSuccess(root, result, () => {
+            void renderRoute({ kind: "library" });
+          });
+        },
+        onCancel: () => {
+          void renderRoute({ kind: "library" });
         },
       });
       return;
@@ -235,8 +265,11 @@ export async function mobileBootstrap(): Promise<void> {
       await renderRoute({ kind: "library" });
     }
   } else {
-    const recents = await loadRecents();
-    if (recents.length === 0) {
+    const [recents, pairings] = await Promise.all([
+      loadRecents(),
+      listMobilePairings(),
+    ]);
+    if (recents.length === 0 && pairings.length === 0) {
       await renderRoute({ kind: "document", source: sampleSource });
     } else {
       await renderRoute({ kind: "library" });

@@ -3,6 +3,8 @@ mod commands;
 mod mac_tao_patch;
 #[cfg(desktop)]
 mod pairing;
+#[cfg(desktop)]
+mod pairing_ws;
 
 #[cfg(desktop)]
 use commands::folder_watcher::FolderWatcherState;
@@ -64,6 +66,13 @@ pub fn run() {
         .manage(WatcherState::new())
         .manage(FolderWatcherState::new())
         .manage(pairing::PairingState::new())
+        .manage(std::sync::Arc::new(pairing_ws::WsServerState::new()))
+        .setup(|app| {
+            // Spin up the pairing-WS server. Runs for the app's lifetime
+            // and only accepts handshakes when armed via pairing_start.
+            pairing_ws::spawn_server(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::files::read_text_file,
             commands::files::write_text_file,
@@ -92,7 +101,10 @@ pub fn run() {
         ]);
 
     #[cfg(mobile)]
-    let builder = builder.invoke_handler(tauri::generate_handler![take_pending_open_paths]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        take_pending_open_paths,
+        commands::mobile_pairing::mobile_pairing_start,
+    ]);
 
     let app = builder
         .build(tauri::generate_context!())
