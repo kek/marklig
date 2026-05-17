@@ -10,6 +10,7 @@ export interface MobilePairing {
   verification_fingerprint: string;
   paired_at_unix: number;
   last_seen_at_unix: number;
+  last_host?: string;
 }
 
 export interface MobilePairingStartArgs {
@@ -49,4 +50,47 @@ export async function listMobilePairings(): Promise<MobilePairing[]> {
       typeof v.pair_id_hex === "string" &&
       typeof v.friendly_name === "string",
   );
+}
+
+export interface MobileSyncResult {
+  files: number;
+  folders: string[];
+}
+
+export async function syncNow(
+  pairIdHex: string,
+  host: string,
+): Promise<MobileSyncResult> {
+  return invoke<MobileSyncResult>("mobile_sync_now", {
+    args: { pair_id_hex: pairIdHex, host },
+  });
+}
+
+export interface SyncedFile {
+  pair_id_hex: string;
+  folder_id_hex: string;
+  relpath: string;
+  abs_path: string;
+  synced_at_unix: number;
+}
+
+export async function listSyncedFiles(
+  pairIdHex: string,
+): Promise<SyncedFile[]> {
+  const raw = await getValue<Record<string, SyncedFile[]>>(
+    "mobile.synced_files",
+  );
+  if (!raw || typeof raw !== "object") return [];
+  const scoped = raw[pairIdHex];
+  return Array.isArray(scoped) ? scoped : [];
+}
+
+export async function syncedFolderLabels(
+  pairIdHex: string,
+): Promise<Record<string, string>> {
+  const raw = await getValue<Record<string, Record<string, string>>>(
+    "mobile.synced_folder_labels",
+  );
+  if (!raw || typeof raw !== "object") return {};
+  return raw[pairIdHex] ?? {};
 }
