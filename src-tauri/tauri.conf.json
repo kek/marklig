@@ -41,12 +41,7 @@
         "description": "Markdown document",
         "role": "Editor",
         "rank": "Default",
-        "mimeType": "text/markdown",
-        "contentTypes": ["net.daringfireball.markdown", "public.plain-text"],
-        "exportedType": {
-          "identifier": "net.daringfireball.markdown",
-          "conformsTo": ["public.plain-text"]
-        }
+        "mimeType": "text/markdown"
       }
     ]
   }

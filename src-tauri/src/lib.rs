@@ -2,7 +2,9 @@ mod commands;
 #[cfg(target_os = "macos")]
 mod mac_tao_patch;
 
+#[cfg(desktop)]
 use commands::folder_watcher::FolderWatcherState;
+#[cfg(desktop)]
 use commands::watcher::WatcherState;
 use tauri::RunEvent;
 // Only the platforms that emit RunEvent::Opened pull these into scope —
@@ -43,14 +45,21 @@ fn take_pending_open_paths() -> Vec<String> {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
-        .manage(WatcherState::new())
-        .manage(FolderWatcherState::new())
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_store::Builder::new().build());
+
+    // Desktop-only: file-shell state and commands. Mobile (Android, iOS)
+    // builds skip these entirely — the mobile shell lands in a later step
+    // of the v2 companion plan.
+    #[cfg(desktop)]
+    let builder = builder
+        .manage(WatcherState::new())
+        .manage(FolderWatcherState::new())
         .invoke_handler(tauri::generate_handler![
             commands::files::read_text_file,
             commands::files::write_text_file,
@@ -70,7 +79,12 @@ pub fn run() {
             commands::folder_watcher::folder_watcher_stop,
             commands::cli_tool::install_cli_tool,
             take_pending_open_paths,
-        ])
+        ]);
+
+    #[cfg(mobile)]
+    let builder = builder.invoke_handler(tauri::generate_handler![take_pending_open_paths]);
+
+    let app = builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
