@@ -376,9 +376,24 @@ fn update_pairing<R: Runtime>(
         serde_json::from_value(entry.clone())
             .map_err(|e| PairingError::Storage(format!("decode pairing: {e}")))?
     };
+    // PRESERVE pair_key_hex across the deserialize → mutate → reserialize
+    // cycle. PairingMeta doesn't declare the field (and shouldn't — it's
+    // sent to the JS frontend via pairing_list and the 32-byte key must
+    // not leak through IPC), so serde_json::to_value(&meta) drops it.
+    // Without this fence, calling folder_sync_enable / folder_sync_disable
+    // silently destroys the key and subsequent sync requests fail with
+    // "pair key missing — re-pair".
+    let preserved_pair_key_hex = entry
+        .get("pair_key_hex")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     f(&mut meta);
-    *entry = serde_json::to_value(&meta)
+    let mut next = serde_json::to_value(&meta)
         .map_err(|e| PairingError::Storage(format!("encode pairing: {e}")))?;
+    if let (Some(obj), Some(k)) = (next.as_object_mut(), preserved_pair_key_hex) {
+        obj.insert("pair_key_hex".to_string(), serde_json::Value::String(k));
+    }
+    *entry = next;
     store.set(STORE_KEY_PAIRINGS, serde_json::Value::Object(map));
     store
         .save()
