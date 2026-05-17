@@ -165,25 +165,21 @@ export async function mobileBootstrap(): Promise<void> {
       return;
     }
 
-    // Document view — back-bar + editor mount. The back-bar only appears
-    // when there's a meaningful library to return to (uriForRecents is
-    // set, meaning the user reached the document via a share or by
-    // tapping a recent). First-launch with the bundled sample has no
-    // library yet, so no back-bar — leaving the user with no way to
-    // navigate is better than dropping them on an empty list.
+    // Document view — back-bar + editor mount. Always show the back-bar
+    // so the user can reach the library (and the pair-with-a-desktop
+    // CTA) from anywhere, including the first-launch bundled-sample
+    // view.
     const wrap = document.createElement("div");
     wrap.className = "mobile-document";
 
-    if (route.uriForRecents) {
-      const backBtn = document.createElement("button");
-      backBtn.type = "button";
-      backBtn.className = "mobile-document__back";
-      backBtn.textContent = "← " + t("mobile.library.back");
-      backBtn.addEventListener("click", () => {
-        void renderRoute({ kind: "library" });
-      });
-      wrap.appendChild(backBtn);
-    }
+    const backBtn = document.createElement("button");
+    backBtn.type = "button";
+    backBtn.className = "mobile-document__back";
+    backBtn.textContent = "← " + t("mobile.library.back");
+    backBtn.addEventListener("click", () => {
+      void renderRoute({ kind: "library" });
+    });
+    wrap.appendChild(backBtn);
 
     const editorMount = document.createElement("div");
     wrap.appendChild(editorMount);
