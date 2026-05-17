@@ -1,0 +1,448 @@
+//! Desktop pairing surface: state machine + registry + Tauri commands.
+//!
+//! v2.0 scope (this module):
+//! - Persistent registry of paired phones in `tauri-plugin-store`.
+//! - In-memory [`PairingMachine`] that drives a Noise XK handshake against
+//!   `marklig-sync-core`. Step 6 will replace the in-memory channel with a
+//!   real TCP socket from the LAN transport.
+//! - Tauri commands (start / complete / list / unpair / folder sync
+//!   enable / disable) that the frontend uses.
+//!
+//! **Pair-key persistence shortcut for v2.0-alpha+:** we store the 32-byte
+//! pair key inside `tauri-plugin-store`'s `viewer.store.json` (in the app
+//! data directory). This is NOT keychain-grade — on macOS the key is
+//! readable by any process with disk access to the user's app-data
+//! folder. The proper fix (macOS Keychain Services, Windows Credential
+//! Manager, libsecret on Linux) is a follow-up; it's flagged here and in
+//! the spec / plan. v2.0-alpha is opt-in pairing for early users; the
+//! threat model assumes a user-controlled laptop.
+
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Runtime, State};
+
+use marklig_sync_core::pair::{
+    HandshakeError, HandshakeInitiator, HandshakeResponder, PairKey, QrPayload, TransportPair,
+};
+
+/// Persisted metadata for one paired phone. Stored as
+/// `pairings.<pair_id_hex>` in `viewer.store.json`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PairingMeta {
+    pub pair_id_hex: String,
+    pub friendly_name: String,
+    pub paired_at_unix: u64,
+    pub last_seen_at_unix: u64,
+    /// First 4 bytes of BLAKE2s-style hash of the pair_key, formatted as
+    /// "XX-YY-ZZ" hex pairs. Shown to the user during handshake confirm
+    /// so both sides can read it aloud.
+    pub verification_fingerprint: String,
+    pub synced_folders: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PairingStarted {
+    pub qr_payload: String,
+    pub verification_fingerprint: String,
+}
+
+/// In-progress handshake state held in [`PairingState`]. After
+/// `pairing_complete(confirm=true)` it becomes a registered pairing.
+enum HandshakeStage {
+    Idle,
+    Responding {
+        responder: Box<HandshakeResponder>,
+        mdns_instance_name: String,
+        qr_payload: String,
+    },
+    Verifying {
+        result: Box<TransportPair>,
+    },
+}
+
+impl HandshakeStage {
+    fn take(&mut self) -> HandshakeStage {
+        std::mem::replace(self, HandshakeStage::Idle)
+    }
+}
+
+/// Per-app singleton holding the current desktop static keypair + the
+/// in-progress handshake. Mounted on the Tauri builder via `.manage()`.
+pub struct PairingState {
+    /// The desktop's long-term static keypair. Generated on first call to
+    /// [`PairingState::ensure_keys`], persisted in the store.
+    static_keypair: Mutex<Option<StaticKeypair>>,
+    stage: Mutex<HandshakeStage>,
+}
+
+#[derive(Clone)]
+struct StaticKeypair {
+    private: [u8; 32],
+    public: [u8; 32],
+}
+
+impl PairingState {
+    pub fn new() -> Self {
+        Self {
+            static_keypair: Mutex::new(None),
+            stage: Mutex::new(HandshakeStage::Idle),
+        }
+    }
+}
+
+impl Default for PairingState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PairingError {
+    #[error("handshake: {0}")]
+    Handshake(#[from] HandshakeError),
+    #[error("state error: {0}")]
+    State(String),
+    #[error("storage error: {0}")]
+    Storage(String),
+}
+
+impl serde::Serialize for PairingError {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
+}
+
+const STORE_KEY_KEYPAIR: &str = "pairing.desktop_static_keypair";
+const STORE_KEY_PAIRINGS: &str = "pairings";
+
+/// Generate (or load) the desktop's static keypair. Persisted in the
+/// Tauri store at `pairing.desktop_static_keypair`. See module-level note
+/// on the v2.0-alpha persistence shortcut.
+fn ensure_keypair<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &PairingState,
+) -> Result<StaticKeypair, PairingError> {
+    let mut guard = state.static_keypair.lock().map_err(|e| {
+        PairingError::State(format!("static_keypair lock poisoned: {e}"))
+    })?;
+    if let Some(kp) = guard.as_ref() {
+        return Ok(kp.clone());
+    }
+
+    let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    if let Some(value) = store.get(STORE_KEY_KEYPAIR) {
+        if let Some(obj) = value.as_object() {
+            let priv_hex = obj.get("private").and_then(|v| v.as_str()).unwrap_or("");
+            let pub_hex = obj.get("public").and_then(|v| v.as_str()).unwrap_or("");
+            if let (Some(priv_bytes), Some(pub_bytes)) =
+                (decode_hex_32(priv_hex), decode_hex_32(pub_hex))
+            {
+                let kp = StaticKeypair {
+                    private: priv_bytes,
+                    public: pub_bytes,
+                };
+                *guard = Some(kp.clone());
+                return Ok(kp);
+            }
+        }
+    }
+
+    let builder = snow::Builder::new(
+        "Noise_XK_25519_ChaChaPoly_BLAKE2s"
+            .parse()
+            .expect("Noise XK pattern parses"),
+    );
+    let snow_kp = builder
+        .generate_keypair()
+        .map_err(|e| PairingError::State(format!("keypair gen: {e}")))?;
+    let mut private = [0u8; 32];
+    let mut public = [0u8; 32];
+    private.copy_from_slice(&snow_kp.private);
+    public.copy_from_slice(&snow_kp.public);
+
+    store.set(
+        STORE_KEY_KEYPAIR,
+        serde_json::json!({
+            "private": encode_hex(&private),
+            "public": encode_hex(&public),
+        }),
+    );
+    store
+        .save()
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+
+    let kp = StaticKeypair { private, public };
+    *guard = Some(kp.clone());
+    Ok(kp)
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
+
+fn decode_hex_32(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+fn now_unix() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Compute a 4-byte verification fingerprint from a pair key, formatted as
+/// "AB-CD-EF-12" — short enough for two humans to read aloud.
+fn verification_fingerprint(pair_key: &PairKey) -> String {
+    use sha2::{Digest, Sha256};
+    let h = Sha256::digest(&pair_key.0);
+    format!("{:02X}-{:02X}-{:02X}-{:02X}", h[0], h[1], h[2], h[3])
+}
+
+fn mdns_instance_name() -> String {
+    // Hostname-derived, sanitized to mDNS-safe ASCII.
+    let host = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "marklig".to_string());
+    let mut out = String::new();
+    for ch in host.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' {
+            out.push(ch);
+        }
+    }
+    if out.is_empty() {
+        out.push_str("marklig");
+    }
+    format!("marklig-{}", out)
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn pairing_start<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, PairingState>,
+) -> Result<PairingStarted, PairingError> {
+    let kp = ensure_keypair(&app, state.inner())?;
+    let responder = HandshakeResponder::new(&kp.private)?;
+    let instance = mdns_instance_name();
+    let payload = QrPayload {
+        responder_static_pubkey: kp.public,
+        mdns_instance_name: instance.clone(),
+        expiry_unix: now_unix() + 300,
+    };
+    let qr = payload.encode();
+
+    let mut stage = state.stage.lock().map_err(|e| {
+        PairingError::State(format!("stage lock poisoned: {e}"))
+    })?;
+    *stage = HandshakeStage::Responding {
+        responder: Box::new(responder),
+        mdns_instance_name: instance,
+        qr_payload: qr.clone(),
+    };
+
+    // The verification fingerprint is computed from the eventual pair
+    // key, which we don't have until the handshake completes. Return an
+    // empty placeholder; the frontend should display it only after the
+    // first inbound handshake message arrives (step 6 wires that path).
+    Ok(PairingStarted {
+        qr_payload: qr,
+        verification_fingerprint: String::new(),
+    })
+}
+
+#[tauri::command]
+pub fn pairing_cancel(state: State<'_, PairingState>) -> Result<(), PairingError> {
+    let mut stage = state.stage.lock().map_err(|e| {
+        PairingError::State(format!("stage lock poisoned: {e}"))
+    })?;
+    *stage = HandshakeStage::Idle;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn pairing_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<PairingMeta>, PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(&app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let value = match store.get(STORE_KEY_PAIRINGS) {
+        Some(v) => v,
+        None => return Ok(vec![]),
+    };
+    let map = match value.as_object() {
+        Some(m) => m.clone(),
+        None => return Ok(vec![]),
+    };
+    let mut out = Vec::with_capacity(map.len());
+    for (_, v) in map {
+        if let Ok(meta) = serde_json::from_value::<PairingMeta>(v) {
+            out.push(meta);
+        }
+    }
+    out.sort_by(|a, b| b.paired_at_unix.cmp(&a.paired_at_unix));
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn pairing_unpair<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+) -> Result<(), PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(&app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let mut map = store
+        .get(STORE_KEY_PAIRINGS)
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    map.remove(&pair_id_hex);
+    store.set(STORE_KEY_PAIRINGS, serde_json::Value::Object(map));
+    store
+        .save()
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn folder_sync_enable<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+    folder: String,
+) -> Result<(), PairingError> {
+    update_pairing(&app, &pair_id_hex, |meta| {
+        let path = PathBuf::from(&folder);
+        let canonical = path
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.to_str().map(str::to_string))
+            .unwrap_or(folder);
+        if !meta.synced_folders.iter().any(|f| f == &canonical) {
+            meta.synced_folders.push(canonical);
+        }
+    })
+}
+
+#[tauri::command]
+pub fn folder_sync_disable<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+    folder: String,
+) -> Result<(), PairingError> {
+    update_pairing(&app, &pair_id_hex, |meta| {
+        meta.synced_folders.retain(|f| f != &folder);
+    })
+}
+
+fn update_pairing<R: Runtime>(
+    app: &AppHandle<R>,
+    pair_id_hex: &str,
+    f: impl FnOnce(&mut PairingMeta),
+) -> Result<(), PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let mut map = store
+        .get(STORE_KEY_PAIRINGS)
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    let entry = map
+        .entry(pair_id_hex.to_string())
+        .or_insert_with(|| serde_json::Value::Null);
+    let mut meta: PairingMeta = if entry.is_null() {
+        return Err(PairingError::State(format!(
+            "no such pairing: {pair_id_hex}"
+        )));
+    } else {
+        serde_json::from_value(entry.clone())
+            .map_err(|e| PairingError::Storage(format!("decode pairing: {e}")))?
+    };
+    f(&mut meta);
+    *entry = serde_json::to_value(&meta)
+        .map_err(|e| PairingError::Storage(format!("encode pairing: {e}")))?;
+    store.set(STORE_KEY_PAIRINGS, serde_json::Value::Object(map));
+    store
+        .save()
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    Ok(())
+}
+
+/// Helper used by the in-memory loopback test in step-5 unit tests and by
+/// the LAN transport (step 6) to commit a completed handshake into the
+/// persistent registry.
+pub fn finalize_pairing<R: Runtime>(
+    app: &AppHandle<R>,
+    transport: TransportPair,
+    friendly_name: String,
+) -> Result<PairingMeta, PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let pair_id_hex = transport.pair_id.to_hex();
+    let now = now_unix();
+    let meta = PairingMeta {
+        pair_id_hex: pair_id_hex.clone(),
+        friendly_name,
+        paired_at_unix: now,
+        last_seen_at_unix: now,
+        verification_fingerprint: verification_fingerprint(&transport.pair_key),
+        synced_folders: Vec::new(),
+    };
+    let mut map = store
+        .get(STORE_KEY_PAIRINGS)
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    map.insert(
+        pair_id_hex,
+        serde_json::to_value(&meta)
+            .map_err(|e| PairingError::Storage(format!("encode pairing: {e}")))?,
+    );
+    store.set(STORE_KEY_PAIRINGS, serde_json::Value::Object(map));
+    store
+        .save()
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    Ok(meta)
+}
+
+// Suppress unused-warning for the in-progress handshake fields that the
+// LAN transport (step 6) will start consuming.
+#[allow(dead_code)]
+impl PairingState {
+    pub(crate) fn stage_for_test(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, HandshakeStage>, PairingError> {
+        self.stage
+            .lock()
+            .map_err(|e| PairingError::State(format!("stage lock: {e}")))
+    }
+}
+
+#[allow(dead_code)]
+fn drive_initiator_against_responder(
+    initiator: &mut HandshakeInitiator,
+    responder: &mut HandshakeResponder,
+) -> Result<(), HandshakeError> {
+    let mut buf = Vec::new();
+    initiator.write_message(&mut buf)?;
+    responder.read_message(&buf)?;
+    buf.clear();
+    responder.write_message(&mut buf)?;
+    initiator.read_message(&buf)?;
+    buf.clear();
+    initiator.write_message(&mut buf)?;
+    responder.read_message(&buf)?;
+    Ok(())
+}

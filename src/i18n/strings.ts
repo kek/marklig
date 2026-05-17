@@ -163,6 +163,30 @@ export const EN = {
   "mobile.library.pair_cta": "Pair with a desktop",
   "mobile.library.pair_unavailable": "Pairing arrives in v2.1.",
   "mobile.library.back": "Back to library",
+
+  // Desktop pairing UX (step 5 of the v2 mobile companion).
+  "pairing.modal.title": "Pair with a phone",
+  "pairing.modal.starting": "Starting pairing…",
+  "pairing.modal.ready": "Scan the QR code below on your phone.",
+  "pairing.modal.scan_hint":
+    "Open Märklig on the phone and scan this QR code, or paste the URL into a paired-device entry.",
+  "pairing.modal.qr_payload_aria": "Pairing URL to scan from the phone",
+  "pairing.modal.alpha_note":
+    "v2.0-alpha: pairing requires the phone-side scanner from steps 6 + 7. " +
+    "The URL is shown as text here as a placeholder while the QR renderer and " +
+    "the LAN handshake are wired up.",
+  "pairing.modal.failed_prefix": "Pairing failed: ",
+  "pairing.modal.close": "Cancel",
+  "pairings.pane.title": "Paired phones",
+  "pairings.pane.empty":
+    "No phones paired yet. Use Pair with a phone… to add one.",
+  "pairings.pane.synced_folders": "Synced folders",
+  "pairings.pane.no_synced_folders": "No folders synced.",
+  "pairings.pane.add_folder": "Add a folder…",
+  "pairings.pane.unpair": "Unpair",
+  "pairings.pane.unpair_confirm": "Unpair {name}? This stops any future syncs.",
+  "pairings.pane.last_seen": "Last seen {ago}",
+  "pairings.pane.paired": "Paired {when}",
 } as const;
 
 export type StringKey = keyof typeof EN;

@@ -454,6 +454,82 @@ html.theme-dark  { color-scheme: dark; }
 }
 .viewer-shortcut-list dt,
 .viewer-shortcut-list dd { margin: 0; }
+
+/* Pairing modal + Settings -> Pairings pane. v2 mobile companion step 5. */
+.pairing-modal__status { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+.pairing-modal__scan-hint { font-size: 13px; margin: 8px 0 4px; }
+.pairing-modal__qr-payload {
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle, rgba(127,127,127,0.3));
+  border-radius: 4px;
+  background: var(--bg-subtle, rgba(127,127,127,0.05));
+  color: inherit;
+  resize: vertical;
+}
+.pairing-modal__note { font-size: 11px; color: var(--muted); margin: 8px 0 0; line-height: 1.5; }
+
+.viewer-prefs-section--pairings .pairings-pane__add {
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle, rgba(127,127,127,0.3));
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.pairings-pane__empty { font-size: 13px; color: var(--muted); margin: 0; }
+.pairings-pane__error {
+  font-size: 13px;
+  color: var(--accent-error, #d44);
+  margin: 0;
+}
+.pairings-pane__card {
+  padding: 12px;
+  border: 1px solid var(--border-subtle, rgba(127,127,127,0.18));
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.pairings-pane__name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.pairings-pane__dates { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.pairings-pane__fingerprint {
+  display: inline-block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--bg-subtle, rgba(127,127,127,0.08));
+  border-radius: 3px;
+  margin-bottom: 10px;
+}
+.pairings-pane__folders-header {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-bottom: 4px;
+}
+.pairings-pane__no-folders { font-size: 12px; color: var(--muted); }
+.pairings-pane__folders-list { list-style: none; padding: 0; margin: 0; }
+.pairings-pane__folder-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; font-size: 12px;
+}
+.pairings-pane__folder-path {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pairings-pane__folder-remove {
+  background: transparent; border: 0; color: var(--muted);
+  cursor: pointer; font-size: 16px; padding: 0 4px;
+}
+.pairings-pane__folder-remove:hover { color: var(--accent-error, #d44); }
+.pairings-pane__actions { margin-top: 8px; }
+.pairings-pane__unpair {
+  padding: 4px 10px; font-size: 12px;
+  background: transparent; color: var(--accent-error, #d44);
+  border: 1px solid var(--accent-error, #d44); border-radius: 4px;
+  cursor: pointer;
+}
 .viewer-shortcut-keys {
   font-family: var(--mono);
   color: var(--muted);
