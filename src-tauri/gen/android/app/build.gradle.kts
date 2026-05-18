@@ -24,6 +24,19 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    // v2.0-alpha: sign release builds with the Android SDK's debug keystore
+    // so `tauri android build` produces an installable APK without a
+    // separate signing setup. Self-installable for the developer + early
+    // testers; Play Store distribution still needs a proper release
+    // keystore (follow-up).
+    signingConfigs {
+        create("releaseDebugSigned") {
+            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -43,6 +56,7 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            signingConfig = signingConfigs.getByName("releaseDebugSigned")
         }
     }
     kotlinOptions {
