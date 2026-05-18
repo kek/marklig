@@ -105,6 +105,7 @@ pub fn run() {
         take_pending_open_paths,
         commands::mobile_pairing::mobile_pairing_start,
         commands::mobile_sync::mobile_sync_now,
+        commands::mobile_sync::mobile_read_synced_file,
     ]);
 
     let app = builder
