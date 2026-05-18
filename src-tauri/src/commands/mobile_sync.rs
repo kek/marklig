@@ -226,3 +226,59 @@ fn now_unix() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
+
+/// Read a synced file's plaintext from the phone's app-private storage.
+///
+/// The plugin-fs scope on Android doesn't grant access to arbitrary
+/// absolute paths under `/data/user/0/<pkg>/files/...`, so calling
+/// `readTextFile(abs_path)` from JS gets rejected. This command does the
+/// read on the Rust side, where we control the path strictly: only files
+/// inside `<app_data_dir>/synced/<pair_id_hex>/<folder_id_hex>/...` are
+/// served, and any traversal-style relpath component (`..`) is refused.
+#[tauri::command]
+pub async fn mobile_read_synced_file<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+    folder_id_hex: String,
+    relpath: String,
+) -> Result<String, String> {
+    if !pair_id_hex.chars().all(|c| c.is_ascii_hexdigit())
+        || pair_id_hex.len() != 32
+    {
+        return Err("invalid pair_id_hex".into());
+    }
+    if !folder_id_hex.chars().all(|c| c.is_ascii_hexdigit())
+        || folder_id_hex.len() != 32
+    {
+        return Err("invalid folder_id_hex".into());
+    }
+    for part in relpath.split('/') {
+        if part == ".." || part.is_empty() {
+            return Err("relpath contains forbidden component".into());
+        }
+    }
+    if relpath.starts_with('/') {
+        return Err("relpath must be relative".into());
+    }
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?;
+    let path = app_data
+        .join("synced")
+        .join(&pair_id_hex)
+        .join(&folder_id_hex)
+        .join(&relpath);
+
+    let synced_root = app_data.join("synced").join(&pair_id_hex);
+    let canon = std::fs::canonicalize(&path)
+        .map_err(|e| format!("canonicalize {path:?}: {e}"))?;
+    let canon_root = std::fs::canonicalize(&synced_root)
+        .map_err(|e| format!("canonicalize synced root: {e}"))?;
+    if !canon.starts_with(&canon_root) {
+        return Err("path escaped synced root".into());
+    }
+
+    std::fs::read_to_string(&canon).map_err(|e| format!("read {canon:?}: {e}"))
+}

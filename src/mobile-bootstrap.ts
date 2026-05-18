@@ -157,13 +157,18 @@ export async function mobileBootstrap(): Promise<void> {
     }
 
     if (route.kind === "synced") {
+      const { readSyncedFile } = await import("./shell/mobile-pairings");
       await mountMobileSynced(root, route.pairing, {
         onOpenFile: async (file) => {
           try {
-            const source = await readTextFile(file.abs_path);
+            const source = await readSyncedFile(
+              file.pair_id_hex,
+              file.folder_id_hex,
+              file.relpath,
+            );
             await renderRoute({ kind: "document", source });
           } catch (err) {
-            console.error("failed to open synced file", file.abs_path, err);
+            console.error("failed to open synced file", file, err);
           }
         },
         onBack: () => {

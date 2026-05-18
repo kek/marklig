@@ -94,3 +94,17 @@ export async function syncedFolderLabels(
   if (!raw || typeof raw !== "object") return {};
   return raw[pairIdHex] ?? {};
 }
+
+/** Read a synced file's plaintext via the Rust command (which bypasses
+ *  the plugin-fs scope check by reading from the trusted synced root). */
+export async function readSyncedFile(
+  pairIdHex: string,
+  folderIdHex: string,
+  relpath: string,
+): Promise<string> {
+  return invoke<string>("mobile_read_synced_file", {
+    pairIdHex,
+    folderIdHex,
+    relpath,
+  });
+}
