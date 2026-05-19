@@ -1,4 +1,4 @@
-import { listMarkdownFiles, type MarkdownFileEntry } from "../../shell/files";
+import { listMarkdownFiles, saveDoc, type MarkdownFileEntry } from "../../shell/files";
 import { t, tA11y } from "../../i18n/strings";
 import { getFolderSectionOpen, setFolderSectionOpen } from "../../shell/settings";
 
@@ -11,6 +11,10 @@ export interface FolderSidebarHandle {
   refresh: () => Promise<void>;
   /** Mark which file is currently active (highlights matching entry). */
   setActiveFile: (path: string | null) => void;
+  /** Programmatically begin a "new file" flow targeting `dirRelative`
+   * (empty string for the root). Exposed for tests; the "+" button and
+   * folder context menu call into the same path internally. */
+  beginNewFile: (dirRelative?: string) => void;
   destroy: () => void;
 }
 
@@ -19,6 +23,74 @@ export interface MountFolderOptions {
   /** Insert the folder section before this element (e.g. the TOC). */
   insertBefore?: HTMLElement;
   onActivate: (path: string) => void;
+  /** Called after a new file has been successfully written to disk. The
+   * absolute path is the same one we'll see on the next folder refresh.
+   * If absent, the "+" / "New File…" affordances are still shown but the
+   * sidebar only writes the file — opening is left to the caller. */
+  onCreate?: (absolutePath: string) => void | Promise<void>;
+}
+
+/** Markdown extensions matched case-insensitively. Mirrors `is_markdown_ext`
+ * in `src-tauri/src/commands/files.rs` — keep in sync. */
+const MARKDOWN_EXTS = new Set(["md", "markdown", "mdx", "mdown"]);
+
+/** Outcome of {@link validateNewFilename}. `ok` carries the canonical
+ * filename (with `.md` appended when none was given); `kind` on the error
+ * branch identifies which validation rule fired so callers can localize. */
+export type NewFilenameResult =
+  | { ok: true; filename: string }
+  | { ok: false; kind: "empty" | "slash" };
+
+/** Normalize a user-typed filename for the "new file" flow:
+ *   - trims surrounding whitespace
+ *   - rejects empty / whitespace-only input
+ *   - rejects names containing `/` or `\` (subdirs out of scope for v1)
+ *   - appends `.md` if no extension is present
+ *
+ * Any extension the user explicitly typed (including non-Markdown ones like
+ * `.txt`) is preserved — we don't second-guess explicit intent. Markdown
+ * extensions are matched case-insensitively to mirror the Rust walker. */
+export function validateNewFilename(raw: string): NewFilenameResult {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { ok: false, kind: "empty" };
+  if (/[\\/]/.test(trimmed)) return { ok: false, kind: "slash" };
+
+  const dotIdx = trimmed.lastIndexOf(".");
+  const hasExt = dotIdx > 0 && dotIdx < trimmed.length - 1;
+  if (!hasExt) return { ok: true, filename: `${trimmed}.md` };
+  // Explicit extension — keep verbatim. (We only special-case "no extension";
+  // a user who typed `.txt` gets `.txt`.)
+  return { ok: true, filename: trimmed };
+}
+
+/** True if `filename` (basename only) ends in a Markdown extension. Used by
+ * tests; runtime code doesn't gate on this — the Rust walker decides what's
+ * listed. Exported for symmetry with the validator. */
+export function isMarkdownFilename(filename: string): boolean {
+  const dotIdx = filename.lastIndexOf(".");
+  if (dotIdx < 0) return false;
+  return MARKDOWN_EXTS.has(filename.slice(dotIdx + 1).toLowerCase());
+}
+
+/** Join an absolute folder root with a relative subdir (possibly empty) and
+ * a leaf filename, using the same separator that's already in `root`. We
+ * detect Windows-style paths by looking for `\` in the root or a drive
+ * letter prefix — purely a string operation, no fs access. */
+export function joinFolderPath(
+  root: string,
+  dirRelative: string,
+  filename: string,
+): string {
+  const isWindows = root.includes("\\") || /^[A-Za-z]:[\\/]/.test(root);
+  const sep = isWindows ? "\\" : "/";
+  const parts = [root.replace(/[\\/]+$/, "")];
+  if (dirRelative) {
+    // Normalize the subdir's separators to match the root.
+    const normalized = dirRelative.replace(/[\\/]+/g, sep).replace(/^[\\/]|[\\/]$/g, "");
+    if (normalized) parts.push(normalized);
+  }
+  parts.push(filename);
+  return parts.join(sep);
 }
 
 interface FileNode {
@@ -108,6 +180,22 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
 
   heading.append(chevron, headingLabel);
 
+  // Header row: the collapsible heading button on the left, a "+" action
+  // button on the right. The "+" is hidden until a folder is actually
+  // opened so the empty sidebar doesn't show an affordance that goes
+  // nowhere — same gating as `section.hidden`.
+  const header = document.createElement("div");
+  header.className = "viewer-folder-header";
+
+  const newFileBtn = document.createElement("button");
+  newFileBtn.type = "button";
+  newFileBtn.className = "viewer-folder-new-file";
+  newFileBtn.textContent = "+";
+  newFileBtn.setAttribute("aria-label", t("sidebar.folder.newFile"));
+  newFileBtn.title = t("sidebar.folder.newFileTitle");
+
+  header.append(heading, newFileBtn);
+
   const body = document.createElement("div");
   body.id = bodyId;
   body.className = "viewer-sidebar-section-body viewer-folder-body";
@@ -123,7 +211,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   list.setAttribute("aria-labelledby", "viewer-folder-heading");
 
   body.append(filter, list);
-  section.append(heading, body);
+  section.append(header, body);
 
   // Initial open/closed reflects persisted setting.
   let sectionOpen = getFolderSectionOpen();
@@ -159,6 +247,13 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   const expanded = new Set<string>();
   let currentFilter = "";
 
+  /** When non-null, the tree renders an inline input below the named
+   * folder (empty string = root) for the user to type a new filename.
+   * Cleared on commit / cancel. */
+  let pendingCreateDir: string | null = null;
+  /** Last validation error to show beneath the inline input. */
+  let pendingCreateError: string | null = null;
+
   function basename(path: string): string {
     const m = path.match(/[^\\/]+$/);
     return m ? m[0] : path;
@@ -185,9 +280,93 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     return node.children.some((c) => subtreeMatches(c, q));
   }
 
+  /** Find a DirNode by its relative path within the in-memory tree. Empty
+   * string returns the root. Returns null if no such directory exists in
+   * the tree — callers fall back to the root in that case. */
+  function findDir(rel: string): DirNode | null {
+    if (!rel) return tree;
+    const segs = splitSegments(rel);
+    let cursor: DirNode = tree;
+    for (const seg of segs) {
+      const next = cursor.children.find(
+        (c): c is DirNode => c.kind === "dir" && c.name === seg,
+      );
+      if (!next) return null;
+      cursor = next;
+    }
+    return cursor;
+  }
+
+  /** Render an inline input row for the "new file" flow. The input lives at
+   * the same depth + 1 as its siblings would, pre-fills with `untitled.md`
+   * with the stem pre-selected, and commits / cancels on key + blur. */
+  function renderNewFileInput(parentEl: HTMLElement, depth: number): void {
+    const row = document.createElement("div");
+    row.className = "viewer-folder-item viewer-folder-new-file-row";
+    row.style.setProperty("--depth", String(depth));
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "viewer-folder-new-file-input";
+    input.value = t("sidebar.folder.newFileDefault");
+    input.placeholder = t("sidebar.folder.newFilePlaceholder");
+    input.setAttribute("aria-label", t("sidebar.folder.newFileAriaLabel"));
+    input.spellcheck = false;
+    row.append(input);
+
+    if (pendingCreateError) {
+      const err = document.createElement("p");
+      err.className = "viewer-folder-new-file-error";
+      err.setAttribute("role", "alert");
+      err.textContent = pendingCreateError;
+      row.append(err);
+    }
+
+    parentEl.append(row);
+
+    // Defer focus + selection until the element is attached to the DOM so
+    // setSelectionRange takes effect. The selection covers the stem
+    // (everything before the final dot) so typing replaces "untitled" but
+    // keeps the ".md" extension.
+    queueMicrotask(() => {
+      input.focus();
+      const dotIdx = input.value.lastIndexOf(".");
+      const end = dotIdx > 0 ? dotIdx : input.value.length;
+      try { input.setSelectionRange(0, end); } catch { /* jsdom quirks */ }
+    });
+
+    // Blur-after-microtask: a click on the "+" button while an input is
+    // already open would otherwise blur → cancel → re-open in the same
+    // tick. Cancel only when the new focus target isn't another part of
+    // our new-file UI.
+    let cancelled = false;
+    input.addEventListener("blur", () => {
+      // setTimeout 0: let any concurrent click finish so we can decide
+      // whether to cancel based on the new activeElement.
+      setTimeout(() => {
+        if (cancelled) return;
+        const next = document.activeElement;
+        if (next instanceof HTMLElement && next.classList.contains("viewer-folder-new-file-input")) {
+          return;
+        }
+        cancelNewFile();
+      }, 0);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void commitNewFile(input.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelled = true;
+        cancelNewFile();
+      }
+    });
+  }
+
   function render(): void {
     list.innerHTML = "";
-    if (tree.children.length === 0) {
+    if (tree.children.length === 0 && pendingCreateDir == null) {
       const empty = document.createElement("p");
       empty.className = "viewer-folder-empty";
       empty.textContent = t("sidebar.folder.empty");
@@ -210,6 +389,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
           row.style.setProperty("--depth", String(depth));
           row.setAttribute("aria-expanded", isOpen ? "true" : "false");
           row.title = node.relative;
+          row.dataset.dir = node.relative;
 
           const chevron = document.createElement("span");
           chevron.className = "viewer-folder-chevron";
@@ -227,9 +407,18 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
             else expanded.add(node.relative);
             render();
           });
+          row.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            showFolderContextMenu(e.clientX, e.clientY, node.relative);
+          });
           list.append(row);
 
-          if (isOpen) renderChildren(node, depth + 1);
+          if (isOpen) {
+            renderChildren(node, depth + 1);
+            if (pendingCreateDir === node.relative) {
+              renderNewFileInput(list, depth + 1);
+            }
+          }
         } else {
           const btn = document.createElement("button");
           btn.type = "button";
@@ -249,7 +438,136 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     };
 
     renderChildren(tree, 0);
+    // Root-level "new file" input renders after the existing root entries.
+    if (pendingCreateDir === "") {
+      renderNewFileInput(list, 0);
+    }
   }
+
+  function cancelNewFile(): void {
+    if (pendingCreateDir == null) return;
+    pendingCreateDir = null;
+    pendingCreateError = null;
+    render();
+  }
+
+  async function commitNewFile(rawName: string): Promise<void> {
+    if (pendingCreateDir == null || currentRoot == null) return;
+    const targetDir = pendingCreateDir;
+
+    const result = validateNewFilename(rawName);
+    if (!result.ok) {
+      pendingCreateError =
+        result.kind === "empty"
+          ? t("sidebar.folder.newFileErrorEmpty")
+          : t("sidebar.folder.newFileErrorSlash");
+      render();
+      return;
+    }
+
+    // Collision check against the in-memory tree. We don't probe the fs —
+    // the watcher keeps the tree fresh enough, and a race that lands
+    // between this check and the write would still write to disk which
+    // is the user's stated intent. The Rust side has no overwrite-guard,
+    // by design (write_text_file is the same call save uses).
+    const dirNode = findDir(targetDir) ?? tree;
+    const collision = dirNode.children.some(
+      (c) => c.kind === "file" && c.name === result.filename,
+    );
+    if (collision) {
+      pendingCreateError = t("sidebar.folder.newFileErrorExists");
+      render();
+      return;
+    }
+
+    const absPath = joinFolderPath(currentRoot, targetDir, result.filename);
+    try {
+      await saveDoc(absPath, "");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      pendingCreateError = tA11y("sidebar.folder.newFileErrorWrite", { message: msg });
+      render();
+      return;
+    }
+
+    pendingCreateDir = null;
+    pendingCreateError = null;
+    render();
+    // Hand off to the host. Refreshing the tree is the host's responsibility
+    // — it owns the watcher and may want to coordinate the in-process
+    // refresh with mode-switch + active-file highlighting.
+    try {
+      await opts.onCreate?.(absPath);
+    } catch (err) {
+      // Don't surface as inline error — the file already exists on disk
+      // at this point. Log and let the host decide.
+      console.warn("onCreate hook threw", err);
+    }
+  }
+
+  /** Show a tiny context menu anchored at (x, y) for a folder node. v1
+   * only has a single item ("New File…"); kept as a real menu so future
+   * actions (rename, delete) drop in without re-architecting. */
+  function showFolderContextMenu(x: number, y: number, dirRelative: string): void {
+    // Tear down any prior menu first — right-click on a different folder
+    // shouldn't leave stale menus floating.
+    document.querySelectorAll(".viewer-folder-context-menu").forEach((el) => el.remove());
+
+    const menu = document.createElement("div");
+    menu.className = "viewer-folder-context-menu";
+    menu.setAttribute("role", "menu");
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "viewer-folder-context-menu-item";
+    item.setAttribute("role", "menuitem");
+    item.textContent = t("sidebar.folder.newFileMenu");
+    item.addEventListener("click", () => {
+      menu.remove();
+      beginNewFile(dirRelative);
+    });
+    menu.append(item);
+
+    const onAwayClick = (e: MouseEvent): void => {
+      if (e.target instanceof Node && menu.contains(e.target)) return;
+      menu.remove();
+      document.removeEventListener("mousedown", onAwayClick, true);
+      document.removeEventListener("keydown", onEsc, true);
+    };
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        menu.remove();
+        document.removeEventListener("mousedown", onAwayClick, true);
+        document.removeEventListener("keydown", onEsc, true);
+      }
+    };
+    document.addEventListener("mousedown", onAwayClick, true);
+    document.addEventListener("keydown", onEsc, true);
+
+    document.body.append(menu);
+  }
+
+  function beginNewFile(dirRelative: string = ""): void {
+    if (!currentRoot) return;
+    pendingCreateDir = dirRelative;
+    pendingCreateError = null;
+    // Make sure the target folder is open so the input is visible.
+    if (dirRelative) {
+      expandAncestors(dirRelative);
+      expanded.add(dirRelative);
+    }
+    // Section may be collapsed — uncollapse so the user can see the input.
+    if (!sectionOpen) {
+      sectionOpen = true;
+      setFolderSectionOpen(true);
+      applySectionState();
+    }
+    render();
+  }
+
+  newFileBtn.addEventListener("click", () => beginNewFile(""));
 
   filter.addEventListener("input", () => {
     currentFilter = filter.value;
@@ -351,6 +669,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     setFolder,
     refresh,
     setActiveFile,
+    beginNewFile,
     destroy() {
       section.remove();
     },
