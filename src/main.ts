@@ -43,6 +43,7 @@ import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { openProjectPalette } from "./ui/project-palette";
 import { openQuickOpenPalette } from "./ui/quick-open";
+import { mountContextMenu } from "./ui/context-menu";
 import { t } from "./i18n/strings";
 import "katex/dist/katex.min.css";
 import {
@@ -936,6 +937,23 @@ async function bootstrap(): Promise<void> {
   };
   const unsubMenuActions = await installMenuActionListener(localHandlers);
   window.addEventListener("beforeunload", () => unsubMenuActions());
+
+  // Custom right-click menu on the editor (issue #103). Suppresses the
+  // native WKWebView/WebView2 context menu inside the editor and renders
+  // a short mode-aware menu of commands the app already implements.
+  // Other surfaces (sidebar, modals) keep their native menu.
+  const contextMenuHandle = mountContextMenu({
+    view,
+    handlers: {
+      copyAsHtml: () => localHandlers.copyAsHtml(),
+      openFind: () => localHandlers.openFind(),
+      revealInFileManager: () => localHandlers.revealInFileManager(),
+      toggleMode: () => localHandlers.toggleMode(),
+    },
+    getCurrentPath: () => currentPath,
+    getMode: () => currentMode,
+  });
+  window.addEventListener("beforeunload", () => contextMenuHandle.destroy());
 
   // Global Ctrl+R → project switcher (issue #27). Literal Ctrl on every
   // platform — Cmd+R stays free for reload. preventDefault keeps the webview

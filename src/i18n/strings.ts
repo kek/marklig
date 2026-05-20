@@ -106,6 +106,22 @@ export const EN = {
   "menu.help.shortcuts": "Keyboard Shortcuts",
   "menu.app.settings": "Settings…",
 
+  // Editor context menu (right-click). Distinct from the app menu keys
+  // because the labels are intentionally shorter — no trailing ellipsis
+  // on Find/Reveal here, matches native popover menu conventions.
+  "contextMenu.copy": "Copy",
+  "contextMenu.copyAsHtml": "Copy as HTML",
+  "contextMenu.cut": "Cut",
+  "contextMenu.paste": "Paste",
+  "contextMenu.undo": "Undo",
+  "contextMenu.redo": "Redo",
+  "contextMenu.find": "Find…",
+  "contextMenu.revealMac": "Reveal in Finder",
+  "contextMenu.revealWindows": "Show in Explorer",
+  "contextMenu.revealLinux": "Show in File Manager",
+  "contextMenu.switchToEdit": "Switch to Edit Mode",
+  "contextMenu.switchToReading": "Switch to Reading Mode",
+
   // Transient notices
   "notice.orphan": "This file is no longer on disk. Save As to choose a new location.",
   "notice.reloaded": "Reloaded from disk",
