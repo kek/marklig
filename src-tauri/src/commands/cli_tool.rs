@@ -22,15 +22,28 @@ fn render_cli_script(bundle_path: &str) -> String {
     format!(
         r#"#!/bin/bash
 # Märklig command-line launcher.
-# Resolves each arg to an absolute path without requiring it to exist —
-# `md newfile.md` should open a fresh buffer pointing at that location,
-# not silently drop the arg and just focus the window.
+# Resolves each arg to an absolute path. macOS `open` refuses to launch an
+# app when handed a non-existent file argument ("The file ... does not
+# exist."), so for Markdown extensions whose parent directory exists we
+# `touch` the file first; `open` then sees an existing (empty) file and
+# launches the app normally. Non-Markdown paths and paths whose parent
+# directory doesn't resolve are forwarded as-is and may still trigger the
+# `open` error — we don't want to materialise stray files for typos.
 BUNDLE={bundle}
 args=()
 for arg in "$@"; do
   dir="$(cd "$(dirname "$arg")" 2>/dev/null && pwd)"
   if [ -n "$dir" ]; then
-    args+=("$dir/$(basename "$arg")")
+    abs="$dir/$(basename "$arg")"
+    if [ ! -e "$abs" ]; then
+      lower="$(printf '%s' "$abs" | tr '[:upper:]' '[:lower:]')"
+      case "$lower" in
+        *.md|*.markdown|*.mdx|*.mdown)
+          touch "$abs" 2>/dev/null
+          ;;
+      esac
+    fi
+    args+=("$abs")
   fi
 done
 if [ ${{#args[@]}} -eq 0 ]; then
@@ -169,5 +182,55 @@ mod tests {
         // [ -e "$arg" ] guard silently dropped non-existent paths.
         let script = render_cli_script("/Applications/Märklig.app");
         assert!(!script.contains(r#"[ -e "$arg" ]"#));
+    }
+
+    #[test]
+    fn rendered_script_checks_markdown_extensions_case_insensitively() {
+        // `open` errors out on non-existent file args, so for Markdown paths
+        // we touch the file before forwarding. The set must match the Rust
+        // `is_markdown_ext` helper in commands/files.rs.
+        let script = render_cli_script("/Applications/Märklig.app");
+        assert!(
+            script.contains("*.md|*.markdown|*.mdx|*.mdown"),
+            "expected Markdown-extension case glob, got:\n{script}"
+        );
+        // Case-insensitive comparison so `Foo.MD` still matches.
+        assert!(script.contains("tr '[:upper:]' '[:lower:]'"));
+    }
+
+    #[test]
+    fn rendered_script_touches_only_when_missing_and_parent_resolved() {
+        let script = render_cli_script("/Applications/Märklig.app");
+        // Only touch if the absolute path does not already exist —
+        // we must not bump mtime on existing files.
+        assert!(script.contains(r#"if [ ! -e "$abs" ]"#));
+        // The touch is reached inside the `if [ -n "$dir" ]` branch, so
+        // it only runs when the parent directory resolved successfully.
+        let dir_idx = script
+            .find(r#"if [ -n "$dir" ]"#)
+            .expect("dir-resolved guard present");
+        let touch_idx = script.find("touch \"$abs\"").expect("touch present");
+        assert!(touch_idx > dir_idx, "touch must live inside the dir guard");
+    }
+
+    #[test]
+    fn rendered_script_never_creates_directories() {
+        // `md typo/typo/foo.md` should fail loudly via `open`, not silently
+        // materialise two stray directories.
+        let script = render_cli_script("/Applications/Märklig.app");
+        assert!(!script.contains("mkdir"));
+    }
+
+    #[test]
+    fn rendered_script_still_forwards_to_open_with_resolved_paths() {
+        let script = render_cli_script("/Applications/Märklig.app");
+        // Both branches (no args, args) still exec `open -a "$BUNDLE"`.
+        assert!(script.contains(r#"exec open -a "$BUNDLE""#));
+        assert!(script.contains(r#"exec open -a "$BUNDLE" "${args[@]}""#));
+        // Bundle is interpolated at install time, not resolved by name.
+        assert!(script.contains("BUNDLE='/Applications/Märklig.app'"));
+        // The resolved absolute path (existing OR newly-touched) is what
+        // gets appended to args.
+        assert!(script.contains(r#"args+=("$abs")"#));
     }
 }
