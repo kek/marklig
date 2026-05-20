@@ -75,7 +75,7 @@ import {
   type LocalMenuHandlers,
 } from "./shell/menu-actions";
 import { setActiveTheme } from "./editor/theme";
-import { loadRecents, clearRecents } from "./shell/recents";
+import { loadRecents, clearRecents, renameRecent } from "./shell/recents";
 import {
   loadRecentProjects,
   recordRecentProject,
@@ -226,6 +226,42 @@ async function bootstrap(): Promise<void> {
         toolbar.setMode("edit");
         document.documentElement.dataset.mode = "edit";
       }
+    },
+    onRename: async (fromAbs, toAbs) => {
+      // Refresh the tree immediately — the watcher's create+remove events
+      // will arrive eventually but the user just acted, so we close the
+      // visual gap.
+      await folder.refresh();
+      // If the renamed file is the currently-open one, re-target the
+      // buffer's path and the per-file watcher so subsequent saves write
+      // to the new path and external-change events for the new path
+      // reach this window. The watcher mark-self-write suppresses any
+      // delete event the rename fired from triggering the orphan flow.
+      if (currentPath === fromAbs) {
+        if (watcherHandle) {
+          await watcherHandle.markSelfWrite();
+          await watcherHandle.stop();
+          watcherHandle = null;
+        }
+        currentPath = toAbs;
+        await setWindowTitle(currentPath, dirtyTracker.isDirty());
+        toolbar.setPath(currentPath);
+        toc.setDocumentTitle(currentPath);
+        folder.setActiveFile(currentPath);
+        await renameRecent(fromAbs, toAbs);
+        await startWatching(currentPath);
+      } else {
+        // Not currently open — still keep recents tidy so subsequent
+        // Open Recent doesn't point at a missing path.
+        await renameRecent(fromAbs, toAbs);
+      }
+    },
+    onDelete: async (_absPath) => {
+      // The watcher's remove event drives the orphan flow when the
+      // deleted file is the one currently open — we intentionally don't
+      // add a second code path for that case (CLAUDE.md "match repo
+      // style"). All we have to do is close the visual gap on the tree.
+      await folder.refresh();
     },
   });
 

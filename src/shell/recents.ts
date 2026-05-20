@@ -27,3 +27,19 @@ export async function recordRecent(path: string): Promise<void> {
 export async function clearRecents(): Promise<void> {
   await setValue<string[]>(KEY, []);
 }
+
+/** Swap an old path for a new one in the recents list, preserving order.
+ * Used by the in-app rename flow so the recents menu doesn't point at a
+ * stale path on disk. If `oldPath` isn't in the list this is a no-op
+ * rather than a prepend — rename of a file that was never opened
+ * shouldn't surface it as a recent. */
+export async function renameRecent(oldPath: string, newPath: string): Promise<void> {
+  if (oldPath === newPath) return;
+  const current = await loadRecents();
+  const idx = current.indexOf(oldPath);
+  if (idx === -1) return;
+  // Also remove an existing newPath entry to keep the list deduped.
+  const filtered = current.filter((p, i) => i !== idx && p !== newPath);
+  filtered.splice(idx, 0, newPath);
+  await setValue(KEY, filtered.slice(0, RECENTS_LIMIT));
+}

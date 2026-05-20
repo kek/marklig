@@ -76,6 +76,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::files::read_text_file,
             commands::files::write_text_file,
+            commands::files::rename_file,
+            commands::files::trash_file,
             commands::watcher::watcher_start,
             commands::watcher::watcher_stop,
             commands::watcher::watcher_mark_self_write,
