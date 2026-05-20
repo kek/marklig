@@ -209,6 +209,23 @@ async function bootstrap(): Promise<void> {
     parent: toc.element,
     insertBefore: toc.element.firstElementChild as HTMLElement | undefined,
     onActivate: (path) => { void onFolderItemActivate(path); },
+    onCreate: async (absPath) => {
+      // The watcher will eventually re-list the folder, but kick the in-process
+      // refresh so the new file shows up immediately — and route through the
+      // same open path used by tree clicks so all the usual side-effects fire
+      // (recents, watcher, position restore). After the file is open, force
+      // edit mode: the file already exists on disk by this point (we just
+      // wrote it), so the isNew → auto-edit branch in loadAndApplyDoc doesn't
+      // fire. A freshly-created empty file always wants the editor focused.
+      await folder.refresh();
+      await onFolderItemActivate(absPath);
+      if (currentMode !== "edit") {
+        currentMode = "edit";
+        setMode(view, "edit", modeExtensions.edit);
+        toolbar.setMode("edit");
+        document.documentElement.dataset.mode = "edit";
+      }
+    },
   });
 
   // Scroll-sync: highlight the entry whose heading is at or above the topmost visible offset.
