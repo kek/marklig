@@ -46,7 +46,9 @@ test("clicking an external link in reading mode invokes the OS opener", async ({
     const eventListeners = new Map<number, (data: unknown) => void>();
 
     async function invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+      if (cmd === "path_exists") return true;
       if (cmd === "read_text_file") return sample;
+      if (cmd === "take_pending_open_paths") return [];
       if (cmd === "plugin:cli|argv") return [];
       if (cmd === "plugin:dialog|open") return "/virtual/sample.md";
       if (cmd === "plugin:dialog|ask") return false;

@@ -56,7 +56,9 @@ test("renders headings and code from a sample doc", async ({ page }) => {
 
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === "path_exists") return true;
         if (cmd === "read_text_file") return sample;
+        if (cmd === "take_pending_open_paths") return [];
         if (cmd === "plugin:cli|argv") return [];
         if (cmd === "plugin:dialog|open") return "/virtual/sample.md";
         if (cmd === "plugin:dialog|ask") return false;
