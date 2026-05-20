@@ -1,4 +1,10 @@
-import { listMarkdownFiles, saveDoc, type MarkdownFileEntry } from "../../shell/files";
+import {
+  listMarkdownFiles,
+  renameFile,
+  saveDoc,
+  trashFile,
+  type MarkdownFileEntry,
+} from "../../shell/files";
 import { t, tA11y } from "../../i18n/strings";
 import { getFolderSectionOpen, setFolderSectionOpen } from "../../shell/settings";
 
@@ -15,6 +21,14 @@ export interface FolderSidebarHandle {
    * (empty string for the root). Exposed for tests; the "+" button and
    * folder context menu call into the same path internally. */
   beginNewFile: (dirRelative?: string) => void;
+  /** Programmatically begin an inline rename on the file at `absolutePath`.
+   * Exposed for tests; the file context menu's "Rename…" item calls into
+   * the same path. No-op if the file isn't in the current tree. */
+  beginRename: (absolutePath: string) => void;
+  /** Programmatically begin the delete confirmation modal for `absolutePath`.
+   * Exposed for tests; the file context menu's "Delete…" item calls into
+   * the same path. */
+  beginDelete: (absolutePath: string) => void;
   destroy: () => void;
 }
 
@@ -28,6 +42,17 @@ export interface MountFolderOptions {
    * If absent, the "+" / "New File…" affordances are still shown but the
    * sidebar only writes the file — opening is left to the caller. */
   onCreate?: (absolutePath: string) => void | Promise<void>;
+  /** Called after a file has been renamed on disk. Both paths are absolute.
+   * The host re-targets `currentPath` if the renamed file is the open one,
+   * updates recents, and refreshes the tree. If absent, the rename menu
+   * item is hidden. */
+  onRename?: (fromAbsolute: string, toAbsolute: string) => void | Promise<void>;
+  /** Called after a file has been moved to trash on disk. The path is the
+   * absolute path that was deleted. The host generally doesn't need to do
+   * much here — the watcher's remove event drives the orphan flow when the
+   * deleted file was the open one — but the host may want to force an
+   * immediate tree refresh. If absent, the delete menu item is hidden. */
+  onDelete?: (absolutePath: string) => void | Promise<void>;
 }
 
 /** Markdown extensions matched case-insensitively. Mirrors `is_markdown_ext`
@@ -60,6 +85,36 @@ export function validateNewFilename(raw: string): NewFilenameResult {
   if (!hasExt) return { ok: true, filename: `${trimmed}.md` };
   // Explicit extension — keep verbatim. (We only special-case "no extension";
   // a user who typed `.txt` gets `.txt`.)
+  return { ok: true, filename: trimmed };
+}
+
+/** Outcome of {@link validateRenameFilename}. `unchanged` is the
+ * silent-close path (user pressed Enter on the same name); siblings is the
+ * pre-collision-checked input the caller still needs to match against. */
+export type RenameFilenameResult =
+  | { ok: true; filename: string }
+  | { ok: true; unchanged: true }
+  | { ok: false; kind: "empty" | "slash" };
+
+/** Normalize a user-typed rename for an existing file. Unlike
+ * {@link validateNewFilename}, we do NOT auto-append `.md` — the user
+ * already had an extension on the existing file and may be deliberately
+ * changing it (e.g. `.md` → `.mdx`). Empty extension is allowed; the OS
+ * will treat it as an extensionless file.
+ *
+ *  - Trims surrounding whitespace.
+ *  - Rejects empty / whitespace-only input.
+ *  - Rejects names containing `/` or `\` (subdir moves out of scope).
+ *  - Returns `{ ok: true, unchanged: true }` if the trimmed name equals
+ *    `currentFilename` — caller closes the input silently with no I/O. */
+export function validateRenameFilename(
+  raw: string,
+  currentFilename: string,
+): RenameFilenameResult {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { ok: false, kind: "empty" };
+  if (/[\\/]/.test(trimmed)) return { ok: false, kind: "slash" };
+  if (trimmed === currentFilename) return { ok: true, unchanged: true };
   return { ok: true, filename: trimmed };
 }
 
@@ -253,6 +308,11 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
   let pendingCreateDir: string | null = null;
   /** Last validation error to show beneath the inline input. */
   let pendingCreateError: string | null = null;
+  /** When non-null, the file row at this absolute path is replaced by an
+   * inline rename input pre-filled with the current basename. */
+  let pendingRenamePath: string | null = null;
+  /** Last validation error for the active rename input. */
+  let pendingRenameError: string | null = null;
 
   function basename(path: string): string {
     const m = path.match(/[^\\/]+$/);
@@ -420,19 +480,27 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
             }
           }
         } else {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "viewer-folder-item viewer-folder-file";
-          btn.style.setProperty("--depth", String(depth));
-          btn.title = node.relative;
-          btn.dataset.path = node.path;
-          btn.textContent = node.name;
-          if (node.path === activePath) {
-            btn.classList.add("active");
-            btn.setAttribute("aria-current", "true");
+          if (pendingRenamePath === node.path) {
+            renderRenameInput(list, depth, node);
+          } else {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "viewer-folder-item viewer-folder-file";
+            btn.style.setProperty("--depth", String(depth));
+            btn.title = node.relative;
+            btn.dataset.path = node.path;
+            btn.textContent = node.name;
+            if (node.path === activePath) {
+              btn.classList.add("active");
+              btn.setAttribute("aria-current", "true");
+            }
+            btn.addEventListener("click", () => opts.onActivate(node.path));
+            btn.addEventListener("contextmenu", (e) => {
+              e.preventDefault();
+              showFileContextMenu(e.clientX, e.clientY, node);
+            });
+            list.append(btn);
           }
-          btn.addEventListener("click", () => opts.onActivate(node.path));
-          list.append(btn);
         }
       }
     };
@@ -449,6 +517,266 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     pendingCreateDir = null;
     pendingCreateError = null;
     render();
+  }
+
+  /** Render the inline rename input in place of a file row, pre-filled with
+   * the file's current basename and selection covering the stem (everything
+   * before the final dot) so the user replaces the stem and keeps the
+   * extension by default. Same UX as `renderNewFileInput` but anchored to
+   * an existing node. */
+  function renderRenameInput(parentEl: HTMLElement, depth: number, node: FileNode): void {
+    const row = document.createElement("div");
+    row.className = "viewer-folder-item viewer-folder-new-file-row viewer-folder-rename-row";
+    row.style.setProperty("--depth", String(depth));
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "viewer-folder-new-file-input viewer-folder-rename-input";
+    input.value = node.name;
+    input.setAttribute("aria-label", t("sidebar.folder.renameAriaLabel"));
+    input.spellcheck = false;
+    row.append(input);
+
+    if (pendingRenameError) {
+      const err = document.createElement("p");
+      err.className = "viewer-folder-new-file-error";
+      err.setAttribute("role", "alert");
+      err.textContent = pendingRenameError;
+      row.append(err);
+    }
+
+    parentEl.append(row);
+
+    queueMicrotask(() => {
+      input.focus();
+      const dotIdx = input.value.lastIndexOf(".");
+      const end = dotIdx > 0 ? dotIdx : input.value.length;
+      try { input.setSelectionRange(0, end); } catch { /* jsdom quirks */ }
+    });
+
+    let cancelled = false;
+    input.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (cancelled) return;
+        const next = document.activeElement;
+        if (next instanceof HTMLElement && next.classList.contains("viewer-folder-rename-input")) {
+          return;
+        }
+        cancelRename();
+      }, 0);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void commitRename(input.value, node);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelled = true;
+        cancelRename();
+      }
+    });
+  }
+
+  function cancelRename(): void {
+    if (pendingRenamePath == null) return;
+    pendingRenamePath = null;
+    pendingRenameError = null;
+    render();
+  }
+
+  /** Find a FileNode by absolute path in the in-memory tree. */
+  function findFile(absPath: string): FileNode | null {
+    const stack: TreeNode[] = [...tree.children];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      if (node.kind === "file") {
+        if (node.path === absPath) return node;
+      } else {
+        for (const c of node.children) stack.push(c);
+      }
+    }
+    return null;
+  }
+
+  /** Find the DirNode containing the file at `relativePath`. Returns the
+   * root if the file is at top level, or null if the file isn't in the
+   * tree at all. */
+  function findParentDir(relativePath: string): DirNode | null {
+    const dirRel = dirnameOf(relativePath);
+    return findDir(dirRel);
+  }
+
+  async function commitRename(rawName: string, node: FileNode): Promise<void> {
+    if (pendingRenamePath !== node.path || currentRoot == null) return;
+
+    const result = validateRenameFilename(rawName, node.name);
+    if (!result.ok) {
+      pendingRenameError =
+        result.kind === "empty"
+          ? t("sidebar.folder.renameErrorEmpty")
+          : t("sidebar.folder.renameErrorSlash");
+      render();
+      return;
+    }
+    if ("unchanged" in result) {
+      cancelRename();
+      return;
+    }
+
+    // Collision against siblings in the same folder. We compare against the
+    // in-memory tree; the Rust side re-checks defensively (tree may be a
+    // few hundred ms stale behind the watcher).
+    const parent = findParentDir(node.relative) ?? tree;
+    const collision = parent.children.some(
+      (c) => c.kind === "file" && c !== node && c.name === result.filename,
+    );
+    if (collision) {
+      pendingRenameError = t("sidebar.folder.renameErrorExists");
+      render();
+      return;
+    }
+
+    const dirRelative = dirnameOf(node.relative);
+    const toAbs = joinFolderPath(currentRoot, dirRelative, result.filename);
+    try {
+      await renameFile(node.path, toAbs);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      pendingRenameError = tA11y("sidebar.folder.renameErrorWrite", { message: msg });
+      render();
+      return;
+    }
+
+    const fromAbs = node.path;
+    pendingRenamePath = null;
+    pendingRenameError = null;
+    render();
+    try {
+      await opts.onRename?.(fromAbs, toAbs);
+    } catch (err) {
+      console.warn("onRename hook threw", err);
+    }
+  }
+
+  function beginRename(absolutePath: string): void {
+    if (!currentRoot) return;
+    const node = findFile(absolutePath);
+    if (!node) return;
+    pendingRenamePath = absolutePath;
+    pendingRenameError = null;
+    // Expand any ancestor folders so the rename input is actually visible
+    // when triggered from a deeply-nested file.
+    expandAncestors(dirnameOf(node.relative));
+    if (!sectionOpen) {
+      sectionOpen = true;
+      setFolderSectionOpen(true);
+      applySectionState();
+    }
+    render();
+  }
+
+  /** Show a confirmation modal "Delete <name>?". Cancel has focus by
+   * default so a stray Enter doesn't trigger deletion. Returns the chosen
+   * action via promise. */
+  function promptDeleteConfirm(filename: string): Promise<"delete" | "cancel"> {
+    return new Promise((resolve) => {
+      const previouslyFocused = document.activeElement as HTMLElement | null;
+
+      const overlay = document.createElement("div");
+      overlay.className = "viewer-reconcile-overlay viewer-folder-delete-overlay";
+
+      const card = document.createElement("div");
+      card.className = "viewer-reconcile-card viewer-folder-delete-card";
+      card.setAttribute("role", "alertdialog");
+      card.setAttribute("aria-modal", "true");
+      card.setAttribute("aria-labelledby", "viewer-folder-delete-title");
+      card.setAttribute("aria-describedby", "viewer-folder-delete-body");
+
+      const title = document.createElement("h3");
+      title.id = "viewer-folder-delete-title";
+      title.textContent = t("sidebar.folder.deleteTitle");
+      const body = document.createElement("p");
+      body.id = "viewer-folder-delete-body";
+      body.textContent = tA11y("sidebar.folder.deleteBody", { name: filename });
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "viewer-toolbar-btn";
+      cancelBtn.textContent = t("sidebar.folder.deleteCancel");
+
+      const confirmBtn = document.createElement("button");
+      confirmBtn.type = "button";
+      confirmBtn.className = "viewer-toolbar-btn viewer-folder-delete-confirm";
+      confirmBtn.textContent = t("sidebar.folder.deleteConfirm");
+
+      const buttons = document.createElement("div");
+      buttons.className = "viewer-reconcile-buttons";
+      // Cancel comes first visually so Tab from Cancel lands on Confirm,
+      // matching the reconcile modal layout. Cancel still gets focus on open.
+      buttons.append(cancelBtn, confirmBtn);
+
+      card.append(title, body, buttons);
+
+      function close(choice: "delete" | "cancel"): void {
+        document.body.removeChild(overlay);
+        document.removeEventListener("keydown", onKey, true);
+        previouslyFocused?.focus?.();
+        resolve(choice);
+      }
+      function onKey(e: KeyboardEvent): void {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          close("cancel");
+          return;
+        }
+        if (e.key !== "Tab") return;
+        const active = document.activeElement;
+        if (e.shiftKey && active === cancelBtn) {
+          e.preventDefault();
+          confirmBtn.focus();
+        } else if (!e.shiftKey && active === confirmBtn) {
+          e.preventDefault();
+          cancelBtn.focus();
+        }
+      }
+      cancelBtn.addEventListener("click", () => close("cancel"));
+      confirmBtn.addEventListener("click", () => close("delete"));
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) close("cancel");
+      });
+      document.addEventListener("keydown", onKey, true);
+
+      overlay.append(card);
+      document.body.append(overlay);
+      // Focus Cancel — destructive default safety. A stray Enter on the
+      // modal hits Cancel, not Confirm.
+      cancelBtn.focus();
+    });
+  }
+
+  async function beginDelete(absolutePath: string): Promise<void> {
+    const node = findFile(absolutePath);
+    if (!node) return;
+    const choice = await promptDeleteConfirm(node.name);
+    if (choice !== "delete") return;
+    try {
+      await trashFile(node.path);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // No inline surface for delete errors — surface as a transient
+      // notice. The reconcile-style notice classes are already in CSS.
+      const note = document.createElement("div");
+      note.className = "viewer-orphan-notice";
+      note.textContent = tA11y("sidebar.folder.deleteErrorWrite", { message: msg });
+      document.body.append(note);
+      setTimeout(() => note.remove(), 6000);
+      return;
+    }
+    try {
+      await opts.onDelete?.(node.path);
+    } catch (err) {
+      console.warn("onDelete hook threw", err);
+    }
   }
 
   async function commitNewFile(rawName: string): Promise<void> {
@@ -529,6 +857,69 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
       beginNewFile(dirRelative);
     });
     menu.append(item);
+
+    const onAwayClick = (e: MouseEvent): void => {
+      if (e.target instanceof Node && menu.contains(e.target)) return;
+      menu.remove();
+      document.removeEventListener("mousedown", onAwayClick, true);
+      document.removeEventListener("keydown", onEsc, true);
+    };
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        menu.remove();
+        document.removeEventListener("mousedown", onAwayClick, true);
+        document.removeEventListener("keydown", onEsc, true);
+      }
+    };
+    document.addEventListener("mousedown", onAwayClick, true);
+    document.addEventListener("keydown", onEsc, true);
+
+    document.body.append(menu);
+  }
+
+  /** Show the file-node right-click menu: Open / — / Rename… / Delete….
+   * Rename and Delete items are omitted when the host didn't wire the
+   * corresponding callback, so the sidebar can be reused in read-only
+   * embeddings without dead menu items. */
+  function showFileContextMenu(x: number, y: number, node: FileNode): void {
+    document.querySelectorAll(".viewer-folder-context-menu").forEach((el) => el.remove());
+
+    const menu = document.createElement("div");
+    menu.className = "viewer-folder-context-menu";
+    menu.setAttribute("role", "menu");
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+
+    const makeItem = (label: string, onClick: () => void): HTMLButtonElement => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "viewer-folder-context-menu-item";
+      item.setAttribute("role", "menuitem");
+      item.textContent = label;
+      item.addEventListener("click", () => {
+        menu.remove();
+        onClick();
+      });
+      return item;
+    };
+
+    const makeSeparator = (): HTMLDivElement => {
+      const sep = document.createElement("div");
+      sep.className = "viewer-folder-context-menu-separator";
+      sep.setAttribute("role", "separator");
+      return sep;
+    };
+
+    menu.append(makeItem(t("sidebar.folder.openMenu"), () => opts.onActivate(node.path)));
+    if (opts.onRename || opts.onDelete) {
+      menu.append(makeSeparator());
+    }
+    if (opts.onRename) {
+      menu.append(makeItem(t("sidebar.folder.renameMenu"), () => beginRename(node.path)));
+    }
+    if (opts.onDelete) {
+      menu.append(makeItem(t("sidebar.folder.deleteMenu"), () => { void beginDelete(node.path); }));
+    }
 
     const onAwayClick = (e: MouseEvent): void => {
       if (e.target instanceof Node && menu.contains(e.target)) return;
@@ -670,6 +1061,8 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     refresh,
     setActiveFile,
     beginNewFile,
+    beginRename,
+    beginDelete: (absolutePath: string) => { void beginDelete(absolutePath); },
     destroy() {
       section.remove();
     },

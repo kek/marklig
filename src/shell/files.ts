@@ -37,6 +37,19 @@ export async function saveDoc(path: string, contents: string): Promise<void> {
   await invoke("write_text_file", { path, contents });
 }
 
+/** Rename a file on disk via the Rust shell. Rejects when `to` already
+ * exists — callers (the sidebar rename flow) should pre-check the in-memory
+ * tree and surface a friendly inline error before this throws. */
+export async function renameFile(from: string, to: string): Promise<void> {
+  await invoke("rename_file", { from, to });
+}
+
+/** Move a file to the OS trash. Falls back to plain unlink on the Rust side
+ * if the trash call errors; the frontend doesn't need to distinguish. */
+export async function trashFile(path: string): Promise<void> {
+  await invoke("trash_file", { path });
+}
+
 export interface MarkdownFileEntry {
   path: string;
   /** Path relative to the folder root, e.g. "docs/intro.md". */

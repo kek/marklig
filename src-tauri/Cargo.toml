@@ -40,6 +40,9 @@ local-ip-address = "0.6"
 notify = "6"
 notify-debouncer-full = "0.3"
 ignore = "0.4"
+# Cross-platform "move to OS trash" with an unlink fallback in the command
+# wrapper. macOS NSFileManager, Windows IFileOperation, freedesktop on Linux.
+trash = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # OS-level recent-documents integration (NSDocumentController). Surfaces

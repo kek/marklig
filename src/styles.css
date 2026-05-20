@@ -817,6 +817,17 @@ html.theme-dark  { color-scheme: dark; }
   background: rgba(0, 0, 0, 0.06);
   outline: none;
 }
+.viewer-folder-context-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--rule);
+}
+/* Destructive emphasis on the delete confirm button — same shape as the
+   neutral reconcile buttons, with a danger-coloured accent so the user
+   knows which side of the modal does the irreversible thing. */
+.viewer-folder-delete-confirm {
+  color: var(--danger, #c0392b);
+}
 .viewer-folder--collapsed .viewer-folder-heading {
   margin-bottom: 0;
 }

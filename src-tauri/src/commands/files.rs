@@ -32,6 +32,39 @@ pub fn write_text_file(path: String, contents: String) -> Result<(), FileError> 
     std::fs::write(&pb, contents.as_bytes()).map_err(|e| FileError::Io(e.to_string()))
 }
 
+/// Rename a file on disk. Rejects when `to` already exists so the sidebar's
+/// inline rename never silently clobbers a sibling — the frontend already
+/// pre-checks against the in-memory tree, but we re-check here because the
+/// tree can be a few hundred ms behind the watcher. Desktop-only: the mobile
+/// shell has no file-tree UI and Android sandboxing makes plain
+/// `std::fs::rename` unreliable across SAF URIs.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn rename_file(from: String, to: String) -> Result<(), FileError> {
+    let to_path = std::path::PathBuf::from(&to);
+    if to_path.exists() {
+        return Err(FileError::Io(format!("target already exists: {to}")));
+    }
+    std::fs::rename(&from, &to).map_err(|e| FileError::Io(e.to_string()))
+}
+
+/// Move a file to the OS trash. Falls back to `std::fs::remove_file` if the
+/// platform trash call errors — better to lose the file than to leave the
+/// user with a sidebar entry they can't delete. The fallback is logged so
+/// power users see it; the frontend doesn't surface trash-vs-unlink to the
+/// user. Desktop-only for the same reasons as `rename_file`.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn trash_file(path: String) -> Result<(), FileError> {
+    match trash::delete(&path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            eprintln!("trash failed, falling back to unlink: {e}");
+            std::fs::remove_file(&path).map_err(|e| FileError::Io(e.to_string()))
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RecoveryEntry {
     pub original_path: String,
@@ -581,6 +614,84 @@ mod tests {
         // Just ensure neither call panics.
         let _ = walk_for_markdown(&root);
         let _ = is_path_visible(&root, &root.join("link-wt/inner.md"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn rename_file_rejects_when_target_exists() {
+        let root = unique_tempdir("rename-collision");
+        let from = root.join("a.md");
+        let to = root.join("b.md");
+        std::fs::write(&from, b"# a\n").unwrap();
+        std::fs::write(&to, b"# b\n").unwrap();
+
+        let err = rename_file(
+            from.to_string_lossy().to_string(),
+            to.to_string_lossy().to_string(),
+        )
+        .expect_err("rename onto existing file should error");
+        match err {
+            FileError::Io(msg) => assert!(msg.contains("target already exists")),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+        // Both files still on disk — no destructive side effect.
+        assert!(from.exists());
+        assert!(to.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn rename_file_moves_source_to_target() {
+        let root = unique_tempdir("rename-ok");
+        let from = root.join("old.md");
+        let to = root.join("new.md");
+        std::fs::write(&from, b"# old\n").unwrap();
+
+        rename_file(
+            from.to_string_lossy().to_string(),
+            to.to_string_lossy().to_string(),
+        )
+        .expect("rename should succeed");
+
+        assert!(!from.exists(), "old path should be gone");
+        assert!(to.exists(), "new path should be present");
+        let contents = std::fs::read_to_string(&to).unwrap();
+        assert_eq!(contents, "# old\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn trash_file_removes_existing_file() {
+        // On CI runners the `trash` crate may or may not be wired up to a
+        // working backend; we don't care which branch fires. After the call
+        // returns Ok, the file must be gone (either trashed or unlinked).
+        let root = unique_tempdir("trash-ok");
+        let p = root.join("gone.md");
+        std::fs::write(&p, b"# gone\n").unwrap();
+
+        trash_file(p.to_string_lossy().to_string()).expect("trash or unlink should succeed");
+        assert!(!p.exists(), "file should no longer exist on the original path");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn trash_file_errors_for_missing_path() {
+        // Exercise the fallback path: a non-existent path produces a trash
+        // error, the fallback `remove_file` then also errors, and that's the
+        // FileError we surface to the frontend.
+        let root = unique_tempdir("trash-missing");
+        let p = root.join("does-not-exist.md");
+
+        let err = trash_file(p.to_string_lossy().to_string())
+            .expect_err("trashing a missing path should error");
+        match err {
+            FileError::Io(_) => {}
+            other => panic!("unexpected error variant: {other:?}"),
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
