@@ -175,10 +175,15 @@ export function mountContextMenu(opts: MountContextMenuOptions): ContextMenuHand
   let openPopup: { close: () => void } | null = null;
 
   const onContextMenu = (event: Event): void => {
-    // Suppress the native menu unconditionally on the editor surface.
-    // We accept the loss of native Look Up / Speech / Translate in
-    // exchange for not shipping the dead-item set the native menu had
-    // for read-only views.
+    const mode = opts.getMode();
+
+    // Only override the native menu in reading mode. In edit mode the
+    // native menu's items (spelling suggestions, Look Up, Make Uppercase,
+    // etc.) all actually work against a writable buffer — replacing it
+    // with our custom list would be a downgrade. The bug we were
+    // chasing in #103 was specifically reading-mode no-ops.
+    if (mode !== "reading") return;
+
     event.preventDefault();
 
     const me = event as MouseEvent;
@@ -188,7 +193,7 @@ export function mountContextMenu(opts: MountContextMenuOptions): ContextMenuHand
 
     const view = opts.view;
     const state: ContextMenuState = {
-      mode: opts.getMode(),
+      mode,
       hasSelection: view.state.selection.main.empty === false,
       hasPath: opts.getCurrentPath() !== null,
       canUndo: undoDepth(view.state) > 0,

@@ -159,9 +159,10 @@ test("right-click opens the custom menu; mode toggle swaps the item set", async 
   // Verify the source markup is now visible (edit mode).
   await expect(page.locator(".cm-line").filter({ hasText: "# Hello" })).toBeVisible();
 
-  // Right-click again — now the edit-mode menu should appear.
-  // Use page.mouse: Playwright's .click({button: "right"}) doesn't reliably
-  // fire contextmenu in webkit/chromium; mouse.click with right button does.
+  // Right-click again in edit mode. The custom menu should NOT appear —
+  // we hand back to the platform's native menu so its useful items
+  // (spelling suggestions, Look Up, Make Uppercase) remain available
+  // against the now-writable buffer.
   {
     const handle = page.locator(".cm-line").first();
     const box = await handle.boundingBox();
@@ -170,8 +171,7 @@ test("right-click opens the custom menu; mode toggle swaps the item set", async 
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
   }
-  await expect(menu).toBeVisible();
-  await expect(menu).toContainText("Paste");
-  await expect(menu).toContainText("Find");
-  await expect(menu).toContainText("Switch to Reading Mode");
+  // Give any popup a beat to mount, then assert ours did not.
+  await page.waitForTimeout(100);
+  await expect(menu).toBeHidden();
 });

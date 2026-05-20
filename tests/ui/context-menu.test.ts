@@ -323,7 +323,11 @@ describe("mountContextMenu — DOM integration", () => {
     handle.destroy();
   });
 
-  it("edit mode with empty history: Paste, Find, Reveal, Switch — no Undo/Redo", () => {
+  it("edit mode: does NOT intercept — native menu stays in charge", () => {
+    // In edit mode the native context menu's items (spelling suggestions,
+    // Look Up, Make Uppercase, etc.) all work against a writable buffer,
+    // so the custom override is reading-mode-only. Right-click in edit
+    // mode should leave defaultPrevented false and render no popup.
     view = makeView();
     const handle = mountContextMenu({
       view,
@@ -331,40 +335,19 @@ describe("mountContextMenu — DOM integration", () => {
       getCurrentPath: () => "/tmp/foo.md",
       getMode: () => "edit",
     });
-    rightClick(view.dom);
-    const renderedIds = getItems().map((el) => el.dataset.id);
-    expect(renderedIds).toEqual([
-      "paste",
-      "find",
-      "revealInFileManager",
-      "toggleMode",
-    ]);
+    const ev = rightClick(view.dom);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(getPopup()).toBeNull();
     handle.destroy();
   });
 
-  it("edit mode with undoable history: Undo appears", () => {
-    view = makeView();
-    // Trigger an edit so undoDepth > 0.
-    view.dispatch({ changes: { from: 0, insert: "X" } });
-    const handle = mountContextMenu({
-      view,
-      handlers,
-      getCurrentPath: () => "/tmp/foo.md",
-      getMode: () => "edit",
-    });
-    rightClick(view.dom);
-    const renderedIds = getItems().map((el) => el.dataset.id);
-    expect(renderedIds).toContain("undo");
-    handle.destroy();
-  });
-
-  it("no currentPath: Reveal in Finder is omitted", () => {
+  it("no currentPath in reading mode: Reveal in Finder is omitted", () => {
     view = makeView();
     const handle = mountContextMenu({
       view,
       handlers,
       getCurrentPath: () => null,
-      getMode: () => "edit",
+      getMode: () => "reading",
     });
     rightClick(view.dom);
     const renderedIds = getItems().map((el) => el.dataset.id);
