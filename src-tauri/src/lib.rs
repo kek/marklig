@@ -5,6 +5,8 @@ mod mac_tao_patch;
 mod pairing;
 #[cfg(desktop)]
 mod pairing_ws;
+#[cfg(desktop)]
+pub mod typst;
 
 #[cfg(desktop)]
 use commands::folder_watcher::FolderWatcherState;
@@ -67,6 +69,7 @@ pub fn run() {
         .manage(FolderWatcherState::new())
         .manage(pairing::PairingState::new())
         .manage(std::sync::Arc::new(pairing_ws::WsServerState::new()))
+        .manage(self::typst::TypstState::new())
         .setup(|app| {
             // Spin up the pairing-WS server. Runs for the app's lifetime
             // and only accepts handshakes when armed via pairing_start.
@@ -99,6 +102,9 @@ pub fn run() {
             pairing::pairing_unpair,
             pairing::folder_sync_enable,
             pairing::folder_sync_disable,
+            self::typst::typst_open,
+            self::typst::typst_compile,
+            self::typst::typst_close,
             take_pending_open_paths,
         ]);
 
