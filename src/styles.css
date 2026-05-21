@@ -1039,6 +1039,14 @@ body.preview-splitter-dragging .preview-splitter {
   text-decoration-skip-ink: none;
 }
 
+/* When a Typst compile fails but we still have prior pages on screen, we
+ * dim them rather than blanking the pane — the user keeps reading context
+ * while they fix the error. Removed on the next successful compile. */
+.preview-pane-body.typst-pane-stale {
+  opacity: 0.5;
+  filter: saturate(0.7);
+}
+
 /* Each Typst-rendered page lives in its own div so the pane can scroll
  * vertically through a multi-page document. */
 .typst-page {
