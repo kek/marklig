@@ -1,4 +1,5 @@
 import { createEditor, setMode } from "./editor/editor";
+import { isSupportedExtension } from "./format";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
@@ -1179,15 +1180,15 @@ async function bootstrap(): Promise<void> {
       return;
     }
 
-    const mdFiles = paths.filter((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
-    if (mdFiles.length === 0) return;
+    const docFiles = paths.filter((p) => isSupportedExtension(p));
+    if (docFiles.length === 0) return;
 
-    // First .md goes to the current window. Any additional ones spawn new
+    // First doc goes to the current window. Any additional ones spawn new
     // windows pre-loaded with their respective files — so dragging five
-    // .md files yields five windows, each on its own document.
-    await openWithDirtyPrompt(mdFiles[0]);
-    for (let i = 1; i < mdFiles.length; i++) {
-      await spawnNewWindow(mdFiles[i]);
+    // doc files yields five windows, each on its own document.
+    await openWithDirtyPrompt(docFiles[0]);
+    for (let i = 1; i < docFiles.length; i++) {
+      await spawnNewWindow(docFiles[i]);
     }
   });
   window.addEventListener("beforeunload", () => unsubDrop());
@@ -1230,10 +1231,10 @@ async function bootstrap(): Promise<void> {
       }
       return;
     }
-    const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
-    if (!md) return;
+    const doc = paths.find((p) => isSupportedExtension(p));
+    if (!doc) return;
     let targetRoot: string | null = null;
-    try { targetRoot = await resolveFolderRoot(md); } catch { /* fall through */ }
+    try { targetRoot = await resolveFolderRoot(doc); } catch { /* fall through */ }
     let matchedLabel: string | null = null;
     if (targetRoot) {
       for (const [label, folder] of folderByLabel) {
@@ -1245,13 +1246,13 @@ async function bootstrap(): Promise<void> {
       }
     }
     if (matchedLabel) {
-      await emitTo(matchedLabel, "viewer:open-file", md);
+      await emitTo(matchedLabel, "viewer:open-file", doc);
       if (matchedLabel !== selfLabel) {
         const w = await WebviewWindow.getByLabel(matchedLabel);
         await w?.setFocus();
       }
     } else {
-      await spawnNewWindow(md);
+      await spawnNewWindow(doc);
     }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
