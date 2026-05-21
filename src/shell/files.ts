@@ -61,11 +61,12 @@ export async function pickFolder(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
-/** Recursively walk `root` for .md/.markdown/.mdx/.mdown files, skipping
- * common ignored directories (node_modules, .git, target, etc.). The Rust
- * side also caps depth and entry count to prevent runaway scans. */
+/** Recursively walk `root` for supported document files (.md/.markdown/.mdx/
+ * .mdown/.typ), skipping common ignored directories (node_modules, .git,
+ * target, etc.). The Rust side also caps depth and entry count to prevent
+ * runaway scans. */
 export async function listMarkdownFiles(root: string): Promise<MarkdownFileEntry[]> {
-  return await invoke<MarkdownFileEntry[]>("list_markdown_files", { root });
+  return await invoke<MarkdownFileEntry[]>("list_documents", { root });
 }
 
 /** True when `path` is a directory on disk. Used by drag-drop routing to

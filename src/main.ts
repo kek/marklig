@@ -1599,7 +1599,7 @@ async function waitForOpenRequest(
       // the single argument is a directory. (We don't currently support
       // launching with multiple folder args — `md a/ b/` would only open
       // the first.)
-      const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+      const md = paths.find((p) => isSupportedExtension(p));
       if (md) {
         clearTimeout(timer);
         unlisten?.();
@@ -1637,7 +1637,7 @@ async function classifyOpenPaths(
   paths: string[],
 ): Promise<{ kind: "file" | "directory"; path: string } | null> {
   if (paths.length === 0) return null;
-  const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+  const md = paths.find((p) => isSupportedExtension(p));
   if (md) return { kind: "file", path: md };
   if (paths.length === 1) {
     try {
@@ -1656,7 +1656,7 @@ async function firstMarkdownArg(): Promise<string | null> {
     const { invoke } = await import("@tauri-apps/api/core");
     const argv = await invoke<string[]>("plugin:cli|argv").catch(() => null);
     if (!argv) return null;
-    return argv.find((a) => /\.(md|markdown|mdx|mdown)$/i.test(a)) ?? null;
+    return argv.find((a) => isSupportedExtension(a)) ?? null;
   } catch {
     return null;
   }

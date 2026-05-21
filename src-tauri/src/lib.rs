@@ -87,7 +87,7 @@ pub fn run() {
             commands::files::write_recovery,
             commands::files::read_all_recovery,
             commands::files::clear_recovery,
-            commands::files::list_markdown_files,
+            commands::files::list_documents,
             commands::files::is_directory,
             commands::files::path_exists,
             commands::files::resolve_folder_root,

@@ -137,7 +137,7 @@ pub fn clear_recovery(app: tauri::AppHandle, original_path: String) -> Result<()
 }
 
 #[derive(serde::Serialize)]
-pub struct MarkdownFileEntry {
+pub struct DocumentEntry {
     pub path: String,
     pub relative: String,
 }
@@ -175,10 +175,10 @@ pub(crate) fn is_ignored(name: &str) -> bool {
     )
 }
 
-fn is_markdown_ext(ext: &str) -> bool {
+fn is_supported_ext(ext: &str) -> bool {
     matches!(
         ext.to_ascii_lowercase().as_str(),
-        "md" | "markdown" | "mdx" | "mdown"
+        "md" | "markdown" | "mdx" | "mdown" | "typ"
     )
 }
 
@@ -282,23 +282,24 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, FileError> {
+pub fn list_documents(root: String) -> Result<Vec<DocumentEntry>, FileError> {
     let root_path = PathBuf::from(&root);
-    let out = walk_for_markdown(&root_path);
+    let out = walk_for_documents(&root_path);
     Ok(out)
 }
 
-/// Walk `root` collecting markdown files, honoring `.gitignore` (and friends)
-/// when the root is inside a Git repo. Uses `ignore::WalkBuilder` — same
-/// engine ripgrep uses — so nested ignores, `.git/info/exclude`, and the
-/// user's global `core.excludesFile` are all handled.
+/// Walk `root` collecting supported documents (Markdown + Typst), honoring
+/// `.gitignore` (and friends) when the root is inside a Git repo. Uses
+/// `ignore::WalkBuilder` — same engine ripgrep uses — so nested ignores,
+/// `.git/info/exclude`, and the user's global `core.excludesFile` are all
+/// handled.
 ///
 /// In addition to whatever git ignores, `is_ignored()` still applies as a
 /// `filter_entry` so non-Git projects (and Git projects that didn't bother to
 /// ignore `node_modules` etc.) stay clean. We keep `.hidden(false)` so
-/// directories like `.github` and `.claude`, which often hold real Markdown,
+/// directories like `.github` and `.claude`, which often hold real documents,
 /// remain visible — see the comment on `is_ignored`.
-fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
+fn walk_for_documents(root: &std::path::Path) -> Vec<DocumentEntry> {
     use ignore::WalkBuilder;
 
     let root_for_filter = root.to_path_buf();
@@ -333,7 +334,7 @@ fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
             true
         });
 
-    let mut out: Vec<MarkdownFileEntry> = Vec::new();
+    let mut out: Vec<DocumentEntry> = Vec::new();
     for result in builder.build() {
         if out.len() >= MAX_FOLDER_ENTRIES {
             break;
@@ -355,7 +356,7 @@ fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
             Some(e) => e,
             None => continue,
         };
-        if !is_markdown_ext(ext) {
+        if !is_supported_ext(ext) {
             continue;
         }
         let rel = path
@@ -363,7 +364,7 @@ fn walk_for_markdown(root: &std::path::Path) -> Vec<MarkdownFileEntry> {
             .unwrap_or(path)
             .to_string_lossy()
             .to_string();
-        out.push(MarkdownFileEntry {
+        out.push(DocumentEntry {
             path: path.to_string_lossy().to_string(),
             relative: rel,
         });
@@ -405,7 +406,7 @@ mod tests {
             .expect("write HEAD");
     }
 
-    fn relatives(entries: &[MarkdownFileEntry]) -> Vec<String> {
+    fn relatives(entries: &[DocumentEntry]) -> Vec<String> {
         let mut v: Vec<String> = entries.iter().map(|e| e.relative.replace('\\', "/")).collect();
         v.sort();
         v
@@ -421,7 +422,7 @@ mod tests {
         std::fs::create_dir_all(root.join("secret")).unwrap();
         std::fs::write(root.join("secret/leaked.md"), b"# leaked\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
         assert_eq!(got, vec!["notes.md".to_string(), "top.md".to_string()]);
@@ -438,7 +439,7 @@ mod tests {
         std::fs::write(root.join("sub/bar.draft.md"), b"# nested draft\n").unwrap();
         std::fs::write(root.join("sub/keep.md"), b"# keep\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
         assert_eq!(got, vec!["ok.md".to_string(), "sub/keep.md".to_string()]);
@@ -454,7 +455,7 @@ mod tests {
         std::fs::create_dir_all(root.join("secret")).unwrap();
         std::fs::write(root.join("secret/leaked.md"), b"# leaked\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
         // Both files surface; the .gitignore is inert without a Git context.
@@ -474,7 +475,7 @@ mod tests {
         std::fs::create_dir_all(root.join("node_modules/foo")).unwrap();
         std::fs::write(root.join("node_modules/foo.md"), b"# pkg\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
         assert_eq!(got, vec!["readme.md".to_string()]);
@@ -494,7 +495,7 @@ mod tests {
         .unwrap();
         std::fs::write(root.join("wt/inner.md"), b"# inner\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let inner_visible = is_path_visible(&root, &root.join("wt/inner.md"));
         let top_visible = is_path_visible(&root, &root.join("top.md"));
         let _ = std::fs::remove_dir_all(&root);
@@ -515,7 +516,7 @@ mod tests {
         std::fs::write(root.join("sub/.git/HEAD"), b"ref: refs/heads/main\n").unwrap();
         std::fs::write(root.join("sub/inner.md"), b"# inner\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let inner_visible = is_path_visible(&root, &root.join("sub/inner.md"));
         let _ = std::fs::remove_dir_all(&root);
 
@@ -534,7 +535,7 @@ mod tests {
         std::fs::create_dir_all(root.join("docs")).unwrap();
         std::fs::write(root.join("docs/guide.md"), b"# guide\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let readme_visible = is_path_visible(&root, &root.join("readme.md"));
         let guide_visible = is_path_visible(&root, &root.join("docs/guide.md"));
         let _ = std::fs::remove_dir_all(&root);
@@ -576,7 +577,7 @@ mod tests {
         std::fs::write(root.join("agents/wt2/inner.md"), b"# inner2\n").unwrap();
         std::fs::write(root.join("agents/sibling.md"), b"# sibling\n").unwrap();
 
-        let got = relatives(&walk_for_markdown(&root));
+        let got = relatives(&walk_for_documents(&root));
         let v_inner1 = is_path_visible(&root, &root.join("ignored/wt1/inner.md"));
         let v_inner2 = is_path_visible(&root, &root.join("agents/wt2/inner.md"));
         let v_sibling = is_path_visible(&root, &root.join("agents/sibling.md"));
@@ -612,7 +613,7 @@ mod tests {
         std::fs::write(root.join("link-wt/inner.md"), b"# inner\n").unwrap();
 
         // Just ensure neither call panics.
-        let _ = walk_for_markdown(&root);
+        let _ = walk_for_documents(&root);
         let _ = is_path_visible(&root, &root.join("link-wt/inner.md"));
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -721,7 +722,7 @@ mod tests {
     }
 }
 
-/// Returns true when `path` would be surfaced by `list_markdown_files` from
+/// Returns true when `path` would be surfaced by `list_documents` from
 /// the perspective of ignore filtering — i.e. it isn't in a hard-coded ignore
 /// directory and isn't excluded by `.gitignore`/`.git/info/exclude`/global
 /// excludes when `root` is inside a Git repo.
@@ -764,7 +765,7 @@ pub(crate) fn is_path_visible(root: &std::path::Path, path: &std::path::Path) ->
             }
         }
     }
-    // Then ask the same ignore stack `list_markdown_files` uses.
+    // Then ask the same ignore stack `list_documents` uses.
     let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
     // Walk up from `root` looking for the enclosing .git so we know which
     // .gitignore stack applies. ignore::Gitignore handles nested ignores
