@@ -68,6 +68,7 @@ export const EN = {
   // Menus
   "menu.file": "File",
   "menu.file.newWindow": "New Window",
+  "menu.file.newTypstFile": "New Typst File",
   "menu.file.open": "Open…",
   "menu.file.openFolder": "Open Folder…",
   "menu.file.openRecent": "Open Recent",
@@ -203,6 +204,7 @@ export const EN = {
   "mobile.library.pair_unavailable": "Pairing arrives in v2.1.",
   "mobile.library.paired_desktops": "Paired desktops",
   "mobile.library.back": "Back to library",
+  "typst.unsupported_on_mobile": "Typst documents are not supported on mobile.",
   "mobile.pair.title": "Pair with a desktop",
   "mobile.pair.qr_label": "Paste the QR URL shown on the desktop",
   "mobile.pair.qr_placeholder": "marklig-pair://v1/…",

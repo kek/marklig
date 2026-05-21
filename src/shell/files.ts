@@ -97,6 +97,23 @@ export async function saveHtmlExport(
   return dest;
 }
 
+/** Prompt for a save destination and write the Typst file contents. Returns
+ * the chosen path on success, null on cancel. Used by File → New Typst File
+ * to create the initial .typ file on disk. */
+export async function saveTypstAs(
+  contents: string,
+  defaultName: string,
+): Promise<string | null> {
+  const dest = await save({
+    title: "New Typst File",
+    defaultPath: defaultName,
+    filters: [{ name: "Typst", extensions: ["typ"] }],
+  });
+  if (typeof dest !== "string") return null;
+  await invoke("write_text_file", { path: dest, contents });
+  return dest;
+}
+
 /** Prompt for a save destination and write the markdown contents. Returns
  * the chosen path on success, null on cancel. Used by File -> Save As… to
  * rebind currentPath without losing edits. */

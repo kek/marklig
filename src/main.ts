@@ -52,7 +52,7 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
@@ -1122,6 +1122,11 @@ async function bootstrap(): Promise<void> {
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
     quickOpen: () => { void openQuickOpenPalette(currentFolder); },
+    newTypstFile: async () => {
+      const dest = await saveTypstAs("= Document title\n\n", "untitled.typ");
+      if (!dest) return;
+      await loadAndApplyDoc(dest);
+    },
   };
   const unsubMenuActions = await installMenuActionListener(localHandlers);
   window.addEventListener("beforeunload", () => unsubMenuActions());
@@ -1197,6 +1202,7 @@ async function bootstrap(): Promise<void> {
       openFile: () => dispatchToFocused({ type: "openFile" }),
       openFolder: () => dispatchToFocused({ type: "openFolder" }),
       newWindow: () => dispatchToFocused({ type: "newWindow" }),
+      newTypstFile: () => dispatchToFocused({ type: "newTypstFile" }),
       saveFile: () => { void dispatchToFocused({ type: "saveFile" }); },
       saveFileAs: () => dispatchToFocused({ type: "saveFileAs" }),
       revealInFileManager: () => dispatchToFocused({ type: "revealInFileManager" }),
