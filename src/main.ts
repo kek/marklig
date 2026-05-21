@@ -882,6 +882,10 @@ async function bootstrap(): Promise<void> {
   // install these as a listener in every window and have the menu dispatch
   // the action to the focused window via emitTo. Theme is broadcast to all
   // windows so light/dark stays in sync.
+  const buildCurrentHtml = () =>
+    buildHtmlExport(view.state.doc.toString(), {
+      title: documentTitleFromPath(currentPath),
+    });
   const localHandlers: LocalMenuHandlers = {
     openFile: async () => {
       const doc = await openFileViaDialog();
@@ -942,24 +946,18 @@ async function bootstrap(): Promise<void> {
     openRecent: async (path) => { await loadAndApplyDoc(path); },
     clearRecents: async () => { await clearRecents(); },
     exportHtml: async () => {
-      const html = await buildHtmlExport(view.state.doc.toString(), {
-        title: documentTitleFromPath(currentPath),
-      });
+      const html = await buildCurrentHtml();
       const defaultName = exportFileNameFromPath(currentPath, "html");
       await saveHtmlExport(html, defaultName);
     },
     printDocument: () => {
       void (async () => {
-        const html = await buildHtmlExport(view.state.doc.toString(), {
-          title: documentTitleFromPath(currentPath),
-        });
+        const html = await buildCurrentHtml();
         openPrintWindow(html);
       })();
     },
     copyAsHtml: async () => {
-      const html = await buildHtmlExport(view.state.doc.toString(), {
-        title: documentTitleFromPath(currentPath),
-      });
+      const html = await buildCurrentHtml();
       await writeClipboardHtml(html);
     },
     openPreferences: async () => {
