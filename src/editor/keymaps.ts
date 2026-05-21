@@ -37,6 +37,21 @@ export function setZoomHandlers(handlers: { in: () => void; out: () => void; res
   zoomResetHandler = handlers.reset;
 }
 
+/** Optional alternate route for Cmd-+/-/0 — when set and the predicate
+ * returns true, the alternate handlers fire instead of the editor zoom.
+ * Used by the Typst preview pane: when focus is inside the pane we zoom
+ * the pane's rendered pages rather than the editor source. */
+interface ZoomRoute {
+  match: () => boolean;
+  in: () => void;
+  out: () => void;
+  reset: () => void;
+}
+let altZoomRoute: ZoomRoute | null = null;
+export function setAltZoomRoute(route: ZoomRoute | null): void {
+  altZoomRoute = route;
+}
+
 /** Layout-independent zoom keystroke matcher. CM6's keymap parser and the
  * Tauri menu accelerator both interpret `+` as "Shift + the US `=` key" —
  * which fails on layouts where `+` is unshifted (Swedish, German, etc.).
@@ -45,15 +60,18 @@ export function installZoomKeyHandler(): () => void {
   const onKey = (e: KeyboardEvent): void => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
+    // Alternate route (Typst preview pane focus) — branch before defaulting
+    // to editor zoom so Cmd-+ in the pane scales pages, not source text.
+    const useAlt = altZoomRoute !== null && altZoomRoute.match();
     if (e.key === "+" || (e.key === "=" && e.shiftKey)) {
       e.preventDefault();
-      zoomInHandler();
+      if (useAlt) altZoomRoute!.in(); else zoomInHandler();
     } else if (e.key === "-" || e.key === "−") {
       e.preventDefault();
-      zoomOutHandler();
+      if (useAlt) altZoomRoute!.out(); else zoomOutHandler();
     } else if (e.key === "0") {
       e.preventDefault();
-      zoomResetHandler();
+      if (useAlt) altZoomRoute!.reset(); else zoomResetHandler();
     }
   };
   window.addEventListener("keydown", onKey);

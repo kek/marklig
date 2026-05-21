@@ -1017,6 +1017,13 @@ body.viewer-resizing * { cursor: col-resize !important; }
   padding: 16px 24px;
   overflow: auto;
 }
+/* Typst pane zoom — Cmd-+/-/0 while the pane is focused scales the rendered
+ * pages without re-rendering them. transform-origin keeps the page anchored
+ * at the top-left so growing the zoom doesn't drift content off-screen. */
+.preview-pane-body[data-format="typst"] {
+  transform-origin: top left;
+  transform: scale(var(--typst-zoom, 1));
+}
 .preview-splitter {
   width: 6px;
   cursor: col-resize;

@@ -12,7 +12,7 @@ import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/side
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, setPreviewPaneToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, setPreviewPaneToggleHandler, installZoomKeyHandler, setAltZoomRoute } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar, computeDocStats } from "./ui/toolbar";
@@ -31,7 +31,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
-import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneOpen, setPreviewPaneOpen, getPreviewPaneWidth, setPreviewPaneWidth } from "./shell/settings";
+import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneOpen, setPreviewPaneOpen, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
   loadWindowSession,
@@ -486,6 +486,28 @@ async function bootstrap(): Promise<void> {
   const stopZoomKeys = installZoomKeyHandler();
   window.addEventListener("beforeunload", () => stopZoomKeys());
 
+  // Re-route Cmd-+/-/0 to the Typst preview pane when focus is inside it.
+  // The editor zoom binding (above) stays the default for the editor itself.
+  setAltZoomRoute({
+    match: () => {
+      if (detectFormat(currentPath) !== "typst") return false;
+      const el = document.activeElement;
+      return el !== null && !!(el.closest && el.closest(".preview-pane-body"));
+    },
+    in: () => {
+      adjustTypstZoom(1);
+      applyPreviewPaneLayout();
+    },
+    out: () => {
+      adjustTypstZoom(-1);
+      applyPreviewPaneLayout();
+    },
+    reset: () => {
+      resetTypstZoom();
+      applyPreviewPaneLayout();
+    },
+  });
+
   setSidebarToggleHandler(() => {
     const next = !toc.isVisible();
     toc.setVisible(next);
@@ -515,6 +537,17 @@ async function bootstrap(): Promise<void> {
       "--preview-pane-width",
       `${(getPreviewPaneWidth() * 100).toFixed(2)}%`,
     );
+    // Tag the pane body with the active format so CSS can branch (zoom
+    // transform, etc.) and push the current Typst zoom into the custom
+    // property — even when the pane is hidden we set it so a subsequent
+    // re-open picks up the right scale immediately.
+    const body = previewPane.element.querySelector(
+      ".preview-pane-body",
+    ) as HTMLElement | null;
+    if (body) {
+      body.dataset.format = format;
+      body.style.setProperty("--typst-zoom", String(getTypstZoom()));
+    }
   }
 
   function renderMarkdownToPane(): void {

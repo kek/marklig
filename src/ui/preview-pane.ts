@@ -28,6 +28,10 @@ export function mountPreviewPane(opts: MountPreviewPaneOptions): PreviewPaneHand
 
   const body = document.createElement("div");
   body.className = "preview-pane-body";
+  // Make the pane body keyboard-focusable so Cmd-+/-/0 routing can detect
+  // when the user is "in" the pane (vs. the editor). tabindex=0 keeps it
+  // in the natural tab order; tabindex=-1 would require explicit focus().
+  body.tabIndex = 0;
 
   root.append(header, body);
   opts.parent.append(root);
