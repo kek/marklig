@@ -973,16 +973,48 @@ body.viewer-resizing * { cursor: col-resize !important; }
 .viewer-toc-l4, .viewer-toc-l5, .viewer-toc-l6 { padding-left: 44px; color: var(--muted); font-size: 11px; }
 .viewer-toc-empty { color: var(--muted); font-size: 12px; }
 
-/* App shell layout — sidebar beside editor */
+/* App shell layout — sidebar beside editor, with optional preview pane */
 #root { display: flex; flex-direction: column; }
 .viewer-app-shell {
   display: flex;
   flex: 1;
   min-height: 0;
+  --preview-pane-width: 0px; /* runtime sets to '<fraction> * 100%' when open */
 }
 .viewer-app-shell > .cm-editor {
   flex: 1;
   min-width: 0;
+}
+.viewer-app-shell.preview-open {
+  display: grid;
+  grid-template-columns: auto 1fr auto var(--preview-pane-width);
+}
+.preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--separator, #ddd);
+  background: var(--editor-bg, #fff);
+  overflow: auto;
+}
+.preview-pane[hidden] { display: none; }
+.preview-pane-header {
+  font-size: 11px;
+  padding: 6px 12px;
+  color: var(--muted, #666);
+}
+.preview-pane-body {
+  padding: 16px 24px;
+  overflow: auto;
+}
+.preview-splitter {
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+.preview-splitter:hover,
+body.preview-splitter-dragging .preview-splitter {
+  background: var(--separator, #ddd);
 }
 
 /* Reading-mode table widget. Padding (not margin) on the wrapper adds the
