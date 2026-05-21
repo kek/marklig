@@ -95,7 +95,7 @@ test("create a new file from the folder sidebar header '+'", async ({ page }) =>
         return null;
       }
 
-      if (cmd === "list_markdown_files") {
+      if (cmd === "list_documents") {
         // Return a defensive copy so the frontend never mutates our state.
         return folderFiles.map((f) => ({ ...f }));
       }

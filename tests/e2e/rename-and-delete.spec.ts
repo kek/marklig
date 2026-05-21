@@ -112,7 +112,7 @@ async function installFolderStub(page: import("@playwright/test").Page): Promise
         return null;
       }
 
-      if (cmd === "list_markdown_files") {
+      if (cmd === "list_documents") {
         return folderFiles.map((f) => ({ ...f }));
       }
       if (cmd === "resolve_folder_root") {
