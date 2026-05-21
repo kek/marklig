@@ -133,11 +133,11 @@ test("opens .typ, renders pages in the preview pane", async ({ page }) => {
   await page.goto(APP_URL);
   await page.waitForSelector(".cm-editor");
 
-  // .typ files default-open the pane and force edit mode (Phase D behavior).
-  // Allow up to 10s for the first compile — the first call traditionally
-  // pays a font-scan cost on the Rust side; the stub responds instantly,
-  // but the 300ms debounce + bootstrap latency still need a comfortable
-  // budget.
+  // .typ files default-open the pane (Phase B/D) and in reading mode the
+  // pane is the only surface (Phase F). Allow up to 10s for the first
+  // compile — the first call traditionally pays a font-scan cost on the
+  // Rust side; the stub responds instantly, but the 300ms debounce +
+  // bootstrap latency still need a comfortable budget.
   await expect(page.locator(".preview-pane")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".preview-pane-body .typst-page svg"))
     .toHaveCount(1, { timeout: 10_000 });
@@ -156,7 +156,17 @@ test("edits in the editor trigger a re-compile", async ({ page }) => {
   const initialLen = await page.locator(".preview-pane-body svg").getAttribute("data-source-len");
   expect(Number(initialLen)).toBe(sample.length);
 
-  // Type something into the editor.
+  // Phase F: .typ defaults to reading mode where the editor is hidden, so
+  // toggle to edit mode before typing. We dispatch via the toolbar's edit
+  // toggle (its `aria-pressed` attribute lets us wait for the toggle to
+  // commit before typing).
+  const editToggle = page.locator(
+    ".viewer-toolbar-btn[aria-pressed='false'], .viewer-titlebar-btn[aria-pressed='false']",
+  ).first();
+  await editToggle.click();
+  // Editor source is visible in edit mode — wait for that to actually
+  // happen before we drive keystrokes into it.
+  await page.locator(".cm-editor").waitFor({ state: "visible" });
   await page.locator(".cm-content").click();
   await page.keyboard.type(" extra");
 

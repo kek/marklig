@@ -446,6 +446,12 @@ async function bootstrap(): Promise<void> {
     onModeChange: (m) => {
       currentMode = m;
       document.documentElement.dataset.mode = m;
+      // Reading-typst pins the pane open and may need a fresh compile so it
+      // shows something. Edit-mode toggle leaves the pane state as-is.
+      applyPreviewPaneLayout();
+      if (m === "reading" && detectFormat(currentPath) === "typst") {
+        scheduleTypstCompile();
+      }
     },
     onSidebarToggle: () => {
       const next = !toc.isVisible();
@@ -476,6 +482,12 @@ async function bootstrap(): Promise<void> {
     setMode(view, currentMode, modeExtensions[currentMode]);
     toolbar.setMode(currentMode);
     document.documentElement.dataset.mode = currentMode;
+    // Same as onModeChange — reading-typst needs the pane visible and
+    // populated. applyPreviewPaneLayout reads currentMode to force-open.
+    applyPreviewPaneLayout();
+    if (currentMode === "reading" && detectFormat(currentPath) === "typst") {
+      scheduleTypstCompile();
+    }
   });
 
   setZoomHandlers({
@@ -530,7 +542,12 @@ async function bootstrap(): Promise<void> {
 
   function applyPreviewPaneLayout(): void {
     const format = detectFormat(currentPath);
-    const open = getPreviewPaneOpen(format);
+    // In reading mode for .typ the pane is the only surface, so force it
+    // open regardless of the per-format toggle (which still controls edit
+    // mode's split). Markdown reading mode is decorated in-place and never
+    // forces the pane open.
+    const forceOpen = format === "typst" && currentMode === "reading";
+    const open = forceOpen || getPreviewPaneOpen(format);
     shell.classList.toggle("preview-open", open);
     previewPane.setVisible(open);
     shell.style.setProperty(
@@ -658,6 +675,7 @@ async function bootstrap(): Promise<void> {
     view.dispatch({ effects: setTypstDiagnostics.of(result.diagnostics) });
   }
 
+  setDocumentFormatAttr();
   applyPreviewPaneLayout();
 
   setPreviewPaneToggleHandler(() => {
@@ -977,12 +995,11 @@ async function bootstrap(): Promise<void> {
     toc.setDocumentTitle(currentPath);
     folder.setActiveFile(currentPath);
     if (currentPath) {
-      const isTypst = detectFormat(currentPath) === "typst";
-      if (doc.isNew || isTypst) {
+      if (doc.isNew) {
         // Brand-new file: drop straight into edit mode so the user can start
-        // typing. Also Typst — reading-mode behavior for .typ is "preview
-        // pane full-width", which Phase F adds; for now edit mode is the
-        // only well-defined .typ mode.
+        // typing. For .typ files the default mode is reading (pane is the
+        // primary surface) — except a brand-new empty .typ, which would be
+        // a blank pane with no source visible, so we still force edit.
         if (currentMode !== "edit") {
           currentMode = "edit";
           setMode(view, "edit", modeExtensions.edit);
@@ -998,12 +1015,20 @@ async function bootstrap(): Promise<void> {
       await syncFolderToFile(currentPath);
     }
     applyFormatExtensions();
+    setDocumentFormatAttr();
     applyPreviewPaneLayout();
     if (detectFormat(currentPath) === "typst") {
       await openTypstSessionIfNeeded();
     } else {
       renderMarkdownToPane();
     }
+  }
+
+  /** Mirror the active document's format onto <html>'s dataset so CSS can
+   * branch reading-mode behavior per format (e.g. `.typ` reading mode hides
+   * the editor and gives the preview pane the full width). */
+  function setDocumentFormatAttr(): void {
+    document.documentElement.dataset.format = detectFormat(currentPath);
   }
 
   /** Prompt-on-dirty wrapper used by all out-of-band open paths

@@ -1034,6 +1034,27 @@ body.preview-splitter-dragging .preview-splitter {
   background: var(--separator, #ddd);
 }
 
+/* Reading mode for .typ — the editor is hidden and the preview pane takes
+ * the full content area. Mirror of Markdown's reading mode, but instead of
+ * decorating the source in place we render through the compiled-pages
+ * surface. Edit mode keeps the split layout. */
+[data-mode="reading"][data-format="typst"] .viewer-app-shell .cm-editor {
+  display: none;
+}
+[data-mode="reading"][data-format="typst"] .preview-pane {
+  width: 100%;
+  border-left: none;
+}
+[data-mode="reading"][data-format="typst"] .preview-splitter {
+  display: none;
+}
+/* Force the pane open in reading-typst even if the per-format toggle is off,
+ * because there is nothing else to show. The grid template falls back to a
+ * single column. */
+[data-mode="reading"][data-format="typst"] .viewer-app-shell {
+  display: block;
+}
+
 /* Typst diagnostics — surfaced as wavy underlines on the offending source
  * range. Color tracks the severity. text-decoration-skip-ink:none keeps the
  * wave continuous under descenders. */
