@@ -23,6 +23,8 @@ use ::typst::utils::LazyHash;
 use ::typst::{Library, LibraryExt, World};
 use ::typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
 
+use crate::typst::packages;
+
 pub struct ViewerWorld {
     library: LazyHash<Library>,
     fontbook: LazyHash<FontBook>,
@@ -94,25 +96,14 @@ impl World for ViewerWorld {
         if id == self.main {
             return Ok(self.main_source.read().clone());
         }
-        // Packages are unsupported in Phase C.
-        if id.package().is_some() {
-            return Err(FileError::Package(::typst::diag::PackageError::Other(
-                Some("package resolution not yet implemented".into()),
-            )));
-        }
-        let path = resolve_id(&self.root, id)?;
+        let path = resolve_path(&self.root, id)?;
         let text =
             std::fs::read_to_string(&path).map_err(|err| FileError::from_io(err, &path))?;
         Ok(Source::new(id, text))
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        if id.package().is_some() {
-            return Err(FileError::Package(::typst::diag::PackageError::Other(
-                Some("package resolution not yet implemented".into()),
-            )));
-        }
-        let path = resolve_id(&self.root, id)?;
+        let path = resolve_path(&self.root, id)?;
         let bytes =
             std::fs::read(&path).map_err(|err| FileError::from_io(err, &path))?;
         Ok(Bytes::new(bytes))
@@ -128,8 +119,21 @@ impl World for ViewerWorld {
     }
 }
 
-fn resolve_id(root: &Path, id: FileId) -> FileResult<PathBuf> {
-    id.vpath().resolve(root).ok_or_else(|| {
-        FileError::AccessDenied
-    })
+/// Resolve a `FileId` to a real on-disk path.
+///
+/// - Local file ids (no package) are resolved relative to the entry file's
+///   parent directory.
+/// - Package-scoped ids (e.g. `@preview/cetz:0.2.2`) are resolved through
+///   `crate::typst::packages::prepare_package`, which downloads + caches the
+///   package on first use and returns the cached root. The virtual path is
+///   then resolved relative to that root.
+fn resolve_path(root: &Path, id: FileId) -> FileResult<PathBuf> {
+    if let Some(spec) = id.package() {
+        let pkg_root = packages::prepare_package(spec).map_err(FileError::Package)?;
+        return id
+            .vpath()
+            .resolve(&pkg_root)
+            .ok_or(FileError::AccessDenied);
+    }
+    id.vpath().resolve(root).ok_or(FileError::AccessDenied)
 }

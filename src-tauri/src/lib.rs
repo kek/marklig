@@ -74,6 +74,13 @@ pub fn run() {
             // Spin up the pairing-WS server. Runs for the app's lifetime
             // and only accepts handshakes when armed via pairing_start.
             pairing_ws::spawn_server(app.handle().clone());
+            // Wire the Typst package cache to the app's data dir so that
+            // downloaded `@preview/...` packages persist across launches.
+            // If the data dir is unavailable for some reason, the package
+            // resolver falls back to typst-kit's XDG default.
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                self::typst::packages::init(data_dir.join("typst/packages"));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
