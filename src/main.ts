@@ -1509,17 +1509,14 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => unsubscribeGraphviz());
 
   // Install per-format extensions for the initial doc (no-op for .md). If the
-  // initial doc is a .typ file, also open the compile session and force the
-  // editor into edit mode — reading mode is undefined for .typ in Phase D.
+  // initial doc is a .typ file, also open the compile session. Reading mode
+  // for .typ now renders the pane full-width with the editor hidden, so we
+  // do NOT force edit mode here — the restored mode (or default `reading`)
+  // wins, mirroring how Markdown initial docs are handled.
   applyFormatExtensions();
   if (currentPath && detectFormat(currentPath) === "typst") {
-    if (currentMode !== "edit") {
-      currentMode = "edit";
-      setMode(view, "edit", modeExtensions.edit);
-      toolbar.setMode("edit");
-      document.documentElement.dataset.mode = "edit";
-    }
     await openTypstSessionIfNeeded();
+    applyPreviewPaneLayout();
   }
 }
 
@@ -1746,9 +1743,11 @@ async function firstMarkdownArg(): Promise<string | null> {
 }
 
 function documentTitleFromPath(path: string | null): string {
-  if (!path) return "Markdown export";
+  if (!path) return "Document export";
   const base = path.split(/[\\/]/).pop() ?? path;
-  return base.replace(/\.(md|markdown|mdx|mdown)$/i, "");
+  // Strip any supported document extension so the export filename and
+  // print-window title read as the bare document name.
+  return base.replace(/\.(md|markdown|mdx|mdown|typ)$/i, "");
 }
 
 function exportFileNameFromPath(path: string | null, ext: string): string {
