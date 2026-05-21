@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const storage: Record<string, unknown> = {};
+vi.mock("../../src/shell/store", () => ({
+  getValue: async <T>(key: string): Promise<T | undefined> => storage[key] as T | undefined,
+  setValue: async <T>(key: string, value: T): Promise<void> => { storage[key] = value; },
+}));
+
 import {
   getPreviewPaneOpen,
   setPreviewPaneOpen,
