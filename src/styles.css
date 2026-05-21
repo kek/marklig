@@ -402,6 +402,16 @@ html.theme-dark  { color-scheme: dark; }
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
+.viewer-toolbar-status {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.viewer-toolbar-status:empty {
+  margin-right: 0;
+}
 
 /* Preferences modal — same overlay/card pattern as the reconcile modal but
    wider and divided into sections. Shared styling lives at the bottom of the
@@ -1342,6 +1352,16 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
+}
+.viewer-titlebar-status {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+  margin-right: 10px;
+}
+.viewer-titlebar-status:empty {
+  margin-right: 0;
 }
 
 /* In fullscreen the OS hides its own chrome, including the traffic lights,

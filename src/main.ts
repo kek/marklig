@@ -45,7 +45,7 @@ import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { openProjectPalette } from "./ui/project-palette";
 import { openQuickOpenPalette } from "./ui/quick-open";
 import { mountContextMenu } from "./ui/context-menu";
-import { t } from "./i18n/strings";
+import { t, tA11y } from "./i18n/strings";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
@@ -557,6 +557,7 @@ async function bootstrap(): Promise<void> {
         await typstDriver.close();
         typstDriver = null;
       }
+      toolbar.setStatus(null);
       return;
     }
     if (!currentPath) return;
@@ -585,11 +586,13 @@ async function bootstrap(): Promise<void> {
   async function runTypstCompile(): Promise<void> {
     if (!typstDriver) return;
     const mySeq = ++typstCompileSeq;
+    toolbar.setStatus(t("typst.compiling"));
     let result: CompileResult;
     try {
       result = await typstDriver.compile(view.state.doc.toString());
     } catch (err) {
       console.warn("typst compile failed", err);
+      toolbar.setStatus(null);
       return;
     }
     // Discard if a newer compile started after we kicked off. The newer
@@ -602,6 +605,22 @@ async function bootstrap(): Promise<void> {
         .map((svg) => `<div class="typst-page">${sanitizeSvg(svg)}</div>`)
         .join("");
       body.innerHTML = html;
+      body.classList.remove("typst-pane-stale");
+    } else if (body && result.diagnostics.some((d) => d.severity === "error")) {
+      // Failed compile with prior content — dim it instead of clearing.
+      body.classList.add("typst-pane-stale");
+    }
+    const errorCount = result.diagnostics.filter(
+      (d) => d.severity === "error",
+    ).length;
+    if (errorCount === 1) {
+      toolbar.setStatus(t("typst.one_error"));
+    } else if (errorCount > 1) {
+      toolbar.setStatus(tA11y("typst.n_errors", { n: String(errorCount) }));
+    } else {
+      toolbar.setStatus(
+        tA11y("typst.compiled_in", { ms: String(result.elapsed_ms) }),
+      );
     }
     view.dispatch({ effects: setTypstDiagnostics.of(result.diagnostics) });
   }
