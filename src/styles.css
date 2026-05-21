@@ -1017,6 +1017,31 @@ body.preview-splitter-dragging .preview-splitter {
   background: var(--separator, #ddd);
 }
 
+/* Typst diagnostics — surfaced as wavy underlines on the offending source
+ * range. Color tracks the severity. text-decoration-skip-ink:none keeps the
+ * wave continuous under descenders. */
+.typst-diag-error {
+  text-decoration: underline wavy var(--diag-error, #c44);
+  text-decoration-skip-ink: none;
+}
+.typst-diag-warn {
+  text-decoration: underline wavy var(--diag-warn, #c90);
+  text-decoration-skip-ink: none;
+}
+
+/* Each Typst-rendered page lives in its own div so the pane can scroll
+ * vertically through a multi-page document. */
+.typst-page {
+  display: block;
+  margin: 0 auto 16px;
+  max-width: 100%;
+}
+.typst-page svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 /* Reading-mode table widget. Padding (not margin) on the wrapper adds the
    vertical breathing room — same heightmap reasoning as the other block
    widgets above (CM6's heightmap doesn't measure margin). The wrapper also
