@@ -87,6 +87,10 @@ import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
 import { mountPreviewSplitter } from "./ui/preview-splitter";
 import { renderHtml } from "./editor/parser";
+import { typstFormat } from "./format/typst";
+import { createTypstDriver, type TypstDriver, type CompileResult } from "./format/typst-driver";
+import { typstDiagnosticsExtension, setTypstDiagnostics } from "./editor/typst-diagnostics";
+import { sanitizeSvg } from "./export/sanitize";
 
 let recoveredDoc: { path: string; source: string } | null = null;
 
@@ -520,6 +524,88 @@ async function bootstrap(): Promise<void> {
     previewPane.setContent(html); // sanitizeHtml runs inside setContent
   }
 
+  // Per-format extensions (Typst language highlight + diagnostics field)
+  // live behind a Compartment so we can swap them in/out as the user opens
+  // files of different formats. Initially empty until the first
+  // applyFormatExtensions() call below.
+  const formatCompartment = new Compartment();
+  view.dispatch({
+    effects: StateEffect.appendConfig.of(formatCompartment.of([])),
+  });
+
+  function applyFormatExtensions(): void {
+    const format = detectFormat(currentPath);
+    const exts =
+      format === "typst"
+        ? [typstFormat.languageExtension, typstDiagnosticsExtension()]
+        : [];
+    view.dispatch({ effects: formatCompartment.reconfigure(exts) });
+  }
+
+  // Typst compile driver — one session per open .typ file. Compiles fire on
+  // a debounce; we keep a sequence counter to discard results from stale
+  // compiles that lose the race to a newer source revision.
+  let typstDriver: TypstDriver | null = null;
+  let typstCompileTimer: ReturnType<typeof setTimeout> | null = null;
+  let typstCompileSeq = 0;
+  const TYPST_COMPILE_DEBOUNCE_MS = 300;
+
+  async function openTypstSessionIfNeeded(): Promise<void> {
+    if (detectFormat(currentPath) !== "typst") {
+      // Switched away from typst — tear down any prior session.
+      if (typstDriver) {
+        await typstDriver.close();
+        typstDriver = null;
+      }
+      return;
+    }
+    if (!currentPath) return;
+    if (typstDriver) await typstDriver.close();
+    typstDriver = createTypstDriver();
+    try {
+      await typstDriver.open(currentPath);
+    } catch (err) {
+      console.warn("typst_open failed", err);
+      typstDriver = null;
+      return;
+    }
+    scheduleTypstCompile(); // kick off the first compile immediately
+  }
+
+  function scheduleTypstCompile(): void {
+    if (!typstDriver) return;
+    if (!getPreviewPaneOpen("typst")) return;
+    if (typstCompileTimer) clearTimeout(typstCompileTimer);
+    typstCompileTimer = setTimeout(() => {
+      typstCompileTimer = null;
+      void runTypstCompile();
+    }, TYPST_COMPILE_DEBOUNCE_MS);
+  }
+
+  async function runTypstCompile(): Promise<void> {
+    if (!typstDriver) return;
+    const mySeq = ++typstCompileSeq;
+    let result: CompileResult;
+    try {
+      result = await typstDriver.compile(view.state.doc.toString());
+    } catch (err) {
+      console.warn("typst compile failed", err);
+      return;
+    }
+    // Discard if a newer compile started after we kicked off. The newer
+    // compile's own resolution will overwrite the pane.
+    if (mySeq !== typstCompileSeq) return;
+
+    const body = previewPane.element.querySelector(".preview-pane-body");
+    if (body && result.pages.length > 0) {
+      const html = result.pages
+        .map((svg) => `<div class="typst-page">${sanitizeSvg(svg)}</div>`)
+        .join("");
+      body.innerHTML = html;
+    }
+    view.dispatch({ effects: setTypstDiagnostics.of(result.diagnostics) });
+  }
+
   applyPreviewPaneLayout();
 
   setPreviewPaneToggleHandler(() => {
@@ -528,7 +614,14 @@ async function bootstrap(): Promise<void> {
     const next = !getPreviewPaneOpen(format);
     setPreviewPaneOpen(format, next);
     applyPreviewPaneLayout();
-    if (next) renderMarkdownToPane();
+    if (next) {
+      if (format === "markdown") renderMarkdownToPane();
+      else if (format === "typst") scheduleTypstCompile();
+    }
+  });
+
+  window.addEventListener("beforeunload", () => {
+    if (typstDriver) void typstDriver.close();
   });
 
   // Per-window folder root, mirrored from the store so the periodic session
@@ -761,6 +854,7 @@ async function bootstrap(): Promise<void> {
           toc.refresh();
           refreshStats();
           renderMarkdownToPane();
+          if (detectFormat(currentPath) === "typst") scheduleTypstCompile();
         }),
       ),
     ),
@@ -831,25 +925,33 @@ async function bootstrap(): Promise<void> {
     toc.setDocumentTitle(currentPath);
     folder.setActiveFile(currentPath);
     if (currentPath) {
-      if (doc.isNew) {
+      const isTypst = detectFormat(currentPath) === "typst";
+      if (doc.isNew || isTypst) {
         // Brand-new file: drop straight into edit mode so the user can start
-        // typing. Skip watcher + recents — both assume a real path; they'll
-        // engage normally on first save.
+        // typing. Also Typst — reading-mode behavior for .typ is "preview
+        // pane full-width", which Phase F adds; for now edit mode is the
+        // only well-defined .typ mode.
         if (currentMode !== "edit") {
           currentMode = "edit";
           setMode(view, "edit", modeExtensions.edit);
           toolbar.setMode("edit");
           document.documentElement.dataset.mode = "edit";
         }
-      } else {
+      }
+      if (!doc.isNew) {
         await recordRecent(currentPath);
         await startWatching(currentPath);
       }
       await maybeRestorePositionFor(currentPath);
       await syncFolderToFile(currentPath);
     }
+    applyFormatExtensions();
     applyPreviewPaneLayout();
-    renderMarkdownToPane();
+    if (detectFormat(currentPath) === "typst") {
+      await openTypstSessionIfNeeded();
+    } else {
+      renderMarkdownToPane();
+    }
   }
 
   /** Prompt-on-dirty wrapper used by all out-of-band open paths
@@ -1323,6 +1425,19 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => unsubscribeGraphviz());
 
+  // Install per-format extensions for the initial doc (no-op for .md). If the
+  // initial doc is a .typ file, also open the compile session and force the
+  // editor into edit mode — reading mode is undefined for .typ in Phase D.
+  applyFormatExtensions();
+  if (currentPath && detectFormat(currentPath) === "typst") {
+    if (currentMode !== "edit") {
+      currentMode = "edit";
+      setMode(view, "edit", modeExtensions.edit);
+      toolbar.setMode("edit");
+      document.documentElement.dataset.mode = "edit";
+    }
+    await openTypstSessionIfNeeded();
+  }
 }
 
 interface InitialResolution {
