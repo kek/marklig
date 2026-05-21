@@ -65,6 +65,17 @@ export function setSidebarToggleHandler(handler: () => void): void {
   sidebarToggleHandler = handler;
 }
 
+let previewPaneToggleHandler: () => void = () => {};
+export function setPreviewPaneToggleHandler(handler: () => void): void {
+  previewPaneToggleHandler = handler;
+}
+
+const previewPaneToggleBinding: KeyBinding = {
+  key: "Mod-j",
+  preventDefault: true,
+  run: () => { previewPaneToggleHandler(); return true; },
+};
+
 const zoomBindings: KeyBinding[] = [
   { key: "Mod-=", preventDefault: true, run: () => { zoomInHandler(); return true; } },
   { key: "Mod-+", preventDefault: true, run: () => { zoomInHandler(); return true; } },
@@ -134,6 +145,7 @@ export const readingKeymap = keymap.of([
   modeToggleBinding,
   saveBinding,
   sidebarToggleBinding,
+  previewPaneToggleBinding,
   ...zoomBindings,
   ...searchKeymap,
   ...readingBindings,
@@ -145,6 +157,7 @@ export const editKeymap = [
     modeToggleBinding,
     saveBinding,
     sidebarToggleBinding,
+    previewPaneToggleBinding,
     ...zoomBindings,
     ...defaultKeymap,
     ...historyKeymap,
