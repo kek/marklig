@@ -50,6 +50,7 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
+import { detectFormat } from "./format";
 import {
   onOpenUrl,
   getCurrent as getCurrentDeepLinkUrls,
@@ -182,6 +183,27 @@ export async function mobileBootstrap(): Promise<void> {
     // so the user can reach the library (and the pair-with-a-desktop
     // CTA) from anywhere, including the first-launch bundled-sample
     // view.
+
+    // Guard: Typst documents are not renderable on mobile (no compile engine).
+    if (route.uriForRecents && detectFormat(route.uriForRecents) === "typst") {
+      const wrap = document.createElement("div");
+      wrap.className = "mobile-document";
+      const backBtn = document.createElement("button");
+      backBtn.type = "button";
+      backBtn.className = "mobile-document__back";
+      backBtn.textContent = "← " + t("mobile.library.back");
+      backBtn.addEventListener("click", () => {
+        void renderRoute({ kind: "library" });
+      });
+      wrap.appendChild(backBtn);
+      const msg = document.createElement("p");
+      msg.className = "mobile-document__unsupported";
+      msg.textContent = t("typst.unsupported_on_mobile");
+      wrap.appendChild(msg);
+      root.appendChild(wrap);
+      return;
+    }
+
     const wrap = document.createElement("div");
     wrap.className = "mobile-document";
 
