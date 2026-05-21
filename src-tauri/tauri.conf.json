@@ -49,6 +49,12 @@
         "role": "Editor",
         "rank": "Default",
         "mimeType": "text/markdown"
+      },
+      {
+        "ext": ["typ"],
+        "name": "Typst Document",
+        "role": "Editor",
+        "mimeType": "text/x-typst"
       }
     ]
   }
