@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -26,7 +27,7 @@ use crate::typst::diagnostics::{to_wire, Diag};
 use crate::typst::session::TypstSession;
 
 pub struct TypstState {
-    sessions: Mutex<HashMap<String, TypstSession>>,
+    sessions: Mutex<HashMap<String, Arc<TypstSession>>>,
 }
 
 impl TypstState {
@@ -68,7 +69,7 @@ pub fn typst_open(
     let session =
         TypstSession::open(&p).map_err(|e| TypstError::Io(e.to_string()))?;
     let id = Uuid::new_v4().to_string();
-    state.sessions.lock().insert(id.clone(), session);
+    state.sessions.lock().insert(id.clone(), Arc::new(session));
     Ok(id)
 }
 
@@ -79,10 +80,15 @@ pub fn typst_compile(
     source: String,
 ) -> Result<CompileResult, TypstError> {
     let start = std::time::Instant::now();
-    let map = state.sessions.lock();
-    let session = map
-        .get(&session_id)
-        .ok_or_else(|| TypstError::UnknownSession(session_id.clone()))?;
+    // Clone the Arc out under the map lock and release it immediately, so
+    // `typst_open` / `typst_close` / other sessions' compiles don't queue
+    // behind this potentially-multi-hundred-ms compile call.
+    let session = {
+        let map = state.sessions.lock();
+        map.get(&session_id)
+            .ok_or_else(|| TypstError::UnknownSession(session_id.clone()))?
+            .clone()
+    };
     session.set_source(source);
 
     let main = session.world.main_source_ref();
