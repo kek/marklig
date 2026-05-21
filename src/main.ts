@@ -12,7 +12,7 @@ import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/side
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, setPreviewPaneToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar, computeDocStats } from "./ui/toolbar";
@@ -31,7 +31,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
-import { loadSettings, subscribeSettings, getAutoSave } from "./shell/settings";
+import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneOpen, setPreviewPaneOpen, getPreviewPaneWidth, setPreviewPaneWidth } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
   loadWindowSession,
@@ -83,6 +83,10 @@ import {
   clearRecentProjects,
 } from "./shell/recent-projects";
 import { openSearchPanel } from "@codemirror/search";
+import { detectFormat } from "./format";
+import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
+import { mountPreviewSplitter } from "./ui/preview-splitter";
+import { renderHtml } from "./editor/parser";
 
 let recoveredDoc: { path: string; source: string } | null = null;
 
@@ -154,6 +158,9 @@ async function bootstrap(): Promise<void> {
     parent: shell,
     source: initialDoc?.source ?? defaultPlaceholder(),
   });
+
+  // Preview pane + splitter. Appended after the editor so they sit to the right.
+  const previewPane: PreviewPaneHandle = mountPreviewPane({ parent: shell });
 
   const editingProducers = [
     headingsProducer,
@@ -483,6 +490,47 @@ async function bootstrap(): Promise<void> {
   });
 
   let currentPath: string | null = initialDoc?.path ?? null;
+
+  // Preview splitter — appended to shell, after pane so DOM order matches
+  // the grid-template-columns order (editor, splitter, pane).
+  mountPreviewSplitter({
+    parent: shell,
+    container: shell,
+    onResize: (frac) => {
+      setPreviewPaneWidth(frac);
+      applyPreviewPaneLayout();
+    },
+  });
+
+  function applyPreviewPaneLayout(): void {
+    const format = detectFormat(currentPath);
+    const open = getPreviewPaneOpen(format);
+    shell.classList.toggle("preview-open", open);
+    previewPane.setVisible(open);
+    shell.style.setProperty(
+      "--preview-pane-width",
+      `${(getPreviewPaneWidth() * 100).toFixed(2)}%`,
+    );
+  }
+
+  function renderMarkdownToPane(): void {
+    if (detectFormat(currentPath) !== "markdown") return;
+    if (!getPreviewPaneOpen("markdown")) return;
+    const html = renderHtml(view.state.doc.toString());
+    previewPane.setContent(html); // sanitizeHtml runs inside setContent
+  }
+
+  applyPreviewPaneLayout();
+
+  setPreviewPaneToggleHandler(() => {
+    if (currentMode !== "edit") return; // no-op in reading mode
+    const format = detectFormat(currentPath);
+    const next = !getPreviewPaneOpen(format);
+    setPreviewPaneOpen(format, next);
+    applyPreviewPaneLayout();
+    if (next) renderMarkdownToPane();
+  });
+
   // Per-window folder root, mirrored from the store so the periodic session
   // tick can read it synchronously. setCurrentFolder() below is the only
   // writer.
@@ -712,6 +760,7 @@ async function bootstrap(): Promise<void> {
           if (!u.docChanged) return;
           toc.refresh();
           refreshStats();
+          renderMarkdownToPane();
         }),
       ),
     ),
@@ -799,6 +848,8 @@ async function bootstrap(): Promise<void> {
       await maybeRestorePositionFor(currentPath);
       await syncFolderToFile(currentPath);
     }
+    applyPreviewPaneLayout();
+    renderMarkdownToPane();
   }
 
   /** Prompt-on-dirty wrapper used by all out-of-band open paths
