@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { supportedExtensions } from "../format";
 
 export interface OpenedDoc {
   path: string;
@@ -15,9 +16,7 @@ export async function openFileViaDialog(): Promise<OpenedDoc | null> {
   const picked = await open({
     multiple: false,
     directory: false,
-    filters: [
-      { name: "Markdown", extensions: ["md", "markdown", "mdx", "mdown"] },
-    ],
+    filters: [{ name: "Documents", extensions: supportedExtensions() }],
   });
   if (typeof picked !== "string") return null;
   return readDoc(picked);
