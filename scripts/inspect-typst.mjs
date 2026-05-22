@@ -11,7 +11,7 @@
 // Run: `npm run dev` in one terminal, then `node scripts/inspect-typst.mjs`.
 
 import { chromium } from "playwright";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,7 +36,13 @@ $ x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a) $
 `;
 const INITIAL_PATH = "/virtual/sample.typ";
 
-const tauriStub = ({ sample, initialPath }) => {
+// Real typst-svg output, dumped via the src-tauri/tests/typst_svg_dump test.
+// Has explicit pt-unit width/height attributes — matches what the real Tauri
+// command returns. Used instead of a viewBox-only mock so we surface
+// WebKit/SVG sizing bugs in the harness.
+const REAL_SVG = await readFile("/tmp/typst-page.svg", "utf8").catch(() => null);
+
+const tauriStub = ({ sample, initialPath, realSvg }) => {
   let cbId = 0;
   const callbacks = new Map();
   function transformCallback(cb, once = false) {
@@ -80,13 +86,15 @@ const tauriStub = ({ sample, initialPath }) => {
       if (cmd === "write_recovery") return null;
       if (cmd === "typst_open") return "session-mock";
       if (cmd === "typst_compile") {
-        // Page-sized SVG (A4 in points: 595 x 842), with a visible
-        // text glyph so we can see whether scaling lands sensibly in the pane.
+        // Use the real typst-svg output if available (preferred — surfaces
+        // WebKit pt-unit attribute quirks). Fall back to a synthetic SVG
+        // for environments where the dump isn't on disk.
         const src = String(args?.source ?? "");
+        const svg = realSvg
+          ? realSvg.replace("<svg ", `<svg data-source-len="${src.length}" `)
+          : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 595 842" data-source-len="${src.length}"><rect x="0" y="0" width="595" height="842" fill="#fffefa" stroke="#ddd"/><text x="40" y="80" font-family="Iowan Old Style, serif" font-size="40" fill="#222">Mock</text></svg>`;
         return {
-          pages: [
-            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 595 842" data-source-len="${src.length}"><rect x="0" y="0" width="595" height="842" fill="#fffefa" stroke="#ddd"/><text x="40" y="80" font-family="Iowan Old Style, serif" font-size="40" fill="#222">Sample Typst document</text><text x="40" y="160" font-family="Iowan Old Style, serif" font-size="20" fill="#444">This is a *minimal* sample.</text></svg>`,
-          ],
+          pages: [svg],
           diagnostics: [],
           elapsed_ms: 1,
         };
@@ -177,6 +185,13 @@ async function captureLayout(page, label) {
             },
             cssWidth: getComputedStyle(page1Svg).width,
             cssHeight: getComputedStyle(page1Svg).height,
+            childCount: page1Svg.children.length,
+            childTags: Array.from(page1Svg.children).map((c) => c.tagName),
+            outerHTMLSize: page1Svg.outerHTML.length,
+            pathCount: page1Svg.querySelectorAll("path").length,
+            textCount: page1Svg.querySelectorAll("text").length,
+            useCount: page1Svg.querySelectorAll("use").length,
+            gCount: page1Svg.querySelectorAll("g").length,
           }
         : null,
     };
@@ -192,7 +207,7 @@ async function main() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
-  await page.addInitScript(tauriStub, { sample: SAMPLE, initialPath: INITIAL_PATH });
+  await page.addInitScript(tauriStub, { sample: SAMPLE, initialPath: INITIAL_PATH, realSvg: REAL_SVG });
   page.on("console", (m) => {
     const t = m.type();
     if (t === "error" || t === "warning") {
