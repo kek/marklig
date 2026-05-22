@@ -552,9 +552,14 @@ async function bootstrap(): Promise<void> {
     // open regardless of the per-format toggle (which still controls edit
     // mode's split). Markdown reading mode is decorated in-place and never
     // forces the pane open.
-    const forceOpen = format === "typst" && currentMode === "reading";
+    const isReadingTypst = format === "typst" && currentMode === "reading";
+    const forceOpen = isReadingTypst;
     const open = forceOpen || getPreviewPaneOpen(format);
     shell.classList.toggle("preview-open", open);
+    // Reading-mode-for-.typ has its own layout (pane full-width, source
+    // hidden). Drive it through an explicit class on the shell so it
+    // doesn't depend on global <html> data-attribute ordering.
+    shell.classList.toggle("typst-reading", isReadingTypst);
     previewPane.setVisible(open);
     shell.style.setProperty(
       "--preview-pane-width",

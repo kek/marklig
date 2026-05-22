@@ -1037,22 +1037,21 @@ body.preview-splitter-dragging .preview-splitter {
 /* Reading mode for .typ — the editor is hidden and the preview pane takes
  * the full content area. Mirror of Markdown's reading mode, but instead of
  * decorating the source in place we render through the compiled-pages
- * surface. Edit mode keeps the split layout. */
-[data-mode="reading"][data-format="typst"] .viewer-app-shell .cm-editor {
-  display: none;
+ * surface. Edit mode keeps the split layout. The `.typst-reading` class is
+ * set explicitly on the shell from applyPreviewPaneLayout, so the styling
+ * doesn't depend on global <html> data-attribute ordering. */
+.viewer-app-shell.typst-reading {
+  /* Override grid layout — children stack: sidebar (own width), then pane
+   * (taking remaining width). The editor is hidden below. */
+  display: flex;
+  grid-template-columns: none;
 }
-[data-mode="reading"][data-format="typst"] .preview-pane {
-  width: 100%;
+.viewer-app-shell.typst-reading > .cm-editor { display: none; }
+.viewer-app-shell.typst-reading > .preview-splitter { display: none; }
+.viewer-app-shell.typst-reading > .preview-pane {
+  flex: 1;
+  width: auto;
   border-left: none;
-}
-[data-mode="reading"][data-format="typst"] .preview-splitter {
-  display: none;
-}
-/* Force the pane open in reading-typst even if the per-format toggle is off,
- * because there is nothing else to show. The grid template falls back to a
- * single column. */
-[data-mode="reading"][data-format="typst"] .viewer-app-shell {
-  display: block;
 }
 
 /* Typst diagnostics — surfaced as wavy underlines on the offending source
@@ -1084,7 +1083,11 @@ body.preview-splitter-dragging .preview-splitter {
 }
 .typst-page svg {
   display: block;
-  max-width: 100%;
+  /* typst-svg emits SVGs without explicit width/height attributes — the
+   * browser would default them to ~300×150px (SVG intrinsic dimensions
+   * fallback). `width: 100%` makes the SVG fill the page wrapper, and
+   * `height: auto` preserves the aspect ratio derived from the viewBox. */
+  width: 100%;
   height: auto;
 }
 
