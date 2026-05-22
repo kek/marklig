@@ -83,16 +83,13 @@ export function setSidebarToggleHandler(handler: () => void): void {
   sidebarToggleHandler = handler;
 }
 
-let previewPaneToggleHandler: () => void = () => {};
-export function setPreviewPaneToggleHandler(handler: () => void): void {
-  previewPaneToggleHandler = handler;
-}
-
-const previewPaneToggleBinding: KeyBinding = {
-  key: "Mod-j",
-  preventDefault: true,
-  run: () => { previewPaneToggleHandler(); return true; },
-};
+// NOTE: Cmd-J is NOT bound here. main.ts installs a window-level keydown
+// handler (capture phase) so the shortcut works regardless of focus —
+// including when the pane itself or the sidebar has focus. A second
+// binding inside CM6 would risk double-firing the toggle (since
+// stopPropagation from window-capture does not always stop the editor's
+// own keydown listener in WebKit). One source of truth keeps the
+// behavior predictable.
 
 const zoomBindings: KeyBinding[] = [
   { key: "Mod-=", preventDefault: true, run: () => { zoomInHandler(); return true; } },
@@ -163,7 +160,6 @@ export const readingKeymap = keymap.of([
   modeToggleBinding,
   saveBinding,
   sidebarToggleBinding,
-  previewPaneToggleBinding,
   ...zoomBindings,
   ...searchKeymap,
   ...readingBindings,
@@ -175,7 +171,6 @@ export const editKeymap = [
     modeToggleBinding,
     saveBinding,
     sidebarToggleBinding,
-    previewPaneToggleBinding,
     ...zoomBindings,
     ...defaultKeymap,
     ...historyKeymap,

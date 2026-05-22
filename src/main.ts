@@ -12,7 +12,7 @@ import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/side
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, setPreviewPaneToggleHandler, installZoomKeyHandler, setAltZoomRoute } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler, setAltZoomRoute } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar, computeDocStats } from "./ui/toolbar";
@@ -449,6 +449,12 @@ async function bootstrap(): Promise<void> {
       // Reading-typst pins the pane open and may need a fresh compile so it
       // shows something. Edit-mode toggle leaves the pane state as-is.
       applyPreviewPaneLayout();
+      // After the class change, the editor may have transitioned from
+      // display:none (reading-typst) to display:flex (edit). CodeMirror's
+      // ResizeObserver normally catches that, but WebKit can be slow to
+      // notify on display flips — force a measure so the viewport and
+      // gutter render immediately rather than after the next interaction.
+      requestAnimationFrame(() => view.requestMeasure());
       if (m === "reading" && detectFormat(currentPath) === "typst") {
         scheduleTypstCompile();
       }
@@ -485,6 +491,10 @@ async function bootstrap(): Promise<void> {
     // Same as onModeChange — reading-typst needs the pane visible and
     // populated. applyPreviewPaneLayout reads currentMode to force-open.
     applyPreviewPaneLayout();
+    // Force a CM viewport measure: WebKit can lag on display:none → flex
+    // transitions and the editor would otherwise render its content only
+    // after the next interaction (scroll, click, resize).
+    requestAnimationFrame(() => view.requestMeasure());
     if (currentMode === "reading" && detectFormat(currentPath) === "typst") {
       scheduleTypstCompile();
     }
@@ -700,7 +710,8 @@ async function bootstrap(): Promise<void> {
       else if (format === "typst") scheduleTypstCompile();
     }
   }
-  setPreviewPaneToggleHandler(togglePreviewPane);
+  // togglePreviewPane is wired via the window-level Cmd-J keydown handler
+  // installed later in bootstrap. CM6 keymap is no longer involved.
 
   window.addEventListener("beforeunload", () => {
     if (typstDriver) void typstDriver.close();

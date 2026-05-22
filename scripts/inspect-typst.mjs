@@ -174,6 +174,18 @@ async function captureLayout(page, label) {
       pane: describe(pane),
       paneBody: describe(paneBody),
       paneBodyHTML: paneBody?.innerHTML?.slice(0, 200) ?? null,
+      cmContent: (() => {
+        const cmContent = document.querySelector(".cm-content");
+        if (!cmContent) return null;
+        const cs = getComputedStyle(cmContent);
+        return {
+          offsetWidth: cmContent.offsetWidth,
+          offsetHeight: cmContent.offsetHeight,
+          display: cs.display,
+          textPreview: cmContent.textContent?.slice(0, 60) ?? "",
+          lineCount: cmContent.querySelectorAll(".cm-line").length,
+        };
+      })(),
       page1Svg: page1Svg
         ? {
             outerWidth: page1Svg.getBoundingClientRect().width,
@@ -235,22 +247,49 @@ async function main() {
   });
   await page.waitForTimeout(100);
 
-  const readingMode = await captureLayout(page, "reading");
-  await page.screenshot({ path: resolve(OUT_DIR, "reading.png"), fullPage: false });
+  const reading1 = await captureLayout(page, "initial-reading");
+  await page.screenshot({ path: resolve(OUT_DIR, "1-initial-reading.png"), fullPage: false });
 
   // Toggle to edit via the toolbar/titlebar toggle button.
-  const editToggle = page.locator(
-    ".viewer-toolbar-btn[aria-pressed='false'], .viewer-titlebar-btn[aria-pressed='false']",
-  ).first();
-  if (await editToggle.count() > 0) {
-    await editToggle.click();
-    await page.waitForTimeout(400);
+  // In reading-typst the modeToggle has aria-pressed='true' (reading is the
+  // "pressed" state); clicking it should drop into edit.
+  const modeToggle = page
+    .locator('.viewer-toolbar-btn[aria-label*="mode" i], .viewer-titlebar-btn[aria-label*="mode" i], button[title*="mode" i]')
+    .first();
+  let toggleStrategy = "by-aria-label";
+  if ((await modeToggle.count()) === 0) {
+    toggleStrategy = "by-position-first";
+    // Fallback: first toolbar button (the mode toggle on macOS titlebar).
+    await page.locator(".viewer-titlebar-btn, .viewer-toolbar-btn").first().click();
+  } else {
+    await modeToggle.click();
   }
+  await page.waitForTimeout(500);
+  const edit1 = await captureLayout(page, `after-toggle-${toggleStrategy}`);
+  await page.screenshot({ path: resolve(OUT_DIR, "2-after-toggle-to-edit.png"), fullPage: false });
 
-  const editMode = await captureLayout(page, "edit");
-  await page.screenshot({ path: resolve(OUT_DIR, "edit.png"), fullPage: false });
+  // Now fire Cmd-J twice — should close then re-open the pane.
+  await page.keyboard.press("Meta+J");
+  await page.waitForTimeout(300);
+  const afterCmdJ1 = await captureLayout(page, "after-cmd-j-close");
+  await page.screenshot({ path: resolve(OUT_DIR, "3-after-cmd-j-1.png"), fullPage: false });
 
-  const report = { reading: readingMode, edit: editMode };
+  await page.keyboard.press("Meta+J");
+  await page.waitForTimeout(300);
+  const afterCmdJ2 = await captureLayout(page, "after-cmd-j-reopen");
+  await page.screenshot({ path: resolve(OUT_DIR, "4-after-cmd-j-2.png"), fullPage: false });
+
+  // Toggle back to reading via the same button.
+  if ((await modeToggle.count()) > 0) {
+    await modeToggle.click();
+  } else {
+    await page.locator(".viewer-titlebar-btn, .viewer-toolbar-btn").first().click();
+  }
+  await page.waitForTimeout(500);
+  const reading2 = await captureLayout(page, "after-toggle-back-to-reading");
+  await page.screenshot({ path: resolve(OUT_DIR, "5-back-to-reading.png"), fullPage: false });
+
+  const report = { reading1, edit1, afterCmdJ1, afterCmdJ2, reading2 };
   await writeFile(resolve(OUT_DIR, "report.json"), JSON.stringify(report, null, 2));
 
   await browser.close();
