@@ -529,8 +529,11 @@ async function bootstrap(): Promise<void> {
 
   let currentPath: string | null = initialDoc?.path ?? null;
 
-  // Preview splitter — appended to shell, after pane so DOM order matches
-  // the grid-template-columns order (editor, splitter, pane).
+  // Preview splitter — mounted to shell. The pane was appended earlier
+  // (right after the editor), so we move the splitter into the right slot
+  // and then re-append the pane so the final shell DOM order is
+  // [sidebar, editor, splitter, pane] — matching the grid template
+  // `auto 1fr auto var(--preview-pane-width)`.
   mountPreviewSplitter({
     parent: shell,
     container: shell,
@@ -539,6 +542,9 @@ async function bootstrap(): Promise<void> {
       applyPreviewPaneLayout();
     },
   });
+  // Re-append moves the pane element to be the last child without
+  // re-mounting it, putting it after the splitter in source order.
+  shell.append(previewPane.element);
 
   function applyPreviewPaneLayout(): void {
     const format = detectFormat(currentPath);
@@ -678,7 +684,7 @@ async function bootstrap(): Promise<void> {
   setDocumentFormatAttr();
   applyPreviewPaneLayout();
 
-  setPreviewPaneToggleHandler(() => {
+  function togglePreviewPane(): void {
     if (currentMode !== "edit") return; // no-op in reading mode
     const format = detectFormat(currentPath);
     const next = !getPreviewPaneOpen(format);
@@ -688,7 +694,8 @@ async function bootstrap(): Promise<void> {
       if (format === "markdown") renderMarkdownToPane();
       else if (format === "typst") scheduleTypstCompile();
     }
-  });
+  }
+  setPreviewPaneToggleHandler(togglePreviewPane);
 
   window.addEventListener("beforeunload", () => {
     if (typstDriver) void typstDriver.close();
@@ -1266,6 +1273,26 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("keydown", onQuickOpenKey, true);
   window.addEventListener("beforeunload", () => {
     window.removeEventListener("keydown", onQuickOpenKey, true);
+  });
+
+  // Per-window Cmd-J binding. The CodeMirror keymap also binds Mod-j, but it
+  // only fires when the editor has focus — pressing Cmd-J while focus is on
+  // the sidebar, the preview pane, or anywhere else in the window would do
+  // nothing. Same guard as Cmd-P: skip when a plain editable input has focus
+  // so users typing in the sidebar filter aren't surprised.
+  const onPreviewPaneKey = (e: KeyboardEvent): void => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.altKey || e.shiftKey) return;
+    if (e.key !== "j" && e.key !== "J") return;
+    const target = e.target as HTMLElement | null;
+    if (target && isPlainEditableInput(target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    togglePreviewPane();
+  };
+  window.addEventListener("keydown", onPreviewPaneKey, true);
+  window.addEventListener("beforeunload", () => {
+    window.removeEventListener("keydown", onPreviewPaneKey, true);
   });
 
 
