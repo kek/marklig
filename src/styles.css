@@ -983,31 +983,42 @@ body.viewer-resizing * { cursor: col-resize !important; }
 .viewer-toc-l4, .viewer-toc-l5, .viewer-toc-l6 { padding-left: 44px; color: var(--muted); font-size: 11px; }
 .viewer-toc-empty { color: var(--muted); font-size: 12px; }
 
-/* App shell layout — sidebar beside editor, with optional preview pane */
+/* App shell layout — sidebar | editor | splitter? | pane?
+ *
+ * Always flex (not grid) so that hidden children (display:none) cleanly
+ * drop out of layout — grid auto-placement misassigned columns when the
+ * sidebar was hidden. The runtime sets `--preview-pane-width` to e.g.
+ * `50%`; the pane consumes that fraction; the editor's flex:1 takes the
+ * rest. */
 #root { display: flex; flex-direction: column; }
 .viewer-app-shell {
   display: flex;
   flex: 1;
   min-height: 0;
-  --preview-pane-width: 0px; /* runtime sets to '<fraction> * 100%' when open */
+  --preview-pane-width: 50%;
 }
 .viewer-app-shell > .cm-editor {
   flex: 1;
   min-width: 0;
 }
-.viewer-app-shell.preview-open {
-  display: grid;
-  grid-template-columns: auto 1fr auto var(--preview-pane-width);
-}
 .preview-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Fixed share of the shell width when open. Specificity beats the
+   * generic `.preview-pane[hidden] { display: none }` below because that
+   * rule still wins via the `[hidden]` attribute selector. */
+  flex: 0 0 var(--preview-pane-width);
   border-left: 1px solid var(--separator, #ddd);
   background: var(--editor-bg, #fff);
   overflow: auto;
 }
 .preview-pane[hidden] { display: none; }
+/* Splitter is only visible while the pane is open. We can rely on the
+ * pane's display: none (via [hidden]) plus an adjacent-sibling selector,
+ * but the splitter lives BEFORE the pane in source order (so :has() is
+ * the cleanest match — supported in all evergreen browsers). */
+.viewer-app-shell:not(.preview-open) > .preview-splitter { display: none; }
 .preview-pane-header {
   font-size: 11px;
   padding: 6px 12px;
@@ -1046,7 +1057,9 @@ body.preview-splitter-dragging .preview-splitter {
   display: flex;
   grid-template-columns: none;
 }
-.viewer-app-shell.typst-reading > .cm-editor { display: none; }
+/* CodeMirror's base theme sets `.cm-editor { display: flex !important }`,
+ * so we need !important here to actually hide the source. */
+.viewer-app-shell.typst-reading > .cm-editor { display: none !important; }
 .viewer-app-shell.typst-reading > .preview-splitter { display: none; }
 .viewer-app-shell.typst-reading > .preview-pane {
   flex: 1;

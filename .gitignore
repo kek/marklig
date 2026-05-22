@@ -33,3 +33,4 @@ tsconfig.tsbuildinfo
 # Playwright test artifacts
 test-results/
 playwright-report/
+debug-out/

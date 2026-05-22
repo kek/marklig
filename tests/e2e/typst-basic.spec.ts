@@ -131,7 +131,9 @@ test("opens .typ, renders pages in the preview pane", async ({ page }) => {
   await addTauriStubs(page, sample, "/virtual/sample.typ");
 
   await page.goto(APP_URL);
-  await page.waitForSelector(".cm-editor");
+  // Reading mode for .typ hides the editor (display:none), so wait for it
+  // to be attached rather than visible.
+  await page.waitForSelector(".cm-editor", { state: "attached" });
 
   // .typ files default-open the pane (Phase B/D) and in reading mode the
   // pane is the only surface (Phase F). Allow up to 10s for the first
@@ -148,7 +150,9 @@ test("edits in the editor trigger a re-compile", async ({ page }) => {
   await addTauriStubs(page, sample, "/virtual/sample.typ");
 
   await page.goto(APP_URL);
-  await page.waitForSelector(".cm-editor");
+  // Reading mode for .typ hides the editor (display:none), so wait for it
+  // to be attached rather than visible.
+  await page.waitForSelector(".cm-editor", { state: "attached" });
   await expect(page.locator(".preview-pane-body .typst-page svg"))
     .toHaveCount(1, { timeout: 10_000 });
 
