@@ -78,10 +78,11 @@ export function installZoomKeyHandler(): () => void {
   return () => window.removeEventListener("keydown", onKey);
 }
 
-let sidebarToggleHandler: () => void = () => {};
-export function setSidebarToggleHandler(handler: () => void): void {
-  sidebarToggleHandler = handler;
-}
+// NOTE: Cmd-T (sidebar) and Cmd-Shift-T (preview pane) are NOT bound
+// here. main.ts installs window-level keydown handlers (capture phase)
+// so the shortcuts work regardless of focus. CM6's defaultKeymap doesn't
+// bind Mod-t or Shift-Mod-t, so there's no conflict either way; the
+// rationale matches Cmd-J above.
 
 // NOTE: Cmd-J is NOT bound here. main.ts installs a window-level keydown
 // handler (capture phase) so the shortcut works regardless of focus —
@@ -97,12 +98,6 @@ const zoomBindings: KeyBinding[] = [
   { key: "Mod--", preventDefault: true, run: () => { zoomOutHandler(); return true; } },
   { key: "Mod-0", preventDefault: true, run: () => { zoomResetHandler(); return true; } },
 ];
-
-const sidebarToggleBinding: KeyBinding = {
-  key: "Mod-Shift-l",
-  preventDefault: true,
-  run: () => { sidebarToggleHandler(); return true; },
-};
 
 const PAGE_OVERLAP_LINES = 3;
 
@@ -159,7 +154,6 @@ const readingBindings: KeyBinding[] = [
 export const readingKeymap = keymap.of([
   modeToggleBinding,
   saveBinding,
-  sidebarToggleBinding,
   ...zoomBindings,
   ...searchKeymap,
   ...readingBindings,
@@ -170,8 +164,7 @@ export const editKeymap = [
   keymap.of([
     modeToggleBinding,
     saveBinding,
-    sidebarToggleBinding,
-    ...zoomBindings,
+      ...zoomBindings,
     ...defaultKeymap,
     ...historyKeymap,
     ...searchKeymap,

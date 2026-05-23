@@ -124,19 +124,21 @@ test("Cmd-J toggles Markdown preview pane in edit mode", async ({ page }) => {
   // Pane should be hidden by default for markdown (default is false).
   await expect(page.locator(".preview-pane")).toBeHidden();
 
-  // Focus the editor so Cmd-J is received by CodeMirror.
+  // The shortcut is window-level (capture phase) so it doesn't need
+  // editor focus, but click into the editor anyway to mirror the way
+  // a user typically presses it.
   await page.locator(".cm-content").click();
 
-  // Toggle on with Cmd-J.
+  // Toggle on with Cmd-Shift-T.
   const isMac = process.platform === "darwin";
-  await page.keyboard.press(isMac ? "Meta+j" : "Control+j");
+  await page.keyboard.press(isMac ? "Meta+Shift+T" : "Control+Shift+T");
   await expect(page.locator(".preview-pane")).toBeVisible();
 
   // Pane body should contain rendered HTML headings.
   await expect(page.locator(".preview-pane-body h1, .preview-pane-body h2"))
     .toHaveCount(2);
 
-  // Toggle off with Cmd-J.
-  await page.keyboard.press(isMac ? "Meta+j" : "Control+j");
+  // Toggle off with Cmd-Shift-T.
+  await page.keyboard.press(isMac ? "Meta+Shift+T" : "Control+Shift+T");
   await expect(page.locator(".preview-pane")).toBeHidden();
 });

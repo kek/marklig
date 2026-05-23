@@ -20,6 +20,7 @@ export interface MenuHandlers {
   closeWindow: () => Promise<void>;
   toggleMode: () => void;
   toggleSidebar: () => void;
+  togglePreviewPane: () => void;
   setTheme: (t: "light" | "dark" | "system") => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -290,8 +291,14 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await MenuItem.new({
         id: "toggle-sidebar",
         text: t("menu.view.toggleSidebar"),
-        accelerator: "CmdOrCtrl+Shift+L",
+        accelerator: "CmdOrCtrl+T",
         action: () => handlers.toggleSidebar(),
+      }),
+      await MenuItem.new({
+        id: "toggle-preview-pane",
+        text: t("menu.view.togglePreviewPane"),
+        accelerator: "CmdOrCtrl+Shift+T",
+        action: () => handlers.togglePreviewPane(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       themeMenu,

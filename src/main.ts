@@ -12,7 +12,7 @@ import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/side
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler, setAltZoomRoute } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, installZoomKeyHandler, setAltZoomRoute } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar, computeDocStats } from "./ui/toolbar";
@@ -530,12 +530,14 @@ async function bootstrap(): Promise<void> {
     },
   });
 
-  setSidebarToggleHandler(() => {
+  // toggleSidebar (Cmd-T) is wired via localHandlers below and the
+  // window-level keydown handler. CM6 keymap is no longer involved.
+  function toggleSidebar(): void {
     const next = !toc.isVisible();
     toc.setVisible(next);
     recordExplicitToggle(next);
     toolbar.setSidebarVisible(next);
-  });
+  }
 
   let currentPath: string | null = initialDoc?.path ?? null;
 
@@ -1185,12 +1187,8 @@ async function bootstrap(): Promise<void> {
       toolbar.setMode(currentMode);
       document.documentElement.dataset.mode = currentMode;
     },
-    toggleSidebar: () => {
-      const next = !toc.isVisible();
-      toc.setVisible(next);
-      recordExplicitToggle(next);
-      toolbar.setSidebarVisible(next);
-    },
+    toggleSidebar,
+    togglePreviewPane,
     setTheme: (t) => setActiveTheme(t),
     zoomIn: () => zoomByFn(view, +1),
     zoomOut: () => zoomByFn(view, -1),
@@ -1291,24 +1289,27 @@ async function bootstrap(): Promise<void> {
     window.removeEventListener("keydown", onQuickOpenKey, true);
   });
 
-  // Per-window Cmd-J binding. The CodeMirror keymap also binds Mod-j, but it
-  // only fires when the editor has focus — pressing Cmd-J while focus is on
-  // the sidebar, the preview pane, or anywhere else in the window would do
-  // nothing. Same guard as Cmd-P: skip when a plain editable input has focus
-  // so users typing in the sidebar filter aren't surprised.
-  const onPreviewPaneKey = (e: KeyboardEvent): void => {
+  // Per-window keyboard shortcuts for sidebar + preview pane. Bound at the
+  // window level (capture phase) so they work regardless of focus. CM6's
+  // defaultKeymap doesn't bind Mod-t or Shift-Mod-t (Mod-j was the previous
+  // binding but collides with CM's joinLines, so we've moved off it).
+  // Cmd-B is intentionally left free for future bold-formatting commands.
+  // Same plain-input guard as Cmd-P so the sidebar filter input isn't
+  // hijacked while the user is typing in it.
+  const onPaneShortcutKey = (e: KeyboardEvent): void => {
     if (!(e.metaKey || e.ctrlKey)) return;
-    if (e.altKey || e.shiftKey) return;
-    if (e.key !== "j" && e.key !== "J") return;
+    if (e.altKey) return;
+    if (e.key !== "t" && e.key !== "T") return;
     const target = e.target as HTMLElement | null;
     if (target && isPlainEditableInput(target)) return;
     e.preventDefault();
     e.stopPropagation();
-    togglePreviewPane();
+    if (e.shiftKey) togglePreviewPane();
+    else toggleSidebar();
   };
-  window.addEventListener("keydown", onPreviewPaneKey, true);
+  window.addEventListener("keydown", onPaneShortcutKey, true);
   window.addEventListener("beforeunload", () => {
-    window.removeEventListener("keydown", onPreviewPaneKey, true);
+    window.removeEventListener("keydown", onPaneShortcutKey, true);
   });
 
 
@@ -1337,6 +1338,7 @@ async function bootstrap(): Promise<void> {
       },
       toggleMode: () => { void dispatchToFocused({ type: "toggleMode" }); },
       toggleSidebar: () => { void dispatchToFocused({ type: "toggleSidebar" }); },
+      togglePreviewPane: () => { void dispatchToFocused({ type: "togglePreviewPane" }); },
       // Theme changes apply app-wide; broadcast so every window updates in
       // lockstep instead of just the focused one.
       setTheme: (theme) => { void dispatchToAll({ type: "setTheme", theme }); },
