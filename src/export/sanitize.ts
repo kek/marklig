@@ -15,11 +15,16 @@ export function sanitizeHtml(html: string): string {
 // Default DOMPurify config drops most SVG attributes; svg+svgFilters profiles
 // keep the markup intact while still stripping <script>/event handlers.
 //
-// typst-svg renders glyphs via <use xlink:href="#g..."/> referencing definitions
-// in a <defs> block — without xlink:href on the allow-list the glyphs disappear,
-// leaving compiled pages effectively blank. Same-document fragment references
-// (#id) are not an XSS vector; remote URLs are blocked separately via
-// FORBID_ATTR/href and DOMPurify's URL-safe-list.
+// Why each non-default add is here:
+//   - <use> + xlink:href: typst-svg renders glyphs via <use xlink:href="#g..."/>
+//     referencing definitions in a <defs> block. Without this the glyphs
+//     disappear and compiled pages are blank.
+//   - href: mermaid emits clickable <a href="..."> inside diagrams. The html
+//     profile permits <a>, but href on it still needs explicit allow.
+//
+// Both attributes go through DOMPurify's URL allow-list, which blocks
+// javascript: and data: schemes — exercised by the test suite so a future
+// DOMPurify upgrade that changes defaults gets caught.
 export function sanitizeSvg(svg: string): string {
   return DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true, html: true },
