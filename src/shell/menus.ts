@@ -291,13 +291,13 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
       await MenuItem.new({
         id: "toggle-sidebar",
         text: t("menu.view.toggleSidebar"),
-        accelerator: "CmdOrCtrl+T",
+        accelerator: "CmdOrCtrl+Shift+L",
         action: () => handlers.toggleSidebar(),
       }),
       await MenuItem.new({
         id: "toggle-preview-pane",
         text: t("menu.view.togglePreviewPane"),
-        accelerator: "CmdOrCtrl+Shift+T",
+        accelerator: "CmdOrCtrl+Shift+K",
         action: () => handlers.togglePreviewPane(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),

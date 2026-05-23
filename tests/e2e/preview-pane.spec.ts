@@ -109,7 +109,7 @@ async function addTauriStubs(page: import("@playwright/test").Page, sampleMd: st
   }, sampleMd);
 }
 
-test("Cmd-J toggles Markdown preview pane in edit mode", async ({ page }) => {
+test("Cmd-Shift-K toggles Markdown preview pane in edit mode", async ({ page }) => {
   const sample = "# Preview Test\n\nHello from the preview pane.\n\n## Section Two\n\nMore content here.\n";
 
   await addTauriStubs(page, sample);
@@ -129,16 +129,16 @@ test("Cmd-J toggles Markdown preview pane in edit mode", async ({ page }) => {
   // a user typically presses it.
   await page.locator(".cm-content").click();
 
-  // Toggle on with Cmd-Shift-T.
+  // Toggle on with Cmd-Shift-K.
   const isMac = process.platform === "darwin";
-  await page.keyboard.press(isMac ? "Meta+Shift+T" : "Control+Shift+T");
+  await page.keyboard.press(isMac ? "Meta+Shift+K" : "Control+Shift+K");
   await expect(page.locator(".preview-pane")).toBeVisible();
 
   // Pane body should contain rendered HTML headings.
   await expect(page.locator(".preview-pane-body h1, .preview-pane-body h2"))
     .toHaveCount(2);
 
-  // Toggle off with Cmd-Shift-T.
-  await page.keyboard.press(isMac ? "Meta+Shift+T" : "Control+Shift+T");
+  // Toggle off with Cmd-Shift-K.
+  await page.keyboard.press(isMac ? "Meta+Shift+K" : "Control+Shift+K");
   await expect(page.locator(".preview-pane")).toBeHidden();
 });

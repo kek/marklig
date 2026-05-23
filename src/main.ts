@@ -565,8 +565,17 @@ async function bootstrap(): Promise<void> {
     // mode's split). Markdown reading mode is decorated in-place and never
     // forces the pane open.
     const isReadingTypst = format === "typst" && currentMode === "reading";
+    // Reading mode for .md is the decorated-source view — the pane would
+    // duplicate what the source already shows, so force it closed. The
+    // user's per-format pane preference (stored in settings) is left
+    // untouched, so when they toggle back to edit the pane re-opens iff
+    // they had it open before.
+    const forceCloseMarkdownReading =
+      format === "markdown" && currentMode === "reading";
     const forceOpen = isReadingTypst;
-    const open = forceOpen || getPreviewPaneOpen(format);
+    const open =
+      forceOpen ||
+      (!forceCloseMarkdownReading && getPreviewPaneOpen(format));
     shell.classList.toggle("preview-open", open);
     // Reading-mode-for-.typ has its own layout (pane full-width, source
     // hidden). Drive it through an explicit class on the shell so it
@@ -712,8 +721,8 @@ async function bootstrap(): Promise<void> {
       else if (format === "typst") scheduleTypstCompile();
     }
   }
-  // togglePreviewPane is wired via the window-level Cmd-J keydown handler
-  // installed later in bootstrap. CM6 keymap is no longer involved.
+  // togglePreviewPane is wired via the window-level Cmd-Shift-K keydown
+  // handler installed later in bootstrap. CM6 keymap is no longer involved.
 
   window.addEventListener("beforeunload", () => {
     if (typstDriver) void typstDriver.close();
@@ -1290,22 +1299,28 @@ async function bootstrap(): Promise<void> {
   });
 
   // Per-window keyboard shortcuts for sidebar + preview pane. Bound at the
-  // window level (capture phase) so they work regardless of focus. CM6's
-  // defaultKeymap doesn't bind Mod-t or Shift-Mod-t (Mod-j was the previous
-  // binding but collides with CM's joinLines, so we've moved off it).
-  // Cmd-B is intentionally left free for future bold-formatting commands.
+  // window level (capture phase) so they work regardless of focus. Cmd-B is
+  // intentionally left free for future bold-formatting commands.
+  //
+  // Both chords require Shift, so they live one row up from any
+  // single-letter CM6 bindings. Cmd-Shift-K collides with CM6
+  // defaultKeymap's deleteLine — we rely on capture-phase
+  // stopPropagation to keep it from reaching CM's editor-DOM listener
+  // (same pattern that resolved the earlier Cmd-J/joinLines clash).
+  //
   // Same plain-input guard as Cmd-P so the sidebar filter input isn't
   // hijacked while the user is typing in it.
   const onPaneShortcutKey = (e: KeyboardEvent): void => {
     if (!(e.metaKey || e.ctrlKey)) return;
-    if (e.altKey) return;
-    if (e.key !== "t" && e.key !== "T") return;
+    if (e.altKey || !e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    if (k !== "l" && k !== "k") return;
     const target = e.target as HTMLElement | null;
     if (target && isPlainEditableInput(target)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.shiftKey) togglePreviewPane();
-    else toggleSidebar();
+    if (k === "l") toggleSidebar();
+    else togglePreviewPane();
   };
   window.addEventListener("keydown", onPaneShortcutKey, true);
   window.addEventListener("beforeunload", () => {

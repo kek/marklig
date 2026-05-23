@@ -269,32 +269,32 @@ async function main() {
   await page.screenshot({ path: resolve(OUT_DIR, "2-after-toggle-to-edit.png"), fullPage: false });
 
   // Now fire Cmd-Shift-T twice — should close then re-open the pane.
-  await page.keyboard.press("Meta+Shift+T");
+  await page.keyboard.press("Meta+Shift+K");
   await page.waitForTimeout(300);
   const afterCmdJ1 = await captureLayout(page, "after-cmd-shift-t-close");
   await page.screenshot({ path: resolve(OUT_DIR, "3-after-cmd-shift-t-1.png"), fullPage: false });
 
-  await page.keyboard.press("Meta+Shift+T");
+  await page.keyboard.press("Meta+Shift+K");
   await page.waitForTimeout(300);
   const afterCmdJ2 = await captureLayout(page, "after-cmd-shift-t-reopen");
   await page.screenshot({ path: resolve(OUT_DIR, "4-after-cmd-shift-t-2.png"), fullPage: false });
 
-  // Cmd-T should toggle the sidebar.
+  // Cmd-Shift-L should toggle the sidebar.
   const sidebarHiddenBefore = await page.evaluate(() =>
     document.querySelector(".viewer-toc")?.classList.contains("hidden"),
   );
-  await page.keyboard.press("Meta+T");
+  await page.keyboard.press("Meta+Shift+L");
   await page.waitForTimeout(200);
   const sidebarHiddenAfter = await page.evaluate(() =>
     document.querySelector(".viewer-toc")?.classList.contains("hidden"),
   );
   if (sidebarHiddenBefore === sidebarHiddenAfter) {
-    console.log("⚠️  Cmd-T did NOT toggle sidebar (still", sidebarHiddenAfter, ")");
+    console.log("⚠️  Cmd-Shift-L did NOT toggle sidebar (still", sidebarHiddenAfter, ")");
   } else {
-    console.log("✅ Cmd-T toggled sidebar:", sidebarHiddenBefore, "→", sidebarHiddenAfter);
+    console.log("✅ Cmd-Shift-L toggled sidebar:", sidebarHiddenBefore, "→", sidebarHiddenAfter);
   }
   // Toggle it back.
-  await page.keyboard.press("Meta+T");
+  await page.keyboard.press("Meta+Shift+L");
   await page.waitForTimeout(200);
 
   // Toggle back to reading via the same button.
