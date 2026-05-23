@@ -46,9 +46,17 @@ export function mountPreviewPane(opts: MountPreviewPaneOptions): PreviewPaneHand
     isVisible() { return !root.hidden; },
     setPages(svgs) {
       if (svgs.length === 0) return;
+      // Replacing innerHTML resets the body's scroll position. The user is
+      // typically editing the source while watching a specific page; snapping
+      // back to the top on every recompile (every ~300ms while typing) is
+      // disorienting. Capture before, restore after.
+      const scrollTop = body.scrollTop;
+      const scrollLeft = body.scrollLeft;
       body.innerHTML = svgs
         .map((svg) => `<div class="typst-page">${sanitizeSvg(svg)}</div>`)
         .join("");
+      body.scrollTop = scrollTop;
+      body.scrollLeft = scrollLeft;
     },
     setStatus(text) {
       status.textContent = text ?? "";

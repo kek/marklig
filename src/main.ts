@@ -547,6 +547,7 @@ async function bootstrap(): Promise<void> {
   mountPreviewSplitter({
     parent: shell,
     container: shell,
+    getFraction: () => getPreviewPaneWidth(),
     onResize: (frac) => {
       setPreviewPaneWidth(frac);
       applyPreviewPaneLayout();

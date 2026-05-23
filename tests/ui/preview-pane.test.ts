@@ -38,4 +38,20 @@ describe("preview pane", () => {
     handle.setStatus("Compiling…");
     expect(handle.element.textContent).toContain("Compiling…");
   });
+
+  it("setPages preserves scroll position across re-renders", () => {
+    const handle = mountPreviewPane({ parent });
+    handle.setPages([`<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`]);
+    // jsdom doesn't compute layout, so direct scrollTop assignment is the
+    // only way to fake a scrolled position. The implementation reads-then-
+    // writes; the round-trip is what we're testing.
+    Object.defineProperty(handle.body, "scrollTop", {
+      configurable: true,
+      get: function () { return (this as { __st?: number }).__st ?? 0; },
+      set: function (v: number) { (this as { __st?: number }).__st = v; },
+    });
+    handle.body.scrollTop = 240;
+    handle.setPages([`<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>`]);
+    expect(handle.body.scrollTop).toBe(240);
+  });
 });
