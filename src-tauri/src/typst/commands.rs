@@ -89,6 +89,12 @@ pub fn typst_compile(
             .ok_or_else(|| TypstError::UnknownSession(session_id.clone()))?
             .clone()
     };
+    // Serialize compiles for this session. `World::source` is called multiple
+    // times during a single `typst::compile`; without this lock a second
+    // compile that lands before the first finishes can mutate `main_source`
+    // mid-flight, yielding a mishmash of revisions in the result. Different
+    // sessions still compile in parallel.
+    let _guard = session.compile_lock.lock();
     session.set_source(source);
 
     let main = session.world.main_source_ref();
