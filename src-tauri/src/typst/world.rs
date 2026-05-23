@@ -1,16 +1,20 @@
 //! `World` implementation backing the in-process Typst compiler.
 //!
 //! Carries:
-//! - the standard library + font book + system fonts (built once at session
-//!   open)
+//! - the standard library (built once at session open)
 //! - the entry file id (the `.typ` the user opened)
 //! - a mutable in-memory copy of the entry source (updated each compile)
+//!
+//! The font book + system font slots are shared across every `ViewerWorld`
+//! via a process-wide `OnceLock` — scanning system fonts on every session
+//! open added hundreds of milliseconds per `.typ` file opened on macOS.
 //!
 //! Sibling files / assets are resolved relative to the entry file's parent
 //! directory. Packages (`@preview/...`) are NOT resolved in Phase C — that
 //! lands in Phase F via `crate::typst::packages`.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use chrono::Datelike;
 use parking_lot::RwLock;
@@ -25,10 +29,30 @@ use ::typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
 
 use crate::typst::packages;
 
+/// System font book + slots, scanned once per process and shared across every
+/// `ViewerWorld`. The original implementation rescanned on every session open,
+/// which adds hundreds of milliseconds per `.typ` file opened on macOS.
+struct SharedFonts {
+    book: LazyHash<FontBook>,
+    slots: Vec<FontSlot>,
+}
+
+static SHARED_FONTS: OnceLock<SharedFonts> = OnceLock::new();
+
+fn shared_fonts() -> &'static SharedFonts {
+    SHARED_FONTS.get_or_init(|| {
+        let Fonts { book, fonts } = FontSearcher::new()
+            .include_system_fonts(true)
+            .search();
+        SharedFonts {
+            book: LazyHash::new(book),
+            slots: fonts,
+        }
+    })
+}
+
 pub struct ViewerWorld {
     library: LazyHash<Library>,
-    fontbook: LazyHash<FontBook>,
-    fonts: Vec<FontSlot>,
     root: PathBuf,
     main: FileId,
     main_source: RwLock<Source>,
@@ -48,14 +72,12 @@ impl ViewerWorld {
         let source_text = std::fs::read_to_string(entry_path)?;
         let main_source = Source::new(main, source_text);
 
-        let Fonts { book, fonts } = FontSearcher::new()
-            .include_system_fonts(true)
-            .search();
+        // Touch the lazy font init so the first compile doesn't pay for it
+        // unexpectedly. Subsequent sessions reuse the cached `SharedFonts`.
+        let _ = shared_fonts();
 
         Ok(Self {
             library: LazyHash::new(Library::default()),
-            fontbook: LazyHash::new(book),
-            fonts,
             root,
             main,
             main_source: RwLock::new(main_source),
@@ -85,7 +107,7 @@ impl World for ViewerWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &self.fontbook
+        &shared_fonts().book
     }
 
     fn main(&self) -> FileId {
@@ -110,7 +132,7 @@ impl World for ViewerWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index).and_then(|slot| slot.get())
+        shared_fonts().slots.get(index).and_then(|slot| slot.get())
     }
 
     fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
