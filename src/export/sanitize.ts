@@ -14,9 +14,17 @@ export function sanitizeHtml(html: string): string {
 // Mermaid output is SVG (occasionally with foreignObject for HTML labels).
 // Default DOMPurify config drops most SVG attributes; svg+svgFilters profiles
 // keep the markup intact while still stripping <script>/event handlers.
+//
+// typst-svg renders glyphs via <use xlink:href="#g..."/> referencing definitions
+// in a <defs> block — without xlink:href on the allow-list the glyphs disappear,
+// leaving compiled pages effectively blank. Same-document fragment references
+// (#id) are not an XSS vector; remote URLs are blocked separately via
+// FORBID_ATTR/href and DOMPurify's URL-safe-list.
 export function sanitizeSvg(svg: string): string {
   return DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    ADD_TAGS: ["use"],
+    ADD_ATTR: ["xlink:href", "href"],
     FORBID_TAGS: ["script"],
     FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
   });

@@ -68,6 +68,7 @@ export const EN = {
   // Menus
   "menu.file": "File",
   "menu.file.newWindow": "New Window",
+  "menu.file.newTypstFile": "New Typst File",
   "menu.file.open": "Open…",
   "menu.file.openFolder": "Open Folder…",
   "menu.file.openRecent": "Open Recent",
@@ -138,12 +139,12 @@ export const EN = {
   // Sidebar sections (folder tree + table of contents)
   "sidebar.folder.filter": "Filter…",
   "sidebar.folder.filterAriaLabel": "Filter files in folder",
-  "sidebar.folder.empty": "No Markdown files in this folder.",
+  "sidebar.folder.empty": "No documents in this folder.",
   "sidebar.folder.error": "Could not read folder: {message}",
   "sidebar.folder.expand": "Expand folder section",
   "sidebar.folder.collapse": "Collapse folder section",
   "sidebar.folder.newFile": "New file",
-  "sidebar.folder.newFileTitle": "Create a new Markdown file in this folder",
+  "sidebar.folder.newFileTitle": "Create a new document in this folder",
   "sidebar.folder.newFileMenu": "New File…",
   "sidebar.folder.newFilePlaceholder": "untitled.md",
   "sidebar.folder.newFileAriaLabel": "Name for the new file",
@@ -203,6 +204,13 @@ export const EN = {
   "mobile.library.pair_unavailable": "Pairing arrives in v2.1.",
   "mobile.library.paired_desktops": "Paired desktops",
   "mobile.library.back": "Back to library",
+  "typst.unsupported_on_mobile": "Typst documents are not supported on mobile.",
+
+  // Typst compile status (status slot on the toolbar/titlebar)
+  "typst.compiling": "Compiling…",
+  "typst.compiled_in": "Compiled in {ms} ms",
+  "typst.n_errors": "{n} errors",
+  "typst.one_error": "1 error",
   "mobile.pair.title": "Pair with a desktop",
   "mobile.pair.qr_label": "Paste the QR URL shown on the desktop",
   "mobile.pair.qr_placeholder": "marklig-pair://v1/…",

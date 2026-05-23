@@ -1,6 +1,6 @@
 // VS Code-style fuzzy file finder palette, opened with Cmd-P. Lists every
 // markdown file under the currently-open folder root (same source as the
-// sidebar's list_markdown_files) and lets the user pick one with a fuzzy
+// sidebar's list_documents) and lets the user pick one with a fuzzy
 // substring match on the relative path. Enter dispatches a menu-action event
 // to load the file in the focused window; Esc closes.
 //

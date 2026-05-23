@@ -5,6 +5,8 @@ mod mac_tao_patch;
 mod pairing;
 #[cfg(desktop)]
 mod pairing_ws;
+#[cfg(desktop)]
+pub mod typst;
 
 #[cfg(desktop)]
 use commands::folder_watcher::FolderWatcherState;
@@ -67,10 +69,18 @@ pub fn run() {
         .manage(FolderWatcherState::new())
         .manage(pairing::PairingState::new())
         .manage(std::sync::Arc::new(pairing_ws::WsServerState::new()))
+        .manage(self::typst::TypstState::new())
         .setup(|app| {
             // Spin up the pairing-WS server. Runs for the app's lifetime
             // and only accepts handshakes when armed via pairing_start.
             pairing_ws::spawn_server(app.handle().clone());
+            // Wire the Typst package cache to the app's data dir so that
+            // downloaded `@preview/...` packages persist across launches.
+            // If the data dir is unavailable for some reason, the package
+            // resolver falls back to typst-kit's XDG default.
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                self::typst::packages::init(data_dir.join("typst/packages"));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -84,7 +94,7 @@ pub fn run() {
             commands::files::write_recovery,
             commands::files::read_all_recovery,
             commands::files::clear_recovery,
-            commands::files::list_markdown_files,
+            commands::files::list_documents,
             commands::files::is_directory,
             commands::files::path_exists,
             commands::files::resolve_folder_root,
@@ -99,6 +109,9 @@ pub fn run() {
             pairing::pairing_unpair,
             pairing::folder_sync_enable,
             pairing::folder_sync_disable,
+            self::typst::typst_open,
+            self::typst::typst_compile,
+            self::typst::typst_close,
             take_pending_open_paths,
         ]);
 

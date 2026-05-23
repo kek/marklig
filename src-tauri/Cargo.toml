@@ -43,6 +43,18 @@ ignore = "0.4"
 # Cross-platform "move to OS trash" with an unlink fallback in the command
 # wrapper. macOS NSFileManager, Windows IFileOperation, freedesktop on Linux.
 trash = "5"
+# Embedded Typst compiler. Desktop-only — the mobile shells don't ship the
+# preview pane wiring that would consume this.
+typst = "0.14"
+typst-syntax = "0.14"
+typst-svg = "0.14"
+typst-kit = "0.14"
+comemo = "0.5"
+uuid = { version = "1", features = ["v4"] }
+parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # OS-level recent-documents integration (NSDocumentController). Surfaces

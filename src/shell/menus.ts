@@ -13,6 +13,7 @@ export interface MenuHandlers {
   openFile: () => Promise<void>;
   openFolder: () => Promise<void>;
   newWindow: () => Promise<void>;
+  newTypstFile: () => Promise<void>;
   saveFile: () => void | Promise<void>;
   saveFileAs: () => Promise<void>;
   revealInFileManager: () => Promise<void>;
@@ -138,6 +139,12 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
         text: t("menu.file.newWindow"),
         accelerator: "CmdOrCtrl+N",
         action: () => { void handlers.newWindow(); },
+      }),
+      await MenuItem.new({
+        id: "new-typst-file",
+        text: t("menu.file.newTypstFile"),
+        accelerator: "CmdOrCtrl+Shift+N",
+        action: () => { void handlers.newTypstFile(); },
       }),
       await MenuItem.new({
         id: "open",

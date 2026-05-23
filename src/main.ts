@@ -1,4 +1,5 @@
 import { createEditor, setMode } from "./editor/editor";
+import { isSupportedExtension } from "./format";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
@@ -11,7 +12,7 @@ import { mountTocSidebar, type TocSidebarHandle, type TocEntry } from "./ui/side
 import { mountFolderSidebar, type FolderSidebarHandle } from "./ui/sidebar/folder";
 import { shouldShowSidebar, recordExplicitToggle } from "./ui/sidebar/toc-state";
 import { buildDecorationField, refreshDecorationsEffect } from "./editor/decorations";
-import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, setSidebarToggleHandler, installZoomKeyHandler } from "./editor/keymaps";
+import { readingKeymap, editKeymap, setModeToggleHandler, setSaveHandler, setZoomHandlers, installZoomKeyHandler, setAltZoomRoute } from "./editor/keymaps";
 import { zoomBy as zoomByFn, zoomReset as zoomResetFn } from "./editor/zoom";
 import type { Mode } from "./editor/editor";
 import { mountToolbar, computeDocStats } from "./ui/toolbar";
@@ -30,7 +31,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
-import { loadSettings, subscribeSettings, getAutoSave } from "./shell/settings";
+import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
   loadWindowSession,
@@ -44,14 +45,14 @@ import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { openProjectPalette } from "./ui/project-palette";
 import { openQuickOpenPalette } from "./ui/quick-open";
 import { mountContextMenu } from "./ui/context-menu";
-import { t } from "./i18n/strings";
+import { t, tA11y } from "./i18n/strings";
 import "katex/dist/katex.min.css";
 import {
   applyTheme,
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
@@ -82,6 +83,12 @@ import {
   clearRecentProjects,
 } from "./shell/recent-projects";
 import { openSearchPanel } from "@codemirror/search";
+import { detectFormat } from "./format";
+import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
+import { mountPreviewSplitter } from "./ui/preview-splitter";
+import { typstFormat } from "./format/typst";
+import { createTypstDriver, type TypstDriver, type CompileResult } from "./format/typst-driver";
+import { typstDiagnosticsExtension, setTypstDiagnostics } from "./editor/typst-diagnostics";
 
 let recoveredDoc: { path: string; source: string } | null = null;
 
@@ -153,6 +160,9 @@ async function bootstrap(): Promise<void> {
     parent: shell,
     source: initialDoc?.source ?? defaultPlaceholder(),
   });
+
+  // Preview pane + splitter. Appended after the editor so they sit to the right.
+  const previewPane: PreviewPaneHandle = mountPreviewPane({ parent: shell });
 
   const editingProducers = [
     headingsProducer,
@@ -434,6 +444,18 @@ async function bootstrap(): Promise<void> {
     onModeChange: (m) => {
       currentMode = m;
       document.documentElement.dataset.mode = m;
+      // Reading-typst pins the pane open and may need a fresh compile so it
+      // shows something. Edit-mode toggle leaves the pane state as-is.
+      applyPreviewPaneLayout();
+      // After the class change, the editor may have transitioned from
+      // display:none (reading-typst) to display:flex (edit). CodeMirror's
+      // ResizeObserver normally catches that, but WebKit can be slow to
+      // notify on display flips — force a measure so the viewport and
+      // gutter render immediately rather than after the next interaction.
+      requestAnimationFrame(() => view.requestMeasure());
+      if (m === "reading" && detectFormat(currentPath) === "typst") {
+        scheduleTypstCompile();
+      }
     },
     onSidebarToggle: () => {
       const next = !toc.isVisible();
@@ -464,6 +486,16 @@ async function bootstrap(): Promise<void> {
     setMode(view, currentMode, modeExtensions[currentMode]);
     toolbar.setMode(currentMode);
     document.documentElement.dataset.mode = currentMode;
+    // Same as onModeChange — reading-typst needs the pane visible and
+    // populated. applyPreviewPaneLayout reads currentMode to force-open.
+    applyPreviewPaneLayout();
+    // Force a CM viewport measure: WebKit can lag on display:none → flex
+    // transitions and the editor would otherwise render its content only
+    // after the next interaction (scroll, click, resize).
+    requestAnimationFrame(() => view.requestMeasure());
+    if (currentMode === "reading" && detectFormat(currentPath) === "typst") {
+      scheduleTypstCompile();
+    }
   });
 
   setZoomHandlers({
@@ -474,14 +506,184 @@ async function bootstrap(): Promise<void> {
   const stopZoomKeys = installZoomKeyHandler();
   window.addEventListener("beforeunload", () => stopZoomKeys());
 
-  setSidebarToggleHandler(() => {
+  // Re-route Cmd-+/-/0 to the Typst preview pane when focus is inside it.
+  // The editor zoom binding (above) stays the default for the editor itself.
+  setAltZoomRoute({
+    match: () => {
+      if (detectFormat(currentPath) !== "typst") return false;
+      const el = document.activeElement;
+      return el !== null && !!(el.closest && el.closest(".preview-pane-body"));
+    },
+    in: () => {
+      adjustTypstZoom(1);
+      applyPreviewPaneLayout();
+    },
+    out: () => {
+      adjustTypstZoom(-1);
+      applyPreviewPaneLayout();
+    },
+    reset: () => {
+      resetTypstZoom();
+      applyPreviewPaneLayout();
+    },
+  });
+
+  // toggleSidebar (Cmd-T) is wired via localHandlers below and the
+  // window-level keydown handler. CM6 keymap is no longer involved.
+  function toggleSidebar(): void {
     const next = !toc.isVisible();
     toc.setVisible(next);
     recordExplicitToggle(next);
     toolbar.setSidebarVisible(next);
-  });
+  }
 
   let currentPath: string | null = initialDoc?.path ?? null;
+
+  // Preview splitter — mounted to shell. The pane was appended earlier
+  // (right after the editor), so we move the splitter into the right slot
+  // and then re-append the pane so the final shell DOM order is
+  // [sidebar, editor, splitter, pane] — matching the grid template
+  // `auto 1fr auto var(--preview-pane-width)`.
+  mountPreviewSplitter({
+    parent: shell,
+    container: shell,
+    onResize: (frac) => {
+      setPreviewPaneWidth(frac);
+      applyPreviewPaneLayout();
+    },
+  });
+  // Re-append moves the pane element to be the last child without
+  // re-mounting it, putting it after the splitter in source order.
+  shell.append(previewPane.element);
+
+  function applyPreviewPaneLayout(): void {
+    const format = detectFormat(currentPath);
+    // In reading mode for .typ the pane is the only surface, so force it
+    // open regardless of the per-format toggle (which still controls edit
+    // mode's split). Markdown reading mode is decorated in-place and never
+    // forces the pane open.
+    const isTypst = format === "typst";
+    const isReadingTypst = isTypst && currentMode === "reading";
+    // Pane is .typ-only: edit mode = split, reading mode = pane full-width
+    // with the source hidden. Markdown never gets a pane.
+    shell.classList.toggle("preview-open", isTypst);
+    shell.classList.toggle("typst-reading", isReadingTypst);
+    previewPane.setVisible(isTypst);
+    shell.style.setProperty(
+      "--preview-pane-width",
+      `${(getPreviewPaneWidth() * 100).toFixed(2)}%`,
+    );
+    // Push the current Typst zoom into the pane body's custom property
+    // and tag the body with the active format so CSS can branch (zoom
+    // transform, etc.) — even when the pane is hidden we set it so a
+    // subsequent re-open picks up the right scale immediately.
+    previewPane.body.dataset.format = format;
+    previewPane.body.style.setProperty("--typst-zoom", String(getTypstZoom()));
+  }
+
+  // Per-format extensions (Typst language highlight + diagnostics field)
+  // live behind a Compartment so we can swap them in/out as the user opens
+  // files of different formats. Initially empty until the first
+  // applyFormatExtensions() call below.
+  const formatCompartment = new Compartment();
+  view.dispatch({
+    effects: StateEffect.appendConfig.of(formatCompartment.of([])),
+  });
+
+  function applyFormatExtensions(): void {
+    const format = detectFormat(currentPath);
+    const exts =
+      format === "typst"
+        ? [typstFormat.languageExtension, typstDiagnosticsExtension()]
+        : [];
+    view.dispatch({ effects: formatCompartment.reconfigure(exts) });
+  }
+
+  // Typst compile driver — one session per open .typ file. Compiles fire on
+  // a debounce; we keep a sequence counter to discard results from stale
+  // compiles that lose the race to a newer source revision.
+  let typstDriver: TypstDriver | null = null;
+  let typstCompileTimer: ReturnType<typeof setTimeout> | null = null;
+  let typstCompileSeq = 0;
+  const TYPST_COMPILE_DEBOUNCE_MS = 300;
+
+  async function openTypstSessionIfNeeded(): Promise<void> {
+    if (detectFormat(currentPath) !== "typst") {
+      // Switched away from typst — tear down any prior session.
+      if (typstDriver) {
+        await typstDriver.close();
+        typstDriver = null;
+      }
+      toolbar.setStatus(null);
+      return;
+    }
+    if (!currentPath) return;
+    if (typstDriver) await typstDriver.close();
+    typstDriver = createTypstDriver();
+    try {
+      await typstDriver.open(currentPath);
+    } catch (err) {
+      console.warn("typst_open failed", err);
+      typstDriver = null;
+      return;
+    }
+    scheduleTypstCompile(); // kick off the first compile immediately
+  }
+
+  function scheduleTypstCompile(): void {
+    if (!typstDriver) return;
+    if (typstCompileTimer) clearTimeout(typstCompileTimer);
+    typstCompileTimer = setTimeout(() => {
+      typstCompileTimer = null;
+      void runTypstCompile();
+    }, TYPST_COMPILE_DEBOUNCE_MS);
+  }
+
+  async function runTypstCompile(): Promise<void> {
+    if (!typstDriver) return;
+    const mySeq = ++typstCompileSeq;
+    toolbar.setStatus(t("typst.compiling"));
+    let result: CompileResult;
+    try {
+      result = await typstDriver.compile(view.state.doc.toString());
+    } catch (err) {
+      console.warn("typst compile failed", err);
+      toolbar.setStatus(null);
+      return;
+    }
+    // Discard if a newer compile started after we kicked off. The newer
+    // compile's own resolution will overwrite the pane.
+    if (mySeq !== typstCompileSeq) return;
+
+    if (result.pages.length > 0) {
+      previewPane.setPages(result.pages);
+      previewPane.body.classList.remove("typst-pane-stale");
+    } else if (result.diagnostics.some((d) => d.severity === "error")) {
+      // Failed compile with prior content — dim it instead of clearing.
+      previewPane.body.classList.add("typst-pane-stale");
+    }
+    const errorCount = result.diagnostics.filter(
+      (d) => d.severity === "error",
+    ).length;
+    if (errorCount === 1) {
+      toolbar.setStatus(t("typst.one_error"));
+    } else if (errorCount > 1) {
+      toolbar.setStatus(tA11y("typst.n_errors", { n: String(errorCount) }));
+    } else {
+      toolbar.setStatus(
+        tA11y("typst.compiled_in", { ms: String(result.elapsed_ms) }),
+      );
+    }
+    view.dispatch({ effects: setTypstDiagnostics.of(result.diagnostics) });
+  }
+
+  setDocumentFormatAttr();
+  applyPreviewPaneLayout();
+
+  window.addEventListener("beforeunload", () => {
+    if (typstDriver) void typstDriver.close();
+  });
+
   // Per-window folder root, mirrored from the store so the periodic session
   // tick can read it synchronously. setCurrentFolder() below is the only
   // writer.
@@ -711,6 +913,7 @@ async function bootstrap(): Promise<void> {
           if (!u.docChanged) return;
           toc.refresh();
           refreshStats();
+          if (detectFormat(currentPath) === "typst") scheduleTypstCompile();
         }),
       ),
     ),
@@ -783,21 +986,36 @@ async function bootstrap(): Promise<void> {
     if (currentPath) {
       if (doc.isNew) {
         // Brand-new file: drop straight into edit mode so the user can start
-        // typing. Skip watcher + recents — both assume a real path; they'll
-        // engage normally on first save.
+        // typing. For .typ files the default mode is reading (pane is the
+        // primary surface) — except a brand-new empty .typ, which would be
+        // a blank pane with no source visible, so we still force edit.
         if (currentMode !== "edit") {
           currentMode = "edit";
           setMode(view, "edit", modeExtensions.edit);
           toolbar.setMode("edit");
           document.documentElement.dataset.mode = "edit";
         }
-      } else {
+      }
+      if (!doc.isNew) {
         await recordRecent(currentPath);
         await startWatching(currentPath);
       }
       await maybeRestorePositionFor(currentPath);
       await syncFolderToFile(currentPath);
     }
+    applyFormatExtensions();
+    setDocumentFormatAttr();
+    applyPreviewPaneLayout();
+    if (detectFormat(currentPath) === "typst") {
+      await openTypstSessionIfNeeded();
+    }
+  }
+
+  /** Mirror the active document's format onto <html>'s dataset so CSS can
+   * branch reading-mode behavior per format (e.g. `.typ` reading mode hides
+   * the editor and gives the preview pane the full width). */
+  function setDocumentFormatAttr(): void {
+    document.documentElement.dataset.format = detectFormat(currentPath);
   }
 
   /** Prompt-on-dirty wrapper used by all out-of-band open paths
@@ -882,6 +1100,10 @@ async function bootstrap(): Promise<void> {
   // install these as a listener in every window and have the menu dispatch
   // the action to the focused window via emitTo. Theme is broadcast to all
   // windows so light/dark stays in sync.
+  const buildCurrentHtml = () =>
+    buildHtmlExport(view.state.doc.toString(), {
+      title: documentTitleFromPath(currentPath),
+    });
   const localHandlers: LocalMenuHandlers = {
     openFile: async () => {
       const doc = await openFileViaDialog();
@@ -927,12 +1149,7 @@ async function bootstrap(): Promise<void> {
       toolbar.setMode(currentMode);
       document.documentElement.dataset.mode = currentMode;
     },
-    toggleSidebar: () => {
-      const next = !toc.isVisible();
-      toc.setVisible(next);
-      recordExplicitToggle(next);
-      toolbar.setSidebarVisible(next);
-    },
+    toggleSidebar,
     setTheme: (t) => setActiveTheme(t),
     zoomIn: () => zoomByFn(view, +1),
     zoomOut: () => zoomByFn(view, -1),
@@ -942,24 +1159,18 @@ async function bootstrap(): Promise<void> {
     openRecent: async (path) => { await loadAndApplyDoc(path); },
     clearRecents: async () => { await clearRecents(); },
     exportHtml: async () => {
-      const html = await buildHtmlExport(view.state.doc.toString(), {
-        title: documentTitleFromPath(currentPath),
-      });
+      const html = await buildCurrentHtml();
       const defaultName = exportFileNameFromPath(currentPath, "html");
       await saveHtmlExport(html, defaultName);
     },
     printDocument: () => {
       void (async () => {
-        const html = await buildHtmlExport(view.state.doc.toString(), {
-          title: documentTitleFromPath(currentPath),
-        });
+        const html = await buildCurrentHtml();
         openPrintWindow(html);
       })();
     },
     copyAsHtml: async () => {
-      const html = await buildHtmlExport(view.state.doc.toString(), {
-        title: documentTitleFromPath(currentPath),
-      });
+      const html = await buildCurrentHtml();
       await writeClipboardHtml(html);
     },
     openPreferences: async () => {
@@ -970,6 +1181,11 @@ async function bootstrap(): Promise<void> {
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
     quickOpen: () => { void openQuickOpenPalette(currentFolder); },
+    newTypstFile: async () => {
+      const dest = await saveTypstAs("= Document title\n\n", "untitled.typ");
+      if (!dest) return;
+      await loadAndApplyDoc(dest);
+    },
   };
   const unsubMenuActions = await installMenuActionListener(localHandlers);
   window.addEventListener("beforeunload", () => unsubMenuActions());
@@ -1034,6 +1250,24 @@ async function bootstrap(): Promise<void> {
     window.removeEventListener("keydown", onQuickOpenKey, true);
   });
 
+  // Window-level Cmd-Shift-L = toggle sidebar. Capture phase so it fires
+  // regardless of focus; plain-input guard so it doesn't hijack the
+  // sidebar's filter while the user is typing in it.
+  const onSidebarKey = (e: KeyboardEvent): void => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.altKey || !e.shiftKey) return;
+    if (e.key.toLowerCase() !== "l") return;
+    const target = e.target as HTMLElement | null;
+    if (target && isPlainEditableInput(target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSidebar();
+  };
+  window.addEventListener("keydown", onSidebarKey, true);
+  window.addEventListener("beforeunload", () => {
+    window.removeEventListener("keydown", onSidebarKey, true);
+  });
+
 
   // Only the main window owns the app menu. If every window installed it
   // each one would clobber the previous handlers (last writer wins on
@@ -1045,6 +1279,7 @@ async function bootstrap(): Promise<void> {
       openFile: () => dispatchToFocused({ type: "openFile" }),
       openFolder: () => dispatchToFocused({ type: "openFolder" }),
       newWindow: () => dispatchToFocused({ type: "newWindow" }),
+      newTypstFile: () => dispatchToFocused({ type: "newTypstFile" }),
       saveFile: () => { void dispatchToFocused({ type: "saveFile" }); },
       saveFileAs: () => dispatchToFocused({ type: "saveFileAs" }),
       revealInFileManager: () => dispatchToFocused({ type: "revealInFileManager" }),
@@ -1181,15 +1416,15 @@ async function bootstrap(): Promise<void> {
       return;
     }
 
-    const mdFiles = paths.filter((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
-    if (mdFiles.length === 0) return;
+    const docFiles = paths.filter((p) => isSupportedExtension(p));
+    if (docFiles.length === 0) return;
 
-    // First .md goes to the current window. Any additional ones spawn new
+    // First doc goes to the current window. Any additional ones spawn new
     // windows pre-loaded with their respective files — so dragging five
-    // .md files yields five windows, each on its own document.
-    await openWithDirtyPrompt(mdFiles[0]);
-    for (let i = 1; i < mdFiles.length; i++) {
-      await spawnNewWindow(mdFiles[i]);
+    // doc files yields five windows, each on its own document.
+    await openWithDirtyPrompt(docFiles[0]);
+    for (let i = 1; i < docFiles.length; i++) {
+      await spawnNewWindow(docFiles[i]);
     }
   });
   window.addEventListener("beforeunload", () => unsubDrop());
@@ -1232,10 +1467,10 @@ async function bootstrap(): Promise<void> {
       }
       return;
     }
-    const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
-    if (!md) return;
+    const doc = paths.find((p) => isSupportedExtension(p));
+    if (!doc) return;
     let targetRoot: string | null = null;
-    try { targetRoot = await resolveFolderRoot(md); } catch { /* fall through */ }
+    try { targetRoot = await resolveFolderRoot(doc); } catch { /* fall through */ }
     let matchedLabel: string | null = null;
     if (targetRoot) {
       for (const [label, folder] of folderByLabel) {
@@ -1247,13 +1482,13 @@ async function bootstrap(): Promise<void> {
       }
     }
     if (matchedLabel) {
-      await emitTo(matchedLabel, "viewer:open-file", md);
+      await emitTo(matchedLabel, "viewer:open-file", doc);
       if (matchedLabel !== selfLabel) {
         const w = await WebviewWindow.getByLabel(matchedLabel);
         await w?.setFocus();
       }
     } else {
-      await spawnNewWindow(md);
+      await spawnNewWindow(doc);
     }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
@@ -1273,6 +1508,16 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => unsubscribeGraphviz());
 
+  // Install per-format extensions for the initial doc (no-op for .md). If the
+  // initial doc is a .typ file, also open the compile session. Reading mode
+  // for .typ now renders the pane full-width with the editor hidden, so we
+  // do NOT force edit mode here — the restored mode (or default `reading`)
+  // wins, mirroring how Markdown initial docs are handled.
+  applyFormatExtensions();
+  if (currentPath && detectFormat(currentPath) === "typst") {
+    await openTypstSessionIfNeeded();
+    applyPreviewPaneLayout();
+  }
 }
 
 interface InitialResolution {
@@ -1434,7 +1679,7 @@ async function waitForOpenRequest(
       // the single argument is a directory. (We don't currently support
       // launching with multiple folder args — `md a/ b/` would only open
       // the first.)
-      const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+      const md = paths.find((p) => isSupportedExtension(p));
       if (md) {
         clearTimeout(timer);
         unlisten?.();
@@ -1472,7 +1717,7 @@ async function classifyOpenPaths(
   paths: string[],
 ): Promise<{ kind: "file" | "directory"; path: string } | null> {
   if (paths.length === 0) return null;
-  const md = paths.find((p) => /\.(md|markdown|mdx|mdown)$/i.test(p));
+  const md = paths.find((p) => isSupportedExtension(p));
   if (md) return { kind: "file", path: md };
   if (paths.length === 1) {
     try {
@@ -1491,16 +1736,18 @@ async function firstMarkdownArg(): Promise<string | null> {
     const { invoke } = await import("@tauri-apps/api/core");
     const argv = await invoke<string[]>("plugin:cli|argv").catch(() => null);
     if (!argv) return null;
-    return argv.find((a) => /\.(md|markdown|mdx|mdown)$/i.test(a)) ?? null;
+    return argv.find((a) => isSupportedExtension(a)) ?? null;
   } catch {
     return null;
   }
 }
 
 function documentTitleFromPath(path: string | null): string {
-  if (!path) return "Markdown export";
+  if (!path) return "Document export";
   const base = path.split(/[\\/]/).pop() ?? path;
-  return base.replace(/\.(md|markdown|mdx|mdown)$/i, "");
+  // Strip any supported document extension so the export filename and
+  // print-window title read as the bare document name.
+  return base.replace(/\.(md|markdown|mdx|mdown|typ)$/i, "");
 }
 
 function exportFileNameFromPath(path: string | null, ext: string): string {

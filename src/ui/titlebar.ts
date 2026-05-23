@@ -121,6 +121,12 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
   stats.className = "viewer-titlebar-stats";
   stats.setAttribute("data-tauri-drag-region", "");
 
+  // Right-side status slot (Typst compile progress / timing). Empty until
+  // set; the layout collapses its width via CSS when textContent is "".
+  const status = document.createElement("span");
+  status.className = "viewer-titlebar-status";
+  status.setAttribute("data-tauri-drag-region", "");
+
   const left = document.createElement("span");
   left.className = "viewer-titlebar-group viewer-titlebar-group--left";
   left.setAttribute("data-tauri-drag-region", "");
@@ -134,7 +140,7 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
   const right = document.createElement("span");
   right.className = "viewer-titlebar-group viewer-titlebar-group--right";
   right.setAttribute("data-tauri-drag-region", "");
-  right.append(stats);
+  right.append(status, stats);
 
   bar.append(left, centre, right);
   parent.prepend(bar);
@@ -175,6 +181,9 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
         s.words > 0
           ? `${w} words · ${c} chars · ${s.readingMinutes} min`
           : `${c} chars`;
+    },
+    setStatus(text) {
+      status.textContent = text ?? "";
     },
   };
 }

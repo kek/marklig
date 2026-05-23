@@ -172,4 +172,117 @@ test.describe("visual regression", () => {
     await sleep(400); // let Shiki tokens land
     await expect(page).toHaveScreenshot("reading-dark.png", { maxDiffPixelRatio: 0.02 });
   });
+
+  // Typst preview pane — uses a deterministic mock SVG instead of the real
+  // compiler so the baseline doesn't depend on font rendering / typst
+  // version. We're checking pane chrome (layout, dim/zoom classes, splitter),
+  // not the rendered typography.
+  test("typst preview pane (mocked render)", async ({ page }) => {
+    await setupTypstMock(page, "= Sample Typst document\n\nHello *world*.\n", "/virtual/sample.typ");
+    await page.goto(APP_URL);
+    await page.locator(".preview-pane-body .typst-page svg").waitFor({ timeout: 10_000 });
+    // Settle: first compile + 300ms debounce + the layout pass.
+    await sleep(500);
+    await expect(page.locator(".preview-pane-body")).toHaveScreenshot(
+      "sample-typ-pane.png",
+      { maxDiffPixelRatio: 0.02 },
+    );
+  });
 });
+
+/** Stub mirrors `tests/e2e/typst-basic.spec.ts addTauriStubs` but trimmed
+ * to the commands the visual snapshot needs. Returns a single fixed SVG so
+ * the baseline is reproducible. */
+async function setupTypstMock(
+  page: import("@playwright/test").Page,
+  sample: string,
+  initialPath: string,
+): Promise<void> {
+  await page.addInitScript(
+    ({ sample, initialPath }: { sample: string; initialPath: string }) => {
+      try { localStorage.setItem("viewer.theme", "light"); } catch {}
+
+      let cbId = 0;
+      const callbacks = new Map<number, (data: unknown) => void>();
+      function transformCallback(cb: (data: unknown) => void, once = false): number {
+        const id = ++cbId;
+        callbacks.set(id, once ? (data: unknown) => { callbacks.delete(id); cb(data); } : cb);
+        return id;
+      }
+      function unregisterCallback(id: number): void { callbacks.delete(id); }
+      const eventListeners = new Map<number, (data: unknown) => void>();
+
+      (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+        invoke: async (cmd: string, args?: Record<string, unknown>) => {
+          if (cmd === "path_exists") return true;
+          if (cmd === "read_text_file") return sample;
+          if (cmd === "take_pending_open_paths") return [initialPath];
+          if (cmd === "plugin:cli|argv") return [];
+          if (cmd === "plugin:dialog|open") return initialPath;
+          if (cmd === "plugin:dialog|ask") return false;
+          if (cmd === "plugin:dialog|message") return null;
+          if (cmd === "watcher_start" || cmd === "watcher_stop" || cmd === "watcher_mark_self_write") return null;
+          if (cmd.startsWith("plugin:window|")) return null;
+          if (cmd === "plugin:menu|new") return [1, "mock-id"];
+          if (cmd.startsWith("plugin:menu|")) return null;
+          if (cmd === "plugin:store|load") return 1;
+          if (cmd === "plugin:store|get_store") return null;
+          if (cmd === "plugin:store|get") return [null, false];
+          if (cmd === "plugin:store|has") return false;
+          if (cmd === "plugin:store|set") return null;
+          if (cmd === "plugin:store|save") return null;
+          if (cmd === "plugin:store|delete") return false;
+          if (cmd === "plugin:store|clear") return null;
+          if (cmd === "plugin:store|reset") return null;
+          if (cmd === "plugin:store|keys") return [];
+          if (cmd === "plugin:store|values") return [];
+          if (cmd === "plugin:store|entries") return [];
+          if (cmd === "plugin:store|length") return 0;
+          if (cmd === "plugin:store|reload") return null;
+          if (cmd.startsWith("plugin:store|")) return null;
+          if (cmd === "read_all_recovery") return [];
+          if (cmd === "clear_recovery") return null;
+          if (cmd === "write_recovery") return null;
+          if (cmd === "typst_open") return "session-mock";
+          if (cmd === "typst_compile") {
+            // Fixed SVG — no source-len echoed, no time, deterministic.
+            return {
+              pages: [
+                `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200"><rect x="10" y="10" width="300" height="180" fill="#f6f6f6" stroke="#999"/><text x="20" y="40" font-family="sans-serif" font-size="14" fill="#333">Mock Typst page</text><text x="20" y="65" font-family="sans-serif" font-size="11" fill="#666">Layout baseline only.</text></svg>`,
+              ],
+              diagnostics: [],
+              elapsed_ms: 1,
+            };
+          }
+          if (cmd === "typst_close") return null;
+          if (cmd === "plugin:event|listen") {
+            const handlerId = args?.handler as number | undefined;
+            if (handlerId != null) eventListeners.set(handlerId, callbacks.get(handlerId) ?? (() => {}));
+            return handlerId ?? 0;
+          }
+          if (cmd === "plugin:event|unlisten") {
+            const handlerId = args?.id as number | undefined;
+            if (handlerId != null) { eventListeners.delete(handlerId); unregisterCallback(handlerId); }
+            return null;
+          }
+          if (cmd === "plugin:event|emit" || cmd === "plugin:event|emit_to") return null;
+          return null;
+        },
+        transformCallback,
+        unregisterCallback,
+        metadata: {
+          currentWindow: { label: "main" },
+          currentWebview: { windowLabel: "main", label: "main" },
+        },
+      };
+
+      (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+        unregisterListener: (id: number) => {
+          eventListeners.delete(id);
+          unregisterCallback(id);
+        },
+      };
+    },
+    { sample, initialPath },
+  );
+}

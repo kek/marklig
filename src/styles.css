@@ -402,6 +402,16 @@ html.theme-dark  { color-scheme: dark; }
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
+.viewer-toolbar-status {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.viewer-toolbar-status:empty {
+  margin-right: 0;
+}
 
 /* Preferences modal — same overlay/card pattern as the reconcile modal but
    wider and divided into sections. Shared styling lives at the bottom of the
@@ -973,16 +983,125 @@ body.viewer-resizing * { cursor: col-resize !important; }
 .viewer-toc-l4, .viewer-toc-l5, .viewer-toc-l6 { padding-left: 44px; color: var(--muted); font-size: 11px; }
 .viewer-toc-empty { color: var(--muted); font-size: 12px; }
 
-/* App shell layout — sidebar beside editor */
+/* App shell layout — sidebar | editor | splitter? | pane?
+ *
+ * Always flex (not grid) so that hidden children (display:none) cleanly
+ * drop out of layout — grid auto-placement misassigned columns when the
+ * sidebar was hidden. The runtime sets `--preview-pane-width` to e.g.
+ * `50%`; the pane consumes that fraction; the editor's flex:1 takes the
+ * rest. */
 #root { display: flex; flex-direction: column; }
 .viewer-app-shell {
   display: flex;
   flex: 1;
   min-height: 0;
+  --preview-pane-width: 50%;
 }
 .viewer-app-shell > .cm-editor {
   flex: 1;
   min-width: 0;
+}
+.preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Fixed share of the shell width when open. Specificity beats the
+   * generic `.preview-pane[hidden] { display: none }` below because that
+   * rule still wins via the `[hidden]` attribute selector. */
+  flex: 0 0 var(--preview-pane-width);
+  border-left: 1px solid var(--separator, #ddd);
+  background: var(--editor-bg, #fff);
+  overflow: auto;
+}
+.preview-pane[hidden] { display: none; }
+/* Splitter is only visible while the pane is open. We can rely on the
+ * pane's display: none (via [hidden]) plus an adjacent-sibling selector,
+ * but the splitter lives BEFORE the pane in source order (so :has() is
+ * the cleanest match — supported in all evergreen browsers). */
+.viewer-app-shell:not(.preview-open) > .preview-splitter { display: none; }
+.preview-pane-header {
+  font-size: 11px;
+  padding: 6px 12px;
+  color: var(--muted, #666);
+}
+.preview-pane-body {
+  padding: 16px 24px;
+  overflow: auto;
+}
+/* Typst pane zoom — Cmd-+/-/0 while the pane is focused scales the rendered
+ * pages without re-rendering them. transform-origin keeps the page anchored
+ * at the top-left so growing the zoom doesn't drift content off-screen. */
+.preview-pane-body[data-format="typst"] {
+  transform-origin: top left;
+  transform: scale(var(--typst-zoom, 1));
+}
+.preview-splitter {
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+.preview-splitter:hover,
+body.preview-splitter-dragging .preview-splitter {
+  background: var(--separator, #ddd);
+}
+
+/* Reading mode for .typ — the editor is hidden and the preview pane takes
+ * the full content area. Mirror of Markdown's reading mode, but instead of
+ * decorating the source in place we render through the compiled-pages
+ * surface. Edit mode keeps the split layout. The `.typst-reading` class is
+ * set explicitly on the shell from applyPreviewPaneLayout, so the styling
+ * doesn't depend on global <html> data-attribute ordering. */
+.viewer-app-shell.typst-reading {
+  /* Override grid layout — children stack: sidebar (own width), then pane
+   * (taking remaining width). The editor is hidden below. */
+  display: flex;
+  grid-template-columns: none;
+}
+/* CodeMirror's base theme sets `.cm-editor { display: flex !important }`,
+ * so we need !important here to actually hide the source. */
+.viewer-app-shell.typst-reading > .cm-editor { display: none !important; }
+.viewer-app-shell.typst-reading > .preview-splitter { display: none; }
+.viewer-app-shell.typst-reading > .preview-pane {
+  flex: 1;
+  width: auto;
+  border-left: none;
+}
+
+/* Typst diagnostics — surfaced as wavy underlines on the offending source
+ * range. Color tracks the severity. text-decoration-skip-ink:none keeps the
+ * wave continuous under descenders. */
+.typst-diag-error {
+  text-decoration: underline wavy var(--diag-error, #c44);
+  text-decoration-skip-ink: none;
+}
+.typst-diag-warn {
+  text-decoration: underline wavy var(--diag-warn, #c90);
+  text-decoration-skip-ink: none;
+}
+
+/* When a Typst compile fails but we still have prior pages on screen, we
+ * dim them rather than blanking the pane — the user keeps reading context
+ * while they fix the error. Removed on the next successful compile. */
+.preview-pane-body.typst-pane-stale {
+  opacity: 0.5;
+  filter: saturate(0.7);
+}
+
+/* Each Typst-rendered page lives in its own div so the pane can scroll
+ * vertically through a multi-page document. */
+.typst-page {
+  display: block;
+  margin: 0 auto 16px;
+  max-width: 100%;
+}
+.typst-page svg {
+  display: block;
+  /* typst-svg emits SVGs without explicit width/height attributes — the
+   * browser would default them to ~300×150px (SVG intrinsic dimensions
+   * fallback). `width: 100%` makes the SVG fill the page wrapper, and
+   * `height: auto` preserves the aspect ratio derived from the viewBox. */
+  width: 100%;
+  height: auto;
 }
 
 /* Reading-mode table widget. Padding (not margin) on the wrapper adds the
@@ -1285,6 +1404,16 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
+}
+.viewer-titlebar-status {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+  margin-right: 10px;
+}
+.viewer-titlebar-status:empty {
+  margin-right: 0;
 }
 
 /* In fullscreen the OS hides its own chrome, including the traffic lights,

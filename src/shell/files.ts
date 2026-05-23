@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { supportedExtensions } from "../format";
 
 export interface OpenedDoc {
   path: string;
@@ -15,9 +16,7 @@ export async function openFileViaDialog(): Promise<OpenedDoc | null> {
   const picked = await open({
     multiple: false,
     directory: false,
-    filters: [
-      { name: "Markdown", extensions: ["md", "markdown", "mdx", "mdown"] },
-    ],
+    filters: [{ name: "Documents", extensions: supportedExtensions() }],
   });
   if (typeof picked !== "string") return null;
   return readDoc(picked);
@@ -62,11 +61,12 @@ export async function pickFolder(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
-/** Recursively walk `root` for .md/.markdown/.mdx/.mdown files, skipping
- * common ignored directories (node_modules, .git, target, etc.). The Rust
- * side also caps depth and entry count to prevent runaway scans. */
+/** Recursively walk `root` for supported document files (.md/.markdown/.mdx/
+ * .mdown/.typ), skipping common ignored directories (node_modules, .git,
+ * target, etc.). The Rust side also caps depth and entry count to prevent
+ * runaway scans. */
 export async function listMarkdownFiles(root: string): Promise<MarkdownFileEntry[]> {
-  return await invoke<MarkdownFileEntry[]>("list_markdown_files", { root });
+  return await invoke<MarkdownFileEntry[]>("list_documents", { root });
 }
 
 /** True when `path` is a directory on disk. Used by drag-drop routing to
@@ -91,6 +91,23 @@ export async function saveHtmlExport(
     title: "Export as HTML",
     defaultPath: defaultName,
     filters: [{ name: "HTML", extensions: ["html", "htm"] }],
+  });
+  if (typeof dest !== "string") return null;
+  await invoke("write_text_file", { path: dest, contents });
+  return dest;
+}
+
+/** Prompt for a save destination and write the Typst file contents. Returns
+ * the chosen path on success, null on cancel. Used by File → New Typst File
+ * to create the initial .typ file on disk. */
+export async function saveTypstAs(
+  contents: string,
+  defaultName: string,
+): Promise<string | null> {
+  const dest = await save({
+    title: "New Typst File",
+    defaultPath: defaultName,
+    filters: [{ name: "Typst", extensions: ["typ"] }],
   });
   if (typeof dest !== "string") return null;
   await invoke("write_text_file", { path: dest, contents });

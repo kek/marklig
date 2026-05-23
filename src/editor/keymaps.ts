@@ -37,6 +37,21 @@ export function setZoomHandlers(handlers: { in: () => void; out: () => void; res
   zoomResetHandler = handlers.reset;
 }
 
+/** Optional alternate route for Cmd-+/-/0 — when set and the predicate
+ * returns true, the alternate handlers fire instead of the editor zoom.
+ * Used by the Typst preview pane: when focus is inside the pane we zoom
+ * the pane's rendered pages rather than the editor source. */
+interface ZoomRoute {
+  match: () => boolean;
+  in: () => void;
+  out: () => void;
+  reset: () => void;
+}
+let altZoomRoute: ZoomRoute | null = null;
+export function setAltZoomRoute(route: ZoomRoute | null): void {
+  altZoomRoute = route;
+}
+
 /** Layout-independent zoom keystroke matcher. CM6's keymap parser and the
  * Tauri menu accelerator both interpret `+` as "Shift + the US `=` key" —
  * which fails on layouts where `+` is unshifted (Swedish, German, etc.).
@@ -45,25 +60,37 @@ export function installZoomKeyHandler(): () => void {
   const onKey = (e: KeyboardEvent): void => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
+    // Alternate route (Typst preview pane focus) — branch before defaulting
+    // to editor zoom so Cmd-+ in the pane scales pages, not source text.
+    const useAlt = altZoomRoute !== null && altZoomRoute.match();
     if (e.key === "+" || (e.key === "=" && e.shiftKey)) {
       e.preventDefault();
-      zoomInHandler();
+      if (useAlt) altZoomRoute!.in(); else zoomInHandler();
     } else if (e.key === "-" || e.key === "−") {
       e.preventDefault();
-      zoomOutHandler();
+      if (useAlt) altZoomRoute!.out(); else zoomOutHandler();
     } else if (e.key === "0") {
       e.preventDefault();
-      zoomResetHandler();
+      if (useAlt) altZoomRoute!.reset(); else zoomResetHandler();
     }
   };
   window.addEventListener("keydown", onKey);
   return () => window.removeEventListener("keydown", onKey);
 }
 
-let sidebarToggleHandler: () => void = () => {};
-export function setSidebarToggleHandler(handler: () => void): void {
-  sidebarToggleHandler = handler;
-}
+// NOTE: Cmd-T (sidebar) and Cmd-Shift-T (preview pane) are NOT bound
+// here. main.ts installs window-level keydown handlers (capture phase)
+// so the shortcuts work regardless of focus. CM6's defaultKeymap doesn't
+// bind Mod-t or Shift-Mod-t, so there's no conflict either way; the
+// rationale matches Cmd-J above.
+
+// NOTE: Cmd-J is NOT bound here. main.ts installs a window-level keydown
+// handler (capture phase) so the shortcut works regardless of focus —
+// including when the pane itself or the sidebar has focus. A second
+// binding inside CM6 would risk double-firing the toggle (since
+// stopPropagation from window-capture does not always stop the editor's
+// own keydown listener in WebKit). One source of truth keeps the
+// behavior predictable.
 
 const zoomBindings: KeyBinding[] = [
   { key: "Mod-=", preventDefault: true, run: () => { zoomInHandler(); return true; } },
@@ -71,12 +98,6 @@ const zoomBindings: KeyBinding[] = [
   { key: "Mod--", preventDefault: true, run: () => { zoomOutHandler(); return true; } },
   { key: "Mod-0", preventDefault: true, run: () => { zoomResetHandler(); return true; } },
 ];
-
-const sidebarToggleBinding: KeyBinding = {
-  key: "Mod-Shift-l",
-  preventDefault: true,
-  run: () => { sidebarToggleHandler(); return true; },
-};
 
 const PAGE_OVERLAP_LINES = 3;
 
@@ -133,7 +154,6 @@ const readingBindings: KeyBinding[] = [
 export const readingKeymap = keymap.of([
   modeToggleBinding,
   saveBinding,
-  sidebarToggleBinding,
   ...zoomBindings,
   ...searchKeymap,
   ...readingBindings,
@@ -144,8 +164,7 @@ export const editKeymap = [
   keymap.of([
     modeToggleBinding,
     saveBinding,
-    sidebarToggleBinding,
-    ...zoomBindings,
+      ...zoomBindings,
     ...defaultKeymap,
     ...historyKeymap,
     ...searchKeymap,

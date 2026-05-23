@@ -35,7 +35,8 @@ export type MenuAction =
   | { type: "openProject"; path: string }
   | { type: "clearRecentProjects" }
   | { type: "openProjectPalette" }
-  | { type: "quickOpen" };
+  | { type: "quickOpen" }
+  | { type: "newTypstFile" };
 
 export interface LocalMenuHandlers {
   openFile: () => Promise<void>;
@@ -63,6 +64,7 @@ export interface LocalMenuHandlers {
   clearRecentProjects: () => Promise<void>;
   openProjectPalette: () => Promise<void> | void;
   quickOpen: () => void | Promise<void>;
+  newTypstFile: () => Promise<void>;
 }
 
 const EVENT = "viewer:menu-action";
@@ -106,6 +108,7 @@ export async function installMenuActionListener(
       case "clearRecentProjects": await handlers.clearRecentProjects(); break;
       case "openProjectPalette": await handlers.openProjectPalette(); break;
       case "quickOpen": await handlers.quickOpen(); break;
+      case "newTypstFile": await handlers.newTypstFile(); break;
     }
   });
 }

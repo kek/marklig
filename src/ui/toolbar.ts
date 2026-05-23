@@ -24,6 +24,9 @@ export interface ToolbarHandle {
   setStats: (stats: DocStats) => void;
   /** Update the path readout in the toolbar. Pass null when no doc is open. */
   setPath: (path: string | null) => void;
+  /** Update the right-side transient status text (e.g. Typst compile state).
+   * Pass null to clear. */
+  setStatus: (text: string | null) => void;
 }
 
 export interface DocStats {
@@ -78,7 +81,12 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
   const stats = document.createElement("span");
   stats.className = "viewer-toolbar-stats";
 
-  bar.append(toggle, sidebar, dirty, pathEl, spacer, stats);
+  // Right-side status slot (Typst compile progress / timing). Sits between
+  // path and stats; empty (no padding) when there's nothing to show.
+  const status = document.createElement("span");
+  status.className = "viewer-toolbar-status";
+
+  bar.append(toggle, sidebar, dirty, pathEl, spacer, status, stats);
   parent.prepend(bar);
 
   function applyButtonLabel(): void {
@@ -128,6 +136,9 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
         s.words > 0
           ? `${w} words · ${c} chars · ${s.readingMinutes} min`
           : `${c} chars`;
+    },
+    setStatus(text) {
+      status.textContent = text ?? "";
     },
   };
 }
