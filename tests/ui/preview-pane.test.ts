@@ -15,11 +15,22 @@ describe("preview pane", () => {
     expect(handle.element.hidden).toBe(false);
   });
 
-  it("setContent inserts sanitized HTML into the body", () => {
+  it("setPages wraps each SVG in a .typst-page and sanitizes them", () => {
     const handle = mountPreviewPane({ parent });
-    handle.setContent("<h1>Hi</h1><script>alert(1)</script>");
-    expect(handle.element.querySelector("h1")?.textContent).toBe("Hi");
-    expect(handle.element.querySelector("script")).toBeNull();
+    handle.setPages([
+      `<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect/></svg>`,
+    ]);
+    expect(handle.body.querySelectorAll(".typst-page").length).toBe(2);
+    expect(handle.body.querySelector("script")).toBeNull();
+  });
+
+  it("setPages([]) leaves prior content alone", () => {
+    const handle = mountPreviewPane({ parent });
+    handle.setPages([`<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`]);
+    const before = handle.body.innerHTML;
+    handle.setPages([]);
+    expect(handle.body.innerHTML).toBe(before);
   });
 
   it("setStatus updates the header line", () => {

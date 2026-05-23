@@ -268,17 +268,6 @@ async function main() {
   const edit1 = await captureLayout(page, `after-toggle-${toggleStrategy}`);
   await page.screenshot({ path: resolve(OUT_DIR, "2-after-toggle-to-edit.png"), fullPage: false });
 
-  // Now fire Cmd-Shift-T twice — should close then re-open the pane.
-  await page.keyboard.press("Meta+Shift+K");
-  await page.waitForTimeout(300);
-  const afterCmdJ1 = await captureLayout(page, "after-cmd-shift-t-close");
-  await page.screenshot({ path: resolve(OUT_DIR, "3-after-cmd-shift-t-1.png"), fullPage: false });
-
-  await page.keyboard.press("Meta+Shift+K");
-  await page.waitForTimeout(300);
-  const afterCmdJ2 = await captureLayout(page, "after-cmd-shift-t-reopen");
-  await page.screenshot({ path: resolve(OUT_DIR, "4-after-cmd-shift-t-2.png"), fullPage: false });
-
   // Cmd-Shift-L should toggle the sidebar.
   const sidebarHiddenBefore = await page.evaluate(() =>
     document.querySelector(".viewer-toc")?.classList.contains("hidden"),
@@ -307,7 +296,7 @@ async function main() {
   const reading2 = await captureLayout(page, "after-toggle-back-to-reading");
   await page.screenshot({ path: resolve(OUT_DIR, "5-back-to-reading.png"), fullPage: false });
 
-  const report = { reading1, edit1, afterCmdJ1, afterCmdJ2, reading2 };
+  const report = { reading1, edit1, reading2 };
   await writeFile(resolve(OUT_DIR, "report.json"), JSON.stringify(report, null, 2));
 
   await browser.close();

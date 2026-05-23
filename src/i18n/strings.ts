@@ -91,7 +91,6 @@ export const EN = {
   "menu.view": "View",
   "menu.view.toggleMode": "Reading / Edit Mode",
   "menu.view.toggleSidebar": "Show / Hide Sidebar",
-  "menu.view.togglePreviewPane": "Show / Hide Preview Pane",
   "menu.view.actualSize": "Actual Size",
   "menu.view.zoomIn": "Zoom In",
   "menu.view.zoomOut": "Zoom Out",

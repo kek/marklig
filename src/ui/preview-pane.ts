@@ -1,4 +1,4 @@
-import { sanitizeHtml } from "../export/sanitize";
+import { sanitizeSvg } from "../export/sanitize";
 
 export interface MountPreviewPaneOptions {
   parent: HTMLElement;
@@ -6,9 +6,12 @@ export interface MountPreviewPaneOptions {
 
 export interface PreviewPaneHandle {
   element: HTMLElement;
+  body: HTMLElement;
   setVisible(visible: boolean): void;
-  setContent(rawHtml: string): void;
-  setRawSvg(svg: string): void; // used by Typst in Phase D
+  /** Replace the pane body with one wrapped, sanitized SVG per compiled
+   * typst page. Pass an empty array to leave the previous render in
+   * place (used by the dimmed-prior-pages behavior in main.ts). */
+  setPages(svgs: string[]): void;
   setStatus(text: string | null): void;
   isVisible(): boolean;
   destroy(): void;
@@ -38,14 +41,14 @@ export function mountPreviewPane(opts: MountPreviewPaneOptions): PreviewPaneHand
 
   return {
     element: root,
+    body,
     setVisible(v) { root.hidden = !v; },
     isVisible() { return !root.hidden; },
-    setContent(rawHtml) {
-      body.innerHTML = sanitizeHtml(rawHtml);
-    },
-    setRawSvg(svg) {
-      // Sanitization happens via sanitizeSvg at the caller (Typst path).
-      body.innerHTML = svg;
+    setPages(svgs) {
+      if (svgs.length === 0) return;
+      body.innerHTML = svgs
+        .map((svg) => `<div class="typst-page">${sanitizeSvg(svg)}</div>`)
+        .join("");
     },
     setStatus(text) {
       status.textContent = text ?? "";

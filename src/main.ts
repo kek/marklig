@@ -31,7 +31,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
-import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneOpen, setPreviewPaneOpen, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
+import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
   loadWindowSession,
@@ -86,11 +86,9 @@ import { openSearchPanel } from "@codemirror/search";
 import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
 import { mountPreviewSplitter } from "./ui/preview-splitter";
-import { renderHtml } from "./editor/parser";
 import { typstFormat } from "./format/typst";
 import { createTypstDriver, type TypstDriver, type CompileResult } from "./format/typst-driver";
 import { typstDiagnosticsExtension, setTypstDiagnostics } from "./editor/typst-diagnostics";
-import { sanitizeSvg } from "./export/sanitize";
 
 let recoveredDoc: { path: string; source: string } | null = null;
 
@@ -564,46 +562,23 @@ async function bootstrap(): Promise<void> {
     // open regardless of the per-format toggle (which still controls edit
     // mode's split). Markdown reading mode is decorated in-place and never
     // forces the pane open.
-    const isReadingTypst = format === "typst" && currentMode === "reading";
-    // Reading mode for .md is the decorated-source view — the pane would
-    // duplicate what the source already shows, so force it closed. The
-    // user's per-format pane preference (stored in settings) is left
-    // untouched, so when they toggle back to edit the pane re-opens iff
-    // they had it open before.
-    const forceCloseMarkdownReading =
-      format === "markdown" && currentMode === "reading";
-    const forceOpen = isReadingTypst;
-    const open =
-      forceOpen ||
-      (!forceCloseMarkdownReading && getPreviewPaneOpen(format));
-    shell.classList.toggle("preview-open", open);
-    // Reading-mode-for-.typ has its own layout (pane full-width, source
-    // hidden). Drive it through an explicit class on the shell so it
-    // doesn't depend on global <html> data-attribute ordering.
+    const isTypst = format === "typst";
+    const isReadingTypst = isTypst && currentMode === "reading";
+    // Pane is .typ-only: edit mode = split, reading mode = pane full-width
+    // with the source hidden. Markdown never gets a pane.
+    shell.classList.toggle("preview-open", isTypst);
     shell.classList.toggle("typst-reading", isReadingTypst);
-    previewPane.setVisible(open);
+    previewPane.setVisible(isTypst);
     shell.style.setProperty(
       "--preview-pane-width",
       `${(getPreviewPaneWidth() * 100).toFixed(2)}%`,
     );
-    // Tag the pane body with the active format so CSS can branch (zoom
-    // transform, etc.) and push the current Typst zoom into the custom
-    // property — even when the pane is hidden we set it so a subsequent
-    // re-open picks up the right scale immediately.
-    const body = previewPane.element.querySelector(
-      ".preview-pane-body",
-    ) as HTMLElement | null;
-    if (body) {
-      body.dataset.format = format;
-      body.style.setProperty("--typst-zoom", String(getTypstZoom()));
-    }
-  }
-
-  function renderMarkdownToPane(): void {
-    if (detectFormat(currentPath) !== "markdown") return;
-    if (!getPreviewPaneOpen("markdown")) return;
-    const html = renderHtml(view.state.doc.toString());
-    previewPane.setContent(html); // sanitizeHtml runs inside setContent
+    // Push the current Typst zoom into the pane body's custom property
+    // and tag the body with the active format so CSS can branch (zoom
+    // transform, etc.) — even when the pane is hidden we set it so a
+    // subsequent re-open picks up the right scale immediately.
+    previewPane.body.dataset.format = format;
+    previewPane.body.style.setProperty("--typst-zoom", String(getTypstZoom()));
   }
 
   // Per-format extensions (Typst language highlight + diagnostics field)
@@ -657,7 +632,6 @@ async function bootstrap(): Promise<void> {
 
   function scheduleTypstCompile(): void {
     if (!typstDriver) return;
-    if (!getPreviewPaneOpen("typst")) return;
     if (typstCompileTimer) clearTimeout(typstCompileTimer);
     typstCompileTimer = setTimeout(() => {
       typstCompileTimer = null;
@@ -681,16 +655,12 @@ async function bootstrap(): Promise<void> {
     // compile's own resolution will overwrite the pane.
     if (mySeq !== typstCompileSeq) return;
 
-    const body = previewPane.element.querySelector(".preview-pane-body");
-    if (body && result.pages.length > 0) {
-      const html = result.pages
-        .map((svg) => `<div class="typst-page">${sanitizeSvg(svg)}</div>`)
-        .join("");
-      body.innerHTML = html;
-      body.classList.remove("typst-pane-stale");
-    } else if (body && result.diagnostics.some((d) => d.severity === "error")) {
+    if (result.pages.length > 0) {
+      previewPane.setPages(result.pages);
+      previewPane.body.classList.remove("typst-pane-stale");
+    } else if (result.diagnostics.some((d) => d.severity === "error")) {
       // Failed compile with prior content — dim it instead of clearing.
-      body.classList.add("typst-pane-stale");
+      previewPane.body.classList.add("typst-pane-stale");
     }
     const errorCount = result.diagnostics.filter(
       (d) => d.severity === "error",
@@ -709,20 +679,6 @@ async function bootstrap(): Promise<void> {
 
   setDocumentFormatAttr();
   applyPreviewPaneLayout();
-
-  function togglePreviewPane(): void {
-    if (currentMode !== "edit") return; // no-op in reading mode
-    const format = detectFormat(currentPath);
-    const next = !getPreviewPaneOpen(format);
-    setPreviewPaneOpen(format, next);
-    applyPreviewPaneLayout();
-    if (next) {
-      if (format === "markdown") renderMarkdownToPane();
-      else if (format === "typst") scheduleTypstCompile();
-    }
-  }
-  // togglePreviewPane is wired via the window-level Cmd-Shift-K keydown
-  // handler installed later in bootstrap. CM6 keymap is no longer involved.
 
   window.addEventListener("beforeunload", () => {
     if (typstDriver) void typstDriver.close();
@@ -957,7 +913,6 @@ async function bootstrap(): Promise<void> {
           if (!u.docChanged) return;
           toc.refresh();
           refreshStats();
-          renderMarkdownToPane();
           if (detectFormat(currentPath) === "typst") scheduleTypstCompile();
         }),
       ),
@@ -1053,8 +1008,6 @@ async function bootstrap(): Promise<void> {
     applyPreviewPaneLayout();
     if (detectFormat(currentPath) === "typst") {
       await openTypstSessionIfNeeded();
-    } else {
-      renderMarkdownToPane();
     }
   }
 
@@ -1197,7 +1150,6 @@ async function bootstrap(): Promise<void> {
       document.documentElement.dataset.mode = currentMode;
     },
     toggleSidebar,
-    togglePreviewPane,
     setTheme: (t) => setActiveTheme(t),
     zoomIn: () => zoomByFn(view, +1),
     zoomOut: () => zoomByFn(view, -1),
@@ -1298,33 +1250,22 @@ async function bootstrap(): Promise<void> {
     window.removeEventListener("keydown", onQuickOpenKey, true);
   });
 
-  // Per-window keyboard shortcuts for sidebar + preview pane. Bound at the
-  // window level (capture phase) so they work regardless of focus. Cmd-B is
-  // intentionally left free for future bold-formatting commands.
-  //
-  // Both chords require Shift, so they live one row up from any
-  // single-letter CM6 bindings. Cmd-Shift-K collides with CM6
-  // defaultKeymap's deleteLine — we rely on capture-phase
-  // stopPropagation to keep it from reaching CM's editor-DOM listener
-  // (same pattern that resolved the earlier Cmd-J/joinLines clash).
-  //
-  // Same plain-input guard as Cmd-P so the sidebar filter input isn't
-  // hijacked while the user is typing in it.
-  const onPaneShortcutKey = (e: KeyboardEvent): void => {
+  // Window-level Cmd-Shift-L = toggle sidebar. Capture phase so it fires
+  // regardless of focus; plain-input guard so it doesn't hijack the
+  // sidebar's filter while the user is typing in it.
+  const onSidebarKey = (e: KeyboardEvent): void => {
     if (!(e.metaKey || e.ctrlKey)) return;
     if (e.altKey || !e.shiftKey) return;
-    const k = e.key.toLowerCase();
-    if (k !== "l" && k !== "k") return;
+    if (e.key.toLowerCase() !== "l") return;
     const target = e.target as HTMLElement | null;
     if (target && isPlainEditableInput(target)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (k === "l") toggleSidebar();
-    else togglePreviewPane();
+    toggleSidebar();
   };
-  window.addEventListener("keydown", onPaneShortcutKey, true);
+  window.addEventListener("keydown", onSidebarKey, true);
   window.addEventListener("beforeunload", () => {
-    window.removeEventListener("keydown", onPaneShortcutKey, true);
+    window.removeEventListener("keydown", onSidebarKey, true);
   });
 
 
@@ -1353,7 +1294,6 @@ async function bootstrap(): Promise<void> {
       },
       toggleMode: () => { void dispatchToFocused({ type: "toggleMode" }); },
       toggleSidebar: () => { void dispatchToFocused({ type: "toggleSidebar" }); },
-      togglePreviewPane: () => { void dispatchToFocused({ type: "togglePreviewPane" }); },
       // Theme changes apply app-wide; broadcast so every window updates in
       // lockstep instead of just the focused one.
       setTheme: (theme) => { void dispatchToAll({ type: "setTheme", theme }); },

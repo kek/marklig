@@ -19,7 +19,6 @@ export type MenuAction =
   | { type: "revealInFileManager" }
   | { type: "toggleMode" }
   | { type: "toggleSidebar" }
-  | { type: "togglePreviewPane" }
   | { type: "setTheme"; theme: Theme }
   | { type: "zoomIn" }
   | { type: "zoomOut" }
@@ -48,7 +47,6 @@ export interface LocalMenuHandlers {
   revealInFileManager: () => Promise<void>;
   toggleMode: () => void;
   toggleSidebar: () => void;
-  togglePreviewPane: () => void;
   setTheme: (theme: Theme) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -93,7 +91,6 @@ export async function installMenuActionListener(
       case "revealInFileManager": await handlers.revealInFileManager(); break;
       case "toggleMode": handlers.toggleMode(); break;
       case "toggleSidebar": handlers.toggleSidebar(); break;
-      case "togglePreviewPane": handlers.togglePreviewPane(); break;
       case "setTheme": handlers.setTheme(a.theme); break;
       case "zoomIn": handlers.zoomIn(); break;
       case "zoomOut": handlers.zoomOut(); break;
