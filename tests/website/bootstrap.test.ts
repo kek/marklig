@@ -132,3 +132,31 @@ describe("website bootstrap — toolbar", () => {
     expect(stats?.textContent).toMatch(/words/);
   });
 });
+
+describe("website bootstrap — TOC sidebar", () => {
+  let root: HTMLDivElement;
+
+  beforeEach(() => {
+    root = document.createElement("div");
+    root.id = "root";
+    document.body.appendChild(root);
+  });
+
+  afterEach(() => {
+    root.innerHTML = "";
+    root.remove();
+    delete document.documentElement.dataset.mode;
+  });
+
+  it("clicking the TOC button mounts a .viewer-toc aside", () => {
+    mountWebsite({
+      root,
+      source: "# Märklig\n\n## Reading-first\n\n## Install\n",
+    });
+    // Second .viewer-toolbar-btn is the TOC toggle.
+    const buttons = root.querySelectorAll<HTMLButtonElement>(".viewer-toolbar-btn");
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    buttons[1].click();
+    expect(root.querySelector(".viewer-toc")).not.toBeNull();
+  });
+});

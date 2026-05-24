@@ -6,7 +6,7 @@
 // time so transitive imports via shell/settings → ui/sidebar/toc don't
 // pull @tauri-apps/plugin-store into the bundle.
 
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 import { createEditor, setMode } from "../editor/editor";
 import type { ModeExtensions } from "../editor/editor";
@@ -34,6 +34,8 @@ import { mathProducer } from "../editor/decorations/math";
 import { mermaidProducer } from "../editor/decorations/mermaid";
 import { graphvizProducer } from "../editor/decorations/graphviz";
 import { mountToolbar, computeDocStats } from "../ui/toolbar";
+import { mountTocSidebar } from "../ui/sidebar/toc";
+import type { TocSidebarHandle, TocEntry } from "../ui/sidebar/toc";
 
 export interface MountWebsiteOptions {
   root: HTMLElement;
@@ -105,19 +107,44 @@ export function mountWebsite(opts: MountWebsiteOptions): EditorView {
 
   setMode(view, "reading", readingExt);
 
-  // mountToolbar prepends a .viewer-toolbar to its parent and wires the
-  // click handlers internally — clicking the edit button calls
-  // setMode(view, "edit", editExt) and triggers onModeChange.
-  const toolbar = mountToolbar(opts.root, {
+  // TOC sidebar — mounted lazily on first toggle click. mountTocSidebar
+  // appends a <aside class="viewer-toc"> to its parent.
+  let tocHandle: TocSidebarHandle | null = null;
+  // Forward-declared so onSidebarToggle can call toolbar.setSidebarVisible.
+  // The closure resolves at click time, after mountToolbar returns.
+  // eslint-disable-next-line prefer-const
+  let toolbar: ReturnType<typeof mountToolbar>;
+
+  const onSidebarToggle = (): void => {
+    if (!tocHandle) {
+      tocHandle = mountTocSidebar({
+        view,
+        parent: opts.root,
+        initiallyVisible: true,
+        initialDocumentPath: "content.md",
+        onActivate: (entry: TocEntry) => {
+          view.dispatch({
+            selection: { anchor: entry.from },
+            effects: EditorView.scrollIntoView(entry.from, { y: "start" }),
+          });
+        },
+      });
+      toolbar.setSidebarVisible(true);
+    } else {
+      const next = !tocHandle.isVisible();
+      tocHandle.setVisible(next);
+      toolbar.setSidebarVisible(next);
+    }
+  };
+
+  toolbar = mountToolbar(opts.root, {
     view,
     modeExtensions: { reading: readingExt, edit: editExt },
     initialMode: "reading",
     onModeChange: (mode) => {
       document.documentElement.dataset.mode = mode;
     },
-    // Sidebar wiring is added in Task 8. Pass undefined for now —
-    // clicking the TOC button is a no-op.
-    onSidebarToggle: undefined,
+    onSidebarToggle,
     initialSidebarVisible: false,
   });
 
