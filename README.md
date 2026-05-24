@@ -26,6 +26,23 @@ npm run tauri:dev   # Tauri dev server (recommended)
 npm run dev         # Vite-only (browser, no native shell)
 ```
 
+### Website
+
+The marketing site at `kek.github.io/marklig` is built from this repo —
+it's the desktop reading mode rendering `website/content.md` through the
+exact same decoration producers as the app. Treat it like any other
+deploy target.
+
+```bash
+npm run website:dev       # local dev server with HMR
+npm run website:build     # static build → website/dist/
+npm run website:preview   # serve the built output locally
+```
+
+`.github/workflows/pages.yml` runs the build on every push to `trunk`
+and deploys to GitHub Pages. The Pages source must be set to "GitHub
+Actions" in repo Settings → Pages (one-time).
+
 ### Android (mobile companion — v2.0, work in progress)
 
 The Android target is the first step of the v2 mobile companion (issue #70,
