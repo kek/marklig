@@ -184,7 +184,7 @@ export function mountWebsite(opts: MountWebsiteOptions): EditorView {
   toolbar.setStats(computeDocStats(opts.source));
   toolbar.setStatus(null);
 
-  primeHighlighter(view, opts.source).catch(() => {
+  primeHighlighter(["bash"]).catch(() => {
     /* placeholder remains */
   });
 
