@@ -7,6 +7,7 @@
 // pull @tauri-apps/plugin-store into the bundle.
 
 import { EditorView } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
 
 import { createEditor, setMode } from "../editor/editor";
 import type { ModeExtensions } from "../editor/editor";
@@ -33,6 +34,8 @@ import { readingWidgetsProducer } from "../editor/decorations/reading-widgets";
 import { mathProducer } from "../editor/decorations/math";
 import { mermaidProducer } from "../editor/decorations/mermaid";
 import { graphvizProducer } from "../editor/decorations/graphviz";
+import { linkClickExtension, buildAnchorIndex } from "../editor/link-clicks";
+import type { LinkClickHandlers } from "../editor/link-clicks";
 import { mountToolbar, computeDocStats } from "../ui/toolbar";
 import { mountTocSidebar } from "../ui/sidebar/toc";
 import type { TocSidebarHandle, TocEntry } from "../ui/sidebar/toc";
@@ -106,6 +109,34 @@ export function mountWebsite(opts: MountWebsiteOptions): EditorView {
   const editExt = buildEditExtensions();
 
   setMode(view, "reading", readingExt);
+
+  // LinkClickHandlers (from src/editor/link-clicks.ts) has four fields.
+  // The website only meaningfully serves external links and same-doc
+  // anchor jumps; the other two are no-ops because content.md is the
+  // only document and there are no local-markdown files to open.
+  const linkHandlers: LinkClickHandlers = {
+    openExternal: (url) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    openLocalMarkdown: async () => {
+      /* no-op: no local .md files reachable from the website */
+    },
+    scrollToAnchor: (slug) => {
+      const index = buildAnchorIndex(view.state.doc.toString());
+      const line = index.get(slug);
+      if (line == null) return false;
+      const pos = view.state.doc.line(line).from;
+      view.dispatch({
+        selection: { anchor: pos },
+        effects: EditorView.scrollIntoView(pos, { y: "start" }),
+      });
+      return true;
+    },
+    resolveRelativeMarkdown: async () => null,
+  };
+  view.dispatch({
+    effects: StateEffect.appendConfig.of(linkClickExtension(linkHandlers)),
+  });
 
   // TOC sidebar — mounted lazily on first toggle click. mountTocSidebar
   // appends a <aside class="viewer-toc"> to its parent.

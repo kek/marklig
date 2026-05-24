@@ -2,6 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mountWebsite } from "../../src/website/bootstrap";
 import { setMode } from "../../src/editor/editor";
 import { buildReadingExtensions, buildEditExtensions } from "../../src/website/bootstrap";
+import { resolveLinkAt } from "../../src/editor/link-clicks";
+
+describe("website bootstrap — link clicks", () => {
+  it("resolveLinkAt finds the external link in content", () => {
+    // Unit-testing CodeMirror click handlers in jsdom requires synthesizing
+    // mouse events at exact text positions and is fragile. Cover the
+    // resolver here; the click→window.open path is verified manually in
+    // Task 14 (end-to-end smoke).
+    const src = "[GitHub](https://github.com/kek/marklig)\n";
+    const result = resolveLinkAt(src, 1);
+    expect(result?.href).toBe("https://github.com/kek/marklig");
+  });
+});
 
 const SAMPLE = `# Märklig\n\n*Markdown that's beautiful to read.*\n`;
 
