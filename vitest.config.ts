@@ -8,5 +8,6 @@ export default defineConfig({
     globals: false,
     reporters: ["default"],
     setupFiles: ["tests/setup.ts"],
+    env: { VITEST: "true" },
   },
 });

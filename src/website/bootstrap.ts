@@ -192,3 +192,23 @@ export function mountWebsite(opts: MountWebsiteOptions): EditorView {
 
   return view;
 }
+
+// ----- auto-mount (browser only) -----
+//
+// Vite's ?raw query loads the file contents as a string at build time.
+// The path is relative to this file; ../../website/content.md resolves
+// to website/content.md at the repo root.
+//
+// Skipped under vitest (env.VITEST="true" in vitest.config.ts) so unit
+// tests that create their own #root don't trip on a second auto-mount.
+import contentMd from "../../website/content.md?raw";
+
+if (
+  typeof document !== "undefined" &&
+  !(import.meta as any).env?.VITEST
+) {
+  const root = document.getElementById("root");
+  if (root) {
+    mountWebsite({ root, source: contentMd });
+  }
+}
