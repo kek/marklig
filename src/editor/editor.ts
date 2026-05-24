@@ -62,7 +62,19 @@ export function setMode(view: EditorView, mode: Mode, ext?: ModeExtensions): voi
     effects.push(decorationsCompartment.reconfigure(ext.decorations));
     effects.push(keymapCompartment.reconfigure(ext.keymap));
   }
-  view.dispatch({ effects });
+  const apply = () => view.dispatch({ effects });
+  // View Transitions API gives a free cross-fade of the editor between
+  // decoration sets, and per-line `view-transition-name`s (see
+  // decorations/headings.ts) upgrade that to a morph for heading lines.
+  // Fall back to a plain dispatch where unsupported (older webviews / jsdom).
+  const startVT = (document as Document & {
+    startViewTransition?: (cb: () => void) => unknown;
+  }).startViewTransition;
+  if (typeof startVT === "function") {
+    startVT.call(document, apply);
+  } else {
+    apply();
+  }
 }
 
 export const compartments = {

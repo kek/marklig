@@ -31,6 +31,7 @@ import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
+import { lineNamesProducer } from "./editor/decorations/line-names";
 import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
@@ -210,6 +211,11 @@ async function bootstrap(): Promise<void> {
     codeblocksProducer,
     frontmatterProducer,
     footnotesProducer,
+    // Per-line view-transition-names; must run after the others so its line
+    // decorations (which carry the style attribute) sort last and win the
+    // attribute merge on lines that already have a heading/blockquote line
+    // decoration.
+    lineNamesProducer,
   ];
   const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer, mermaidProducer, graphvizProducer];
 

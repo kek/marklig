@@ -1474,3 +1474,34 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   margin: 4px 6px;
   background: var(--rule);
 }
+
+/* Mode-toggle view transition: shorter than the 250 ms default and an
+ * ease-out so the morph snaps into place instead of drifting. Applies to
+ * every named line plus the root cross-fade. */
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 140ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 1ms;
+  }
+}
+
+/* The view-transition overlay renders each named group above the live page,
+ * so a heading morphing from edit size to reading size would briefly cover
+ * the titlebar. Give the titlebar its own named group and a higher z-index
+ * so it stays on top of every line snapshot for the duration of the morph. */
+.viewer-titlebar { view-transition-name: viewer-titlebar; }
+::view-transition-group(viewer-titlebar) { z-index: 100; }
+/* The titlebar itself doesn't visibly change between modes — skip the
+ * fade so it stays steady while the lines morph beneath. */
+::view-transition-old(viewer-titlebar),
+::view-transition-new(viewer-titlebar) {
+  animation: none;
+  opacity: 1;
+}
