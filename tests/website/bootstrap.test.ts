@@ -83,3 +83,52 @@ describe("website bootstrap — modes", () => {
     expect(content?.textContent).toContain("# Märklig");
   });
 });
+
+describe("website bootstrap — toolbar", () => {
+  let root: HTMLDivElement;
+
+  beforeEach(() => {
+    root = document.createElement("div");
+    root.id = "root";
+    document.body.appendChild(root);
+  });
+
+  afterEach(() => {
+    root.innerHTML = "";
+    root.remove();
+    delete document.documentElement.dataset.mode;
+  });
+
+  it("mounts a .viewer-toolbar above the editor", () => {
+    mountWebsite({ root, source: "# Hello\n" });
+    expect(root.querySelector(".viewer-toolbar")).not.toBeNull();
+  });
+
+  it("toolbar contains at least an edit toggle and a TOC button", () => {
+    mountWebsite({ root, source: "# Hello\n" });
+    const buttons = root.querySelectorAll(".viewer-toolbar-btn");
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("clicking the edit toggle flips html[data-mode] to 'edit'", () => {
+    mountWebsite({ root, source: "# Hello\n" });
+    // First .viewer-toolbar-btn is the edit toggle (per mountToolbar
+    // append order in src/ui/toolbar.ts).
+    const editBtn = root.querySelector<HTMLButtonElement>(".viewer-toolbar-btn");
+    expect(editBtn).not.toBeNull();
+    editBtn!.click();
+    expect(document.documentElement.dataset.mode).toBe("edit");
+  });
+
+  it("toolbar path readout shows 'content.md'", () => {
+    mountWebsite({ root, source: "# Hello\n" });
+    const path = root.querySelector(".viewer-toolbar-path");
+    expect(path?.textContent).toBe("content.md");
+  });
+
+  it("toolbar stats show word/char/min readout", () => {
+    mountWebsite({ root, source: "# Hello\n\nA short paragraph of words.\n" });
+    const stats = root.querySelector(".viewer-toolbar-stats");
+    expect(stats?.textContent).toMatch(/words/);
+  });
+});

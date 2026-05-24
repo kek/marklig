@@ -33,6 +33,7 @@ import { readingWidgetsProducer } from "../editor/decorations/reading-widgets";
 import { mathProducer } from "../editor/decorations/math";
 import { mermaidProducer } from "../editor/decorations/mermaid";
 import { graphvizProducer } from "../editor/decorations/graphviz";
+import { mountToolbar, computeDocStats } from "../ui/toolbar";
 
 export interface MountWebsiteOptions {
   root: HTMLElement;
@@ -99,18 +100,36 @@ export function mountWebsite(opts: MountWebsiteOptions): EditorView {
 
   const view = createEditor({ parent: opts.root, source: opts.source });
 
-  // Install reading-mode extensions. setMode reconfigures the editor's
-  // decoration / keymap / readOnly compartments in one dispatch.
-  setMode(view, "reading", buildReadingExtensions());
+  const readingExt = buildReadingExtensions();
+  const editExt = buildEditExtensions();
 
-  // Prime the syntax highlighter so code blocks render with Shiki tokens
-  // on first paint. Falls back to a monospace placeholder on rejection.
+  setMode(view, "reading", readingExt);
+
+  // mountToolbar prepends a .viewer-toolbar to its parent and wires the
+  // click handlers internally — clicking the edit button calls
+  // setMode(view, "edit", editExt) and triggers onModeChange.
+  const toolbar = mountToolbar(opts.root, {
+    view,
+    modeExtensions: { reading: readingExt, edit: editExt },
+    initialMode: "reading",
+    onModeChange: (mode) => {
+      document.documentElement.dataset.mode = mode;
+    },
+    // Sidebar wiring is added in Task 8. Pass undefined for now —
+    // clicking the TOC button is a no-op.
+    onSidebarToggle: undefined,
+    initialSidebarVisible: false,
+  });
+
+  toolbar.setDirty(false);
+  toolbar.setPath("content.md");
+  toolbar.setStats(computeDocStats(opts.source));
+  toolbar.setStatus(null);
+
   primeHighlighter(view, opts.source).catch(() => {
     /* placeholder remains */
   });
 
-  // Nudge producers that read external state at toDOM time (e.g. the
-  // eventual settings-driven image policy) to refresh on first paint.
   view.dispatch({ effects: refreshDecorationsEffect.of(undefined) });
 
   return view;
