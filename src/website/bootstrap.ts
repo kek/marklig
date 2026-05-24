@@ -6,6 +6,13 @@
 // time so transitive imports via shell/settings → ui/sidebar/toc don't
 // pull @tauri-apps/plugin-store into the bundle.
 
+// CSS — same stylesheets the desktop app uses. Producer classes
+// (.cm-md-heading-*, .viewer-toolbar*, etc.) and the reading-mode
+// typography all live here. KaTeX CSS is imported eagerly so math
+// (when present) doesn't flash unstyled.
+import "../styles.css";
+import "katex/dist/katex.min.css";
+
 import { EditorView } from "@codemirror/view";
 import { StateEffect } from "@codemirror/state";
 
@@ -37,8 +44,6 @@ import { graphvizProducer } from "../editor/decorations/graphviz";
 import { linkClickExtension, buildAnchorIndex } from "../editor/link-clicks";
 import type { LinkClickHandlers } from "../editor/link-clicks";
 import { mountToolbar, computeDocStats } from "../ui/toolbar";
-import { mountTocSidebar } from "../ui/sidebar/toc";
-import type { TocSidebarHandle, TocEntry } from "../ui/sidebar/toc";
 
 export interface MountWebsiteOptions {
   root: HTMLElement;
@@ -138,46 +143,27 @@ export function mountWebsite(opts: MountWebsiteOptions): EditorView {
     effects: StateEffect.appendConfig.of(linkClickExtension(linkHandlers)),
   });
 
-  // TOC sidebar — mounted lazily on first toggle click. mountTocSidebar
-  // appends a <aside class="viewer-toc"> to its parent.
-  let tocHandle: TocSidebarHandle | null = null;
-  // Forward-declared so onSidebarToggle can call toolbar.setSidebarVisible.
-  // The closure resolves at click time, after mountToolbar returns.
-  // eslint-disable-next-line prefer-const
-  let toolbar: ReturnType<typeof mountToolbar>;
-
-  const onSidebarToggle = (): void => {
-    if (!tocHandle) {
-      tocHandle = mountTocSidebar({
-        view,
-        parent: opts.root,
-        initiallyVisible: true,
-        initialDocumentPath: "content.md",
-        onActivate: (entry: TocEntry) => {
-          view.dispatch({
-            selection: { anchor: entry.from },
-            effects: EditorView.scrollIntoView(entry.from, { y: "start" }),
-          });
-        },
-      });
-      toolbar.setSidebarVisible(true);
-    } else {
-      const next = !tocHandle.isVisible();
-      tocHandle.setVisible(next);
-      toolbar.setSidebarVisible(next);
-    }
-  };
-
-  toolbar = mountToolbar(opts.root, {
+  const toolbar = mountToolbar(opts.root, {
     view,
     modeExtensions: { reading: readingExt, edit: editExt },
     initialMode: "reading",
     onModeChange: (mode) => {
       document.documentElement.dataset.mode = mode;
     },
-    onSidebarToggle,
+    // No TOC sidebar on the website — the marketing page is short and
+    // a single-document outline isn't useful here. Removing the button
+    // entirely (rather than just passing `onSidebarToggle: undefined`)
+    // keeps the toolbar clean.
+    onSidebarToggle: undefined,
     initialSidebarVisible: false,
   });
+
+  // mountToolbar always appends both the edit toggle and the TOC button
+  // (in that order). Remove the TOC button from the DOM so the toolbar
+  // matches the website's needs without touching the shared component.
+  opts.root
+    .querySelector(".viewer-toolbar .viewer-toolbar-btn--icon:nth-of-type(2)")
+    ?.remove();
 
   toolbar.setDirty(false);
   toolbar.setPath("content.md");

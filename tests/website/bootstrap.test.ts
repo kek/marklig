@@ -117,10 +117,10 @@ describe("website bootstrap — toolbar", () => {
     expect(root.querySelector(".viewer-toolbar")).not.toBeNull();
   });
 
-  it("toolbar contains at least an edit toggle and a TOC button", () => {
+  it("toolbar contains exactly one button (edit toggle; TOC removed for the website)", () => {
     mountWebsite({ root, source: "# Hello\n" });
     const buttons = root.querySelectorAll(".viewer-toolbar-btn");
-    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    expect(buttons.length).toBe(1);
   });
 
   it("clicking the edit toggle flips html[data-mode] to 'edit'", () => {
@@ -146,30 +146,3 @@ describe("website bootstrap — toolbar", () => {
   });
 });
 
-describe("website bootstrap — TOC sidebar", () => {
-  let root: HTMLDivElement;
-
-  beforeEach(() => {
-    root = document.createElement("div");
-    root.id = "root";
-    document.body.appendChild(root);
-  });
-
-  afterEach(() => {
-    root.innerHTML = "";
-    root.remove();
-    delete document.documentElement.dataset.mode;
-  });
-
-  it("clicking the TOC button mounts a .viewer-toc aside", () => {
-    mountWebsite({
-      root,
-      source: "# Märklig\n\n## Reading-first\n\n## Install\n",
-    });
-    // Second .viewer-toolbar-btn is the TOC toggle.
-    const buttons = root.querySelectorAll<HTMLButtonElement>(".viewer-toolbar-btn");
-    expect(buttons.length).toBeGreaterThanOrEqual(2);
-    buttons[1].click();
-    expect(root.querySelector(".viewer-toc")).not.toBeNull();
-  });
-});
