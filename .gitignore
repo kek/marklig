@@ -34,3 +34,4 @@ tsconfig.tsbuildinfo
 test-results/
 playwright-report/
 debug-out/
+website/dist/
