@@ -271,30 +271,36 @@ plain Markdown links rendered by `linksProducer`.
 
 ## Tauri-API boundary
 
-Verified at spec time (`grep -rn "tauri\|convertFileSrc\|invoke"` across
-`src/editor/decorations/*` and `src/editor/*`): the decoration producers
-and editor module are host-neutral. They take callbacks and DOM nodes,
-not Tauri APIs. No shim layer is needed in v1.
+The decoration producers and editor module are host-neutral: they take
+callbacks and DOM nodes, not Tauri APIs.
 
 - `link-clicks.ts` — `linkClickExtension(handlers: LinkClickHandlers)`
   takes its open-external callback as a parameter. The website
   bootstrap passes `(url) => window.open(url, "_blank", "noopener")`.
   The desktop `main.ts` passes `@tauri-apps/plugin-opener`'s `openUrl`.
   Same extension, different injected open.
-- `images.ts` — does not import from `@tauri-apps/*`. Renders `<img>`
-  tags directly. The website content references only HTTPS URLs and
-  same-origin assets, so no special-casing needed.
-- `reading-widgets.ts` — host-neutral.
-- Math / Mermaid / Graphviz producers — browser libraries, no Tauri.
+- `images.ts`, `reading-widgets.ts`, math, Mermaid, Graphviz producers
+  — host-neutral, no Tauri imports.
 
-If a future producer adds a Tauri dependency without a callback seam,
-`npm run website:build` will fail loudly at the import. That's the
-desired feedback loop: producers stay host-neutral, the website target
-catches regressions, no silent feature drift.
+**One transitive Tauri dependency does need addressing:**
+`src/ui/sidebar/toc.ts` imports `getTocSectionOpen` / `setTocSectionOpen`
+from `src/shell/settings.ts`, which imports `getValue` / `setValue` from
+`src/shell/store.ts`, which is backed by `@tauri-apps/plugin-store`.
 
-(There is therefore no `src/website/stubs.ts` file in v1. If a future
-producer requires one, add it then and document the host-detection rule
-here.)
+Resolution: a Vite `resolve.alias` in `vite.config.website.ts` swaps
+`src/shell/store.ts` for a website-specific localStorage-backed
+implementation (`src/website/store-web.ts`). The shim exports the same
+`getValue` / `setValue` / `deleteValue` / `listKeys` surface; consumers
+upstream (`settings.ts`, `toc.ts`) don't know they're talking to
+localStorage instead of Tauri Store. This is the canonical "host
+provides its own implementation" boundary — no app code changes; the
+website target supplies a peer for the Tauri store.
+
+If a future producer or shared UI module adds a *new* Tauri dependency
+without a callback seam, `npm run website:build` will fail loudly at
+the import. That's the desired feedback loop.
+
+(Producer files are NOT modified. The shim is in `src/website/`.)
 
 ## What gets bundled
 
@@ -328,6 +334,7 @@ unless measurements demand it.
 
 **New:**
 - `src/website/bootstrap.ts`
+- `src/website/store-web.ts` (Vite alias replaces `src/shell/store` in website build)
 - `website/index.html`
 - `website/content.md`
 - `website/favicon.svg`
