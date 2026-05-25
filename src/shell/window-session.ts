@@ -257,26 +257,27 @@ export async function recordCurrentWindowState(
  *
  *   - Cmd-Q hits `applicationWillTerminate` and the runtime tears windows
  *     down WITHOUT firing per-window `CloseRequested` events. The JS
- *     close-requested handler below never runs. Each window's last periodic
- *     tick (and `beforeunload`) leaves its `windowSession:<label>` entry
- *     intact, so the next launch sees the multi-window set and restores it.
+ *     close-requested handler in `close.ts` never runs. Each window's last
+ *     periodic tick (and `beforeunload`) leaves its `windowSession:<label>`
+ *     entry intact, so the next launch sees the multi-window set and
+ *     restores it.
  *
  *   - Closing one window via the red X (or programmatic close) fires
- *     `CloseRequested`. The handler removes that window's entry so it
- *     doesn't come back on next launch. If this also happens to be the last
- *     window — which on macOS triggers an auto-quit — every prior X-close
- *     already removed its entry, so the store ends up empty and the next
- *     launch starts with a single default window.
- *
- * The original implementation tried to distinguish via an `is_quitting` IPC
- * flag, but the flag is only flipped on `RunEvent::ExitRequested`, which
- * itself only fires *after the last window is destroyed* — far too late for
- * the per-window close handler to read. Worse: the periodic tick wasn't
- * stopped at close time, so its next firing would re-write the entry that
- * had just been removed (which is how stale entries accumulated and caused
- * "6 windows on every launch even after closing them all" → #34).
+ *     `CloseRequested`. The close handler in `close.ts` removes that
+ *     window's entry (and force-saves the buffer) so it doesn't come back
+ *     on next launch. If this also happens to be the last window — which
+ *     on macOS triggers an auto-quit — every prior X-close already removed
+ *     its entry, so the store ends up empty and the next launch starts
+ *     with a single default window.
  *
  * Returns an unsubscribe function.
+ *
+ * Historical note: this module used to install its own `onCloseRequested`
+ * handler that called `removeWindowSessionEntry` and `destroy`, racing
+ * `close.ts`'s save handler. Both fired `event.preventDefault()` and
+ * `destroy()`; whichever finished first won, and a slow save could be
+ * cut off mid-flight. The remove + destroy responsibility now lives in
+ * `close.ts` alone, leaving this module to just persist state on a tick.
  */
 const SESSION_TICK_MS = 1500;
 
@@ -305,30 +306,14 @@ export function installWindowSessionPersistence(getters: {
   // Periodic write — keeps scrollTop/mode/path fresh during the session.
   const interval = window.setInterval(() => { void recordNow(); }, SESSION_TICK_MS);
 
-  let unlisten: (() => void) | null = null;
-  let alreadyClosing = false;
-  const win = getCurrentWindow();
-  void win.onCloseRequested(async (event) => {
-    if (alreadyClosing) return;
-    alreadyClosing = true;
-    event.preventDefault();
-    // Stop the periodic tick BEFORE the async remove + destroy chain. The
-    // earlier code left the interval running and the 1.5s tick frequently
-    // landed between `removeWindowSessionEntry` and `destroy()`, putting
-    // the just-removed entry straight back — that race is the root cause
-    // of #34.
-    window.clearInterval(interval);
-    try { await removeWindowSessionEntry(win.label); } catch { /* ignore */ }
-    try { await win.destroy(); } catch { /* ignore */ }
-  }).then((u) => { unlisten = u; });
-
   // beforeunload is the last-line backstop for the Cmd-Q teardown path:
   // it nudges one more write so even a window that hasn't ticked in nearly
-  // 1500ms still has fresh state when restoration happens. Skipped when
-  // the user closed this window individually — the close-requested handler
-  // just removed the entry and a redundant write would resurrect it.
+  // 1500ms still has fresh state when restoration happens. Skipped when the
+  // user closed this window individually — the close-requested handler in
+  // close.ts already removed this window's entry as part of its flush flow,
+  // and a redundant write would resurrect it (root cause of #34).
   const beforeunloadHandler = (): void => {
-    if (alreadyClosing) return;
+    if (isUserClosingThisWindow()) return;
     void recordNow();
   };
   window.addEventListener("beforeunload", beforeunloadHandler);
@@ -336,6 +321,18 @@ export function installWindowSessionPersistence(getters: {
   return () => {
     window.clearInterval(interval);
     window.removeEventListener("beforeunload", beforeunloadHandler);
-    unlisten?.();
   };
+}
+
+// Set by close.ts when its close-requested handler is mid-flight, so the
+// `beforeunload` tick triggered by the subsequent `destroy()` doesn't undo
+// the entry-remove. Module-level rather than a getter passed in, because
+// close.ts and window-session.ts are independent subscribers and we want
+// the signal global to this window's JS context.
+let userClosingThisWindow = false;
+export function markUserClosingThisWindow(): void {
+  userClosingThisWindow = true;
+}
+function isUserClosingThisWindow(): boolean {
+  return userClosingThisWindow;
 }

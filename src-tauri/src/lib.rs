@@ -18,10 +18,25 @@ use tauri::RunEvent;
 #[cfg(target_os = "macos")]
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
-use tauri::{Emitter, Manager};
+use tauri::Manager;
+#[cfg(desktop)]
+use tauri::{Emitter, Listener};
+// Windows/Linux desktop need Emitter for the quit-flush broadcast even
+// though they don't import Manager (no RunEvent::Opened buffer to drain).
+// macOS gets Emitter via the cfg(desktop) line above.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+use tauri::Emitter;
 
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 use std::sync::Mutex;
+
+// Atomic guard: once we've broadcast `viewer:before-quit` and re-entered
+// `RunEvent::ExitRequested`, skip the broadcast/wait dance the second time
+// so `app.exit()` from the wait task actually terminates the process. Set
+// from inside the wait task immediately before re-issuing the exit.
+#[cfg(desktop)]
+static QUIT_FLUSH_DONE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 // macOS cold-launch with a path argument fires `RunEvent::Opened` *before*
 // Tauri runs its `setup` (which is what creates the configured main window).
@@ -146,6 +161,23 @@ pub fn run() {
         RunEvent::ExitRequested { code, api, .. } if code.is_none() => {
             api.prevent_exit();
         }
+        // App-quit with an explicit exit code — Cmd-Q on macOS, the Quit
+        // menu, programmatic `app.exit()`. On macOS Tao tears windows down
+        // without firing per-window `CloseRequested`, so the frontend
+        // close-handler's force-save path never runs. Intercept here,
+        // broadcast `viewer:before-quit`, wait for one ack per window
+        // (best-effort with a timeout), then re-issue the exit.
+        //
+        // The QUIT_FLUSH_DONE guard prevents an infinite loop: after the
+        // wait task calls `app.exit(0)` we re-enter this arm; the guard
+        // makes the second visit fall through and let the runtime exit.
+        #[cfg(desktop)]
+        RunEvent::ExitRequested { code: Some(_), api, .. }
+            if !QUIT_FLUSH_DONE.load(std::sync::atomic::Ordering::SeqCst) =>
+        {
+            api.prevent_exit();
+            spawn_quit_flush(app.clone());
+        }
         // macOS only: dock-icon click after we kept the app alive without
         // any windows. Spawn a fresh main window so the user has a way
         // back in — clicking the dock should always do something useful.
@@ -209,6 +241,61 @@ pub fn run() {
             }
         }
         _ => {}
+    });
+}
+
+/// Broadcast `viewer:before-quit` to every window, give each one up to
+/// QUIT_FLUSH_TIMEOUT_MS to call its frontend force-save and ack via
+/// `viewer:before-quit-ack`, then re-issue the app exit. Best-effort: we
+/// exit on timeout even if some windows haven't acked, so a frozen window
+/// can't strand the rest of the process.
+///
+/// Runs off the main thread via `std::thread::spawn` because polling for
+/// acks must NOT block the Tauri event loop — the loop is what dispatches
+/// the JS side's emit-back. (Tauri lets you call `app.exit()` from any
+/// thread.)
+#[cfg(desktop)]
+fn spawn_quit_flush(app: tauri::AppHandle) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    const QUIT_FLUSH_TIMEOUT_MS: u64 = 3000;
+
+    let expected = app.webview_windows().len();
+    if expected == 0 {
+        // No windows to flush — exit straight away.
+        QUIT_FLUSH_DONE.store(true, Ordering::SeqCst);
+        app.exit(0);
+        return;
+    }
+
+    let acks = Arc::new(AtomicUsize::new(0));
+    let acks_clone = acks.clone();
+    // Listener has to be installed BEFORE the broadcast so we don't miss
+    // fast acks. `listen_any` returns an id we'd unlisten on completion,
+    // but since the process is about to exit it's not worth tracking.
+    let _id = app.listen_any("viewer:before-quit-ack", move |_event| {
+        acks_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    if let Err(err) = app.emit("viewer:before-quit", ()) {
+        eprintln!("viewer:before-quit broadcast failed: {err:?}");
+        QUIT_FLUSH_DONE.store(true, Ordering::SeqCst);
+        app.exit(0);
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_millis(QUIT_FLUSH_TIMEOUT_MS);
+        while Instant::now() < deadline {
+            if acks.load(Ordering::SeqCst) >= expected {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        QUIT_FLUSH_DONE.store(true, Ordering::SeqCst);
+        app.exit(0);
     });
 }
 
