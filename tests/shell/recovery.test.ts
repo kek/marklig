@@ -14,6 +14,7 @@ import {
   readAllRecovery,
   clearRecovery,
   startRecoveryLoop,
+  resolveRecoveryAction,
 } from "../../src/shell/recovery";
 
 describe("recovery", () => {
@@ -37,6 +38,52 @@ describe("recovery", () => {
     const last = calls[calls.length - 1];
     expect(last.cmd).toBe("clear_recovery");
     expect(last.args).toMatchObject({ originalPath: "/a.md" });
+  });
+
+  describe("resolveRecoveryAction", () => {
+    it("returns kind:'none' when the store is empty", async () => {
+      const action = await resolveRecoveryAction([], async () => {
+        throw new Error("readDisk should not be called when there are no entries");
+      });
+      expect(action).toEqual({ kind: "none" });
+    });
+
+    it("returns kind:'match' when the dump equals the on-disk file", async () => {
+      const action = await resolveRecoveryAction(
+        [{ originalPath: "/a.md", contents: "same", timestampMs: 1 }],
+        async (path) => {
+          expect(path).toBe("/a.md");
+          return "same";
+        },
+      );
+      expect(action).toEqual({ kind: "match", path: "/a.md" });
+    });
+
+    it("returns kind:'load' with the on-disk baseline when the dump differs", async () => {
+      const action = await resolveRecoveryAction(
+        [{ originalPath: "/a.md", contents: "newer", timestampMs: 1 }],
+        async () => "older",
+      );
+      expect(action).toEqual({
+        kind: "load",
+        path: "/a.md",
+        source: "newer",
+        diskBaseline: "older",
+      });
+    });
+
+    it("treats a missing/unreadable file as differing with an empty baseline", async () => {
+      const action = await resolveRecoveryAction(
+        [{ originalPath: "/gone.md", contents: "rescued", timestampMs: 1 }],
+        async () => null,
+      );
+      expect(action).toEqual({
+        kind: "load",
+        path: "/gone.md",
+        source: "rescued",
+        diskBaseline: "",
+      });
+    });
   });
 
   it("startRecoveryLoop only writes when isDirty returns true", async () => {

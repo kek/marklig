@@ -37,6 +37,37 @@ describe("createDirtyTracker", () => {
     expect(t.isDirty()).toBe(false);
   });
 
+  it("markDirtyAgainst flips dirty when the baseline differs from the buffer", () => {
+    // Crash-recovery path: the editor mounted with the recovered dump in
+    // its buffer; we re-baseline against the older on-disk content so the
+    // tracker reports dirty even though no doc-change transaction ran.
+    const view = new EditorView({
+      state: EditorState.create({ doc: "recovered" }),
+      parent: host,
+    });
+    const t = createDirtyTracker(view);
+    expect(t.isDirty()).toBe(false);
+    const seen: boolean[] = [];
+    const unsub = t.subscribe((d) => seen.push(d));
+    t.markDirtyAgainst("on-disk");
+    expect(t.isDirty()).toBe(true);
+    expect(seen).toEqual([false, true]);
+    unsub();
+  });
+
+  it("markDirtyAgainst stays clean when the baseline matches the buffer", () => {
+    // Dump == disk path (caller would normally skip this branch entirely,
+    // but the tracker shouldn't false-positive if it were called with a
+    // matching baseline).
+    const view = new EditorView({
+      state: EditorState.create({ doc: "same" }),
+      parent: host,
+    });
+    const t = createDirtyTracker(view);
+    t.markDirtyAgainst("same");
+    expect(t.isDirty()).toBe(false);
+  });
+
   it("subscribers fire on change and on reset", async () => {
     const view = new EditorView({
       state: EditorState.create({ doc: "x" }),

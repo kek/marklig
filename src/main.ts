@@ -62,7 +62,12 @@ import { installWatcher, type WatcherHandle } from "./shell/watcher";
 import { installFolderWatcher, type FolderWatcherHandle } from "./shell/folder-watcher";
 import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
 import { recordRecent } from "./shell/recents";
-import { startRecoveryLoop, readAllRecovery, clearRecovery } from "./shell/recovery";
+import {
+  startRecoveryLoop,
+  readAllRecovery,
+  clearRecovery,
+  resolveRecoveryAction,
+} from "./shell/recovery";
 import { getFilePosition, setFilePosition, canonicalizePath } from "./shell/file-positions";
 import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -90,7 +95,12 @@ import { typstFormat } from "./format/typst";
 import { createTypstDriver, type TypstDriver, type CompileResult } from "./format/typst-driver";
 import { typstDiagnosticsExtension, setTypstDiagnostics } from "./editor/typst-diagnostics";
 
-let recoveredDoc: { path: string; source: string } | null = null;
+/** Crash-recovery dump that survived the previous session, paired with the
+ * file's current on-disk content. When set, bootstrap loads `source` into the
+ * buffer (so the user sees their unsaved edits) and seeds the dirty tracker
+ * against `diskBaseline` so the dirty dot lights up — equivalent to "I edited
+ * this file and crashed before save". */
+let recoveredDoc: { path: string; source: string; diskBaseline: string } | null = null;
 
 async function bootstrap(): Promise<void> {
   // Tag <html> with the platform class before any UI mounts — CSS rules for
@@ -115,22 +125,47 @@ async function bootstrap(): Promise<void> {
   root.innerHTML = "";
 
   async function maybeRestoreFromRecovery(): Promise<void> {
+    // Silent recovery: with force-save-on-quit (#115) and silent window
+    // restore (#116) shipped, a clean quit leaves no dump worth asking about,
+    // and any dump that does survive is by definition from a crash. Asking
+    // "restore?" only forces the user to weigh in on something they can't
+    // actually evaluate from a one-line modal. Instead:
+    //   1. dump differs from disk -> load dump into buffer, mark dirty so the
+    //      user lands in a window with their last edits + dirty dot lit;
+    //      they can save or revert from there.
+    //   2. dump matches disk -> nothing was lost; drop the dump silently.
+    //   3. file gone from disk -> still load the dump (mark dirty against an
+    //      empty baseline); the user can save it back wherever they want.
+    // Either way the dump is cleared after a single boot — if we hit a second
+    // crash before the user saves, the 5 s recovery loop will write a fresh
+    // dump from the now-restored buffer.
     const entries = await readAllRecovery();
-    if (entries.length === 0) return;
-    const entry = entries[0];
-    const restore = await ask(
-      `Restore unsaved changes to ${entry.originalPath}?`,
-      { title: "Recover unsaved work", okLabel: "Restore", cancelLabel: "Discard" },
-    );
-    if (restore) {
-      recoveredDoc = { path: entry.originalPath, source: entry.contents };
+    const action = await resolveRecoveryAction(entries, async (path) => {
+      try {
+        const doc = await readDoc(path);
+        return doc.source;
+      } catch {
+        // File missing / unreadable — null tells the resolver to treat the
+        // dump as differing (and load it against an empty baseline).
+        return null;
+      }
+    });
+    if (action.kind === "none") return;
+    if (action.kind === "load") {
+      recoveredDoc = {
+        path: action.path,
+        source: action.source,
+        diskBaseline: action.diskBaseline,
+      };
     }
-    await clearRecovery(entry.originalPath);
+    // Both "match" and "load" exhaust the dump in one boot — if a second
+    // crash happens before save, the 5 s loop writes a fresh one.
+    await clearRecovery(action.path);
   }
 
-  // Recovery flow runs in the main window only. Secondary windows (File ->
-  // New Window) are blank slates — they don't ask about restoring, and the
-  // first/main window owns the recovery decision for the session.
+  // Recovery runs in the main window only. Secondary windows (File ->
+  // New Window) are blank slates — they don't participate in the recovery
+  // store, and the first/main window owns the silent restore decision.
   if (isMainWindow()) await maybeRestoreFromRecovery();
 
   // Multi-window restore: on the main window, read the persisted session,
@@ -853,6 +888,13 @@ async function bootstrap(): Promise<void> {
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
+  // Crash recovery: the buffer already holds the recovered dump (set as the
+  // initial doc by resolveInitial). Seed the dirty tracker against the
+  // on-disk content so the dirty dot lights up immediately and Cmd-S writes
+  // the recovered edits back to the file.
+  if (recoveredDoc) {
+    dirtyTracker.markDirtyAgainst(recoveredDoc.diskBaseline);
+  }
   // Auto-save debounce: each dirty notification resets a 1-second timer;
   // if it fires while still dirty (and a path is set), trigger a save.
   // Clearing/resaving is harmless when auto-save is off because the
