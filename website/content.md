@@ -2,6 +2,8 @@
 
 *Markdown that's beautiful to read.*
 
+![Märklig in reading mode, showing a rendered document with folder and TOC sidebars](og.png)
+
 A desktop reader and editor for macOS, Windows, and Linux —
 and a mobile reader for Android. Reading comes first.
 
