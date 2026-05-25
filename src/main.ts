@@ -952,13 +952,27 @@ async function bootstrap(): Promise<void> {
   };
   setSaveHandler(() => { void triggerSave(); });
 
+  // Force-save: writes the buffer to disk unconditionally — overwrites the
+  // file even when the buffer is `diverged`. Used by window-close and app-
+  // quit, where there's no user to answer a "save anyway?" prompt and silent
+  // data loss is the worst outcome. Skips when there's no path (a brand-new
+  // unsaved buffer would need a Save As… dialog, which we can't show during
+  // close); the periodic recovery dump still covers that case.
+  const forceSave = async (): Promise<void> => {
+    if (!currentPath) return;
+    if (watcherHandle) await watcherHandle.markSelfWrite();
+    await saveDoc(currentPath, view.state.doc.toString());
+    dirtyTracker.reset();
+    diverged = false;
+    try {
+      await clearRecovery(currentPath);
+    } catch {
+      // best-effort; recovery dump is a fallback, not the primary path
+    }
+  };
   const stopCloseHandler = await installCloseHandler({
     isDirty: () => dirtyTracker.isDirty(),
-    save: async () => {
-      if (!currentPath) throw new Error("No path to save to");
-      await saveDoc(currentPath, view.state.doc.toString());
-      dirtyTracker.reset();
-    },
+    forceSave,
   });
   window.addEventListener("beforeunload", () => stopCloseHandler());
 

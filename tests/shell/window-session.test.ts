@@ -34,6 +34,7 @@ import {
   saveWindowSession,
   clearWindowSession,
   recordCurrentWindowState,
+  removeWindowSessionEntry,
   type WindowSessionEntry,
 } from "../../src/shell/window-session";
 
@@ -181,6 +182,22 @@ describe("saveWindowSession + clearWindowSession", () => {
     await clearWindowSession();
     const s = await loadWindowSession();
     expect(s.windows).toEqual([]);
+  });
+});
+
+describe("removeWindowSessionEntry", () => {
+  it("removes only the targeted entry", async () => {
+    await saveWindowSession({ windows: [entry("main"), entry("window-2")] });
+    await removeWindowSessionEntry("window-2");
+    const s = await loadWindowSession();
+    expect(s.windows.map((w) => w.label)).toEqual(["main"]);
+  });
+
+  it("is a no-op when the entry doesn't exist", async () => {
+    await saveWindowSession({ windows: [entry("main")] });
+    await removeWindowSessionEntry("ghost");
+    const s = await loadWindowSession();
+    expect(s.windows).toHaveLength(1);
   });
 });
 
