@@ -88,6 +88,11 @@ import {
   recordRecentProject,
   clearRecentProjects,
 } from "./shell/recent-projects";
+import {
+  recordFileInProject,
+  forgetFileInProject,
+} from "./shell/project-recents";
+import { resolveProjectFallbackFile } from "./shell/project-fallback";
 import { openSearchPanel } from "@codemirror/search";
 import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
@@ -178,15 +183,26 @@ async function bootstrap(): Promise<void> {
 
   // Restored session entry for the main window only takes effect when the
   // higher-priority sources (recovery, file-association launch, CLI arg)
-  // didn't yield a doc; otherwise those win.
+  // didn't yield a doc; otherwise those win. We also pass the persisted
+  // folder so the restore-time fallback chain (per-project last file →
+  // root README → welcome) can run when the file the project pointed at
+  // is gone or the entry is from a pre-#122 session where the recorded
+  // file belonged to a *different* project than the recorded folder.
   const sessionFallbackPath =
     isMainWindow() && sessionEntryForThisWindow?.path
       ? sessionEntryForThisWindow.path
       : null;
+  const sessionFallbackFolder =
+    isMainWindow() && sessionEntryForThisWindow?.folder
+      ? sessionEntryForThisWindow.folder
+      : null;
   // Secondary windows that were spawned from a session entry receive their
   // path via ?file=… (see resolveInitial) — same channel as multi-file
   // drag-drop, so we don't need a separate code path.
-  const { doc: initialDoc, folder: initialFolder } = await resolveInitial(sessionFallbackPath);
+  const { doc: initialDoc, folder: initialFolder } = await resolveInitial(
+    sessionFallbackPath,
+    sessionFallbackFolder,
+  );
 
   const shell = document.createElement("div");
   shell.className = "viewer-app-shell";
@@ -755,8 +771,21 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => stopWindowSession());
 
   /** Open `root` as the current folder: persist it, list .md files in the
-   * sidebar, ensure the sidebar is visible. Pass null to clear. */
-  async function setCurrentFolder(root: string | null): Promise<void> {
+   * sidebar, ensure the sidebar is visible. Pass null to clear.
+   *
+   * When `opts.replaceBuffer` is true (the project-switch path — user picked
+   * a different project from the palette / menu), the active editor buffer
+   * is replaced via the per-project fallback chain (last-in-project → root
+   * README.md → welcome). The file from the *previous* project is irrelevant
+   * to the new one — keeping it open conflates window state with project
+   * state, which is the root cause of #122. The default (`false`) is the
+   * cold-start / file-derived path: caller already loaded a doc into the
+   * buffer (or has none and wants the welcome placeholder) and just wants
+   * the sidebar to reflect the project. */
+  async function setCurrentFolder(
+    root: string | null,
+    opts: { replaceBuffer?: boolean } = {},
+  ): Promise<void> {
     if (root === currentFolder) {
       // No-op if unchanged — just resync active highlight in case the file did.
       if (root) folder.setActiveFile(currentPath);
@@ -795,6 +824,61 @@ async function bootstrap(): Promise<void> {
       }
       folder.setActiveFile(currentPath);
     }
+    if (opts.replaceBuffer) {
+      await applyProjectFallbackBuffer(root);
+    }
+  }
+
+  /** Replace the active buffer with the project-fallback file (or the
+   * welcome placeholder when the chain yields null). Called on user-driven
+   * project switches; not on cold-start (the bootstrap already chose an
+   * initial doc) and not on file-derived `syncFolderToFile` (the doc just
+   * loaded is what we want). */
+  async function applyProjectFallbackBuffer(root: string | null): Promise<void> {
+    if (!root) {
+      // Closing the project — leave the current buffer alone. The user can
+      // continue editing whatever file they had open; only the sidebar
+      // disappears.
+      return;
+    }
+    let next: string | null = null;
+    try {
+      next = await resolveProjectFallbackFile(root);
+    } catch {
+      next = null;
+    }
+    if (next) {
+      try {
+        await loadAndApplyDoc(next);
+        return;
+      } catch {
+        // File listed by the walker but unreadable (permissions / race) —
+        // forget the per-project pointer so we don't loop on it next time,
+        // and fall through to the welcome buffer.
+        await forgetFileInProject(root);
+      }
+    }
+    // Welcome buffer: no path, no dirty state.
+    if (currentPath) {
+      try {
+        const prevKey = await canonicalizePath(currentPath);
+        await setFilePosition(prevKey, captureCurrentPosition());
+      } catch {
+        // best-effort
+      }
+    }
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: defaultPlaceholder() },
+    });
+    currentPath = null;
+    dirtyTracker.reset();
+    diverged = false;
+    await setWindowTitle(null, false);
+    toolbar.setPath(null);
+    toc.setDocumentTitle(null);
+    folder.setActiveFile(null);
+    setDocumentFormatAttr();
+    applyPreviewPaneLayout();
   }
 
   // Every window listens for a targeted open request; main routes here when
@@ -1065,6 +1149,13 @@ async function bootstrap(): Promise<void> {
       }
       await maybeRestorePositionFor(currentPath);
       await syncFolderToFile(currentPath);
+      // Pair this file with the active project so a future switch back to
+      // the project (or restore on relaunch) re-opens this file rather than
+      // the newest-overall recent. syncFolderToFile may have just set
+      // currentFolder, so consult it *after*.
+      if (currentFolder && !doc.isNew) {
+        await recordFileInProject(currentFolder, currentPath);
+      }
     }
     applyFormatExtensions();
     setDocumentFormatAttr();
@@ -1174,7 +1265,7 @@ async function bootstrap(): Promise<void> {
     },
     openFolder: async () => {
       const root = await pickFolder();
-      if (root) await setCurrentFolder(root);
+      if (root) await setCurrentFolder(root, { replaceBuffer: true });
     },
     newWindow: async () => { await spawnNewWindow(); },
     saveFile: () => { void triggerSave(); },
@@ -1240,7 +1331,7 @@ async function bootstrap(): Promise<void> {
       await openPreferences();
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
-    openProject: async (path) => { await setCurrentFolder(path); },
+    openProject: async (path) => { await setCurrentFolder(path, { replaceBuffer: true }); },
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
     quickOpen: () => { void openQuickOpenPalette(currentFolder); },
@@ -1475,7 +1566,7 @@ async function bootstrap(): Promise<void> {
     // fall through to the multi-file routing below (which handles single .md
     // and multi-.md drops uniformly).
     if (paths.length === 1 && (await isDirectory(paths[0]))) {
-      await setCurrentFolder(paths[0]);
+      await setCurrentFolder(paths[0], { replaceBuffer: true });
       return;
     }
 
@@ -1591,7 +1682,10 @@ interface InitialResolution {
   folder: string | null;
 }
 
-async function resolveInitial(sessionFallbackPath: string | null = null): Promise<InitialResolution> {
+async function resolveInitial(
+  sessionFallbackPath: string | null = null,
+  sessionFallbackFolder: string | null = null,
+): Promise<InitialResolution> {
   // Secondary windows opened with ?file=… (drop-onto-window splits a multi-
   // file drop across windows, and multi-window session restore reuses the
   // same channel) load that file directly.
@@ -1639,10 +1733,42 @@ async function resolveInitial(sessionFallbackPath: string | null = null): Promis
   if (launched?.kind === "directory") {
     return { doc: null, folder: launched.path };
   }
-  // Multi-window session restore for the main window: prefer the file the
-  // main window had open last time over generic recents[0], so closing-
-  // and-reopening preserves the exact arrangement. Falls through to recents
-  // if the file is gone.
+  // Window-session restore for the main window: the active *project* (folder)
+  // outranks the active *file*. If the session captured a folder, run the
+  // per-project fallback chain (last-in-project → root README → welcome)
+  // against it and return that. This is what #122 fixes: the file recorded
+  // alongside the folder may not even belong to it (the user could have
+  // switched projects after opening that file), so trusting the recorded
+  // file blindly is the bug. The chain resolves to the file the *project*
+  // says was active, not the file the *app* last touched globally.
+  //
+  // If the folder is missing on disk we drop it silently (per #122 ACs) and
+  // fall through to the recorded file / generic recents. No prompt.
+  if (sessionFallbackFolder) {
+    const folderExists = await pathExists(sessionFallbackFolder);
+    if (folderExists) {
+      const fallbackFile = await resolveProjectFallbackFile(
+        sessionFallbackFolder,
+      );
+      if (fallbackFile) {
+        try {
+          return {
+            doc: await readDoc(fallbackFile),
+            folder: sessionFallbackFolder,
+          };
+        } catch {
+          // Listed but unreadable — fall through to welcome buffer in this
+          // project rather than abandoning the project context entirely.
+        }
+      }
+      // No fallback file — show the welcome buffer *inside* the restored
+      // project (sidebar reflects the folder, editor is the placeholder).
+      return { doc: null, folder: sessionFallbackFolder };
+    }
+    // Folder gone — drop silently and continue with the other branches.
+  }
+  // Pre-#122 session entries (or session entries with no folder) still get
+  // the recorded file as a fallback path, mirroring the original behaviour.
   if (sessionFallbackPath) {
     try {
       return { doc: await readDoc(sessionFallbackPath), folder: null };
