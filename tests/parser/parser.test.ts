@@ -51,6 +51,18 @@ describe("parseMarkdown", () => {
     const tokens = parseMarkdown(md);
     expect(tokens.some((t) => t.type === "dl_open")).toBe(true);
   });
+
+  it("recovers from an unclosed code fence so following content still tokenizes", () => {
+    // A stray ``` (e.g. an example fence the author forgot to close) used to
+    // make markdown-it swallow everything after it as one giant fence,
+    // hiding all headings/lists from the producers and giving the last line
+    // the muted close-fence color.
+    const md = "# Real heading\n\n```\n\n## Should still be a heading\n\nBody text.\n";
+    const tokens = parseMarkdown(md);
+    const headings = tokens.filter((t) => t.type === "heading_open");
+    expect(headings).toHaveLength(2);
+    expect(tokens.some((t) => t.type === "fence")).toBe(false);
+  });
 });
 
 describe("renderHtml conformance", () => {

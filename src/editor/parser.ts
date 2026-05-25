@@ -21,7 +21,42 @@ export type MdToken = Token;
 
 export function parseMarkdown(source: string): MdToken[] {
   if (source.length === 0) return [];
-  return md.parse(source, {});
+  return md.parse(maskUnclosedFences(source), {});
+}
+
+// markdown-it auto-closes an unclosed ```/~~~ fence at EOF, which makes
+// everything from the orphan opener onward come out as one big fence token —
+// no heading_open, no list_item_open for the swallowed content, and the
+// last source line ends up styled by the codeblocks producer as the
+// (fake) closing fence. We pre-scan the source, and if we find an opener
+// with no matching closer we overwrite the marker with spaces of equal
+// length so the parser stops treating it as a fence. The EditorView shows
+// the original source unchanged — only the parser sees the masked view —
+// and positions/offsets are preserved because the mask is in-place. */
+function maskUnclosedFences(source: string): string {
+  const lines = source.split("\n");
+  let open: { idx: number; marker: string } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
+    if (!m) continue;
+    const marker = m[2];
+    const trailing = m[3];
+    if (open === null) {
+      open = { idx: i, marker };
+    } else if (
+      marker[0] === open.marker[0] &&
+      marker.length >= open.marker.length &&
+      trailing.trim().length === 0
+    ) {
+      open = null;
+    }
+  }
+  if (open === null) return source;
+  lines[open.idx] = lines[open.idx].replace(
+    /^( {0,3})(`{3,}|~{3,})/,
+    (_, indent: string, marker: string) => indent + " ".repeat(marker.length),
+  );
+  return lines.join("\n");
 }
 
 /**
