@@ -83,6 +83,38 @@ type Route =
   | { kind: "pair" }
   | { kind: "synced"; pairing: MobilePairing };
 
+/**
+ * Decide what the Android system back-button should do given the
+ * currently rendered route. Pure for testability — the boostrap wires
+ * this to the native `OnBackPressedCallback` via a global function the
+ * webview exposes to MainActivity (issue #96).
+ *
+ * Returns:
+ *   { handled: true, next: <route> }  — JS pops to `next`; Android is told the press was consumed.
+ *   { handled: false }                — JS does nothing; Android backgrounds the task (exit-like).
+ */
+export type AndroidBackDecision =
+  | { handled: true; next: Route }
+  | { handled: false };
+
+export function decideAndroidBack(route: Route): AndroidBackDecision {
+  switch (route.kind) {
+    case "document":
+      // A document reached via a share / recent has a back-bar to the
+      // library. A first-launch bundled-sample document has no recent
+      // entry — there is nothing to go back to, so let Android exit.
+      if (route.uriForRecents) {
+        return { handled: true, next: { kind: "library" } };
+      }
+      return { handled: false };
+    case "pair":
+    case "synced":
+      return { handled: true, next: { kind: "library" } };
+    case "library":
+      return { handled: false };
+  }
+}
+
 export async function mobileBootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
   watchSystemTheme(() => applyTheme(loadStoredTheme()));
@@ -102,8 +134,14 @@ export async function mobileBootstrap(): Promise<void> {
 
   let currentView: EditorView | null = null;
   let viewCleanups: Array<() => void> = [];
+  // Mirror of the most recently rendered route. The Android back-press
+  // bridge (see `__marklig_android_back` below) reads this synchronously
+  // to decide whether to pop to library or let Android background the
+  // task. Treat as read-only outside `renderRoute`.
+  let currentRoute: Route = { kind: "library" };
 
   const renderRoute = async (route: Route): Promise<void> => {
+    currentRoute = route;
     // Tear down whatever is mounted.
     for (const fn of viewCleanups) {
       try { fn(); } catch { /* no-op */ }
@@ -277,6 +315,29 @@ export async function mobileBootstrap(): Promise<void> {
         displayName: uriDisplayName(route.uriForRecents),
       });
     }
+  };
+
+  // Android system back-button bridge (issue #96). MainActivity registers
+  // an `OnBackPressedCallback` that synchronously evaluates
+  // `window.__marklig_android_back()` on the webview. Returning `true`
+  // means "the JS router handled it"; returning `false` lets the activity
+  // background the task (i.e. exit visibly without killing the process).
+  //
+  // This is mobile-only — desktop builds never assign the global. Routes:
+  //   document (with uriForRecents)   → library  (handled)
+  //   document (fresh-launch sample)  → exit     (unhandled)
+  //   library                         → exit     (unhandled)
+  //   pair                            → library  (handled)
+  //   synced                          → library  (handled)
+  (window as unknown as {
+    __marklig_android_back?: () => boolean;
+  }).__marklig_android_back = (): boolean => {
+    const decision = decideAndroidBack(currentRoute);
+    if (decision.handled) {
+      void renderRoute(decision.next);
+      return true;
+    }
+    return false;
   };
 
   // Initial route: cold-launch URI > library (if non-empty) > sample.md.
