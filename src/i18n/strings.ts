@@ -245,6 +245,9 @@ export const EN = {
   "mobile.synced.relative_minutes": "{n}m ago",
   "mobile.synced.relative_hours": "{n}h ago",
   "mobile.synced.relative_days": "{n}d ago",
+  "mobile.synced.unpair": "Unpair",
+  "mobile.synced.unpair_confirm": "Confirm unpair?",
+  "mobile.synced.unpair_failed_prefix": "Unpair failed: ",
   "mobile.pair.scan_instructions":
     "Point the camera at the QR code shown in the desktop's Settings → Pairings.",
   "mobile.pair.scan_starting": "Starting camera…",
