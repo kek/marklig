@@ -159,7 +159,7 @@ export async function mobileBootstrap(): Promise<void> {
 
     if (route.kind === "synced") {
       const { readSyncedFile } = await import("./shell/mobile-pairings");
-      await mountMobileSynced(root, route.pairing, {
+      const teardown = await mountMobileSynced(root, route.pairing, {
         onOpenFile: async (file) => {
           try {
             const source = await readSyncedFile(
@@ -176,6 +176,7 @@ export async function mobileBootstrap(): Promise<void> {
           void renderRoute({ kind: "library" });
         },
       });
+      viewCleanups.push(teardown);
       return;
     }
 

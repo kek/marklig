@@ -233,6 +233,13 @@ export const EN = {
   "mobile.synced.synced_n": "Synced {n} files.",
   "mobile.synced.failed_prefix": "Sync failed: ",
   "mobile.synced.prompt_host": "Desktop LAN IP",
+  "mobile.synced.last_synced_just_now": "Synced just now",
+  "mobile.synced.last_synced_seconds": "Synced {n}s ago",
+  "mobile.synced.last_synced_minutes": "Synced {n}m ago",
+  "mobile.synced.last_synced_hours": "Synced {n}h ago",
+  "mobile.synced.never_synced": "Not synced yet",
+  "mobile.synced.pull_hint": "Pull down to sync",
+  "mobile.synced.pull_release": "Release to sync",
   "mobile.pair.scan_instructions":
     "Point the camera at the QR code shown in the desktop's Settings → Pairings.",
   "mobile.pair.scan_starting": "Starting camera…",
