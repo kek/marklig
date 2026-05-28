@@ -15,6 +15,14 @@
   /* Selection background: a translucent accent tint over the bg works fine
      in light mode — dark text remains legible against the pale pink. */
   --selection-bg: rgba(176, 48, 96, 0.22);
+  /* Search spotlight: a warm amber wash for every match (readable dark text on
+     it, ~11:1) and a saturated accent fill for the active match so the current
+     hit stands out from the rest. --search-dim drops non-match text toward
+     --muted rather than hiding it, keeping content legible (accessibility). */
+  --search-match-bg: rgba(255, 213, 79, 0.55);
+  --search-active-bg: var(--accent);
+  --search-active-fg: #fff;
+  --search-dim: rgba(26, 26, 26, 0.38);
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
 }
@@ -34,6 +42,13 @@ html.theme-dark {
      SOLID dark mauve so the selection bg has its own opacity and the text
      gets normal-on-dark contrast (~6:1 vs --fg). */
   --selection-bg: #3d2a35;
+  /* Dark mode: a low-alpha amber still reads as "highlight" over the dark bg
+     and the bright text underneath stays legible. Dim toward the dark-mode
+     --muted, again by lowering contrast rather than dropping content. */
+  --search-match-bg: rgba(240, 200, 80, 0.30);
+  --search-active-bg: var(--accent);
+  --search-active-fg: #15161a;
+  --search-dim: rgba(230, 227, 218, 0.34);
 }
 
 html, body, #root {
@@ -1190,6 +1205,51 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
 .cm-editor .cm-selectionBackground,
 .cm-editor.cm-focused .cm-selectionBackground {
   background: var(--selection-bg) !important;
+}
+
+/* Search spotlight (Cmd-F) — the .cm-search-spotlight class is toggled on
+   .cm-editor by src/editor/search-spotlight.ts only while the search panel is
+   open, so all of this reverts the moment the panel closes (Esc / close
+   button). Mode-independent: applies in both reading and edit mode.
+
+   Dim-the-rest: lower the contrast of document text toward --search-dim. We
+   reach the per-construct .cm-md-* spans (which set their own color) with a
+   broad descendant selector; non-match text fades but stays readable rather
+   than disappearing. Matches are then lifted back to full strength below. */
+.cm-editor.cm-search-spotlight .cm-content,
+.cm-editor.cm-search-spotlight .cm-content :not(.cm-searchMatch) {
+  color: var(--search-dim) !important;
+  transition: color 120ms ease;
+}
+
+/* Every match: full-contrast foreground on a warm highlight wash. */
+.cm-editor.cm-search-spotlight .cm-searchMatch,
+.cm-editor .cm-searchMatch {
+  background: var(--search-match-bg);
+  border-radius: 2px;
+}
+.cm-editor.cm-search-spotlight .cm-searchMatch,
+.cm-editor.cm-search-spotlight .cm-searchMatch * {
+  color: var(--fg) !important;
+}
+
+/* Active match: a saturated accent fill, clearly distinct from the amber wash
+   on the other hits, so the current target reads at a glance. */
+.cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--search-active-bg);
+  box-shadow: 0 0 0 1px var(--search-active-bg);
+}
+.cm-editor.cm-search-spotlight .cm-searchMatch.cm-searchMatch-selected,
+.cm-editor.cm-search-spotlight .cm-searchMatch.cm-searchMatch-selected * {
+  color: var(--search-active-fg) !important;
+}
+
+/* Respect reduced-motion: drop the dim cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  .cm-editor.cm-search-spotlight .cm-content,
+  .cm-editor.cm-search-spotlight .cm-content :not(.cm-searchMatch) {
+    transition: none;
+  }
 }
 
 /* Quick-open (Cmd-P) fuzzy file finder palette. Sits near the top of the
