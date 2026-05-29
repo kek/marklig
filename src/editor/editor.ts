@@ -2,6 +2,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
+import { searchSpotlight } from "./search-spotlight";
 
 export type Mode = "reading" | "edit";
 
@@ -46,6 +47,10 @@ export function createEditor(opts: CreateEditorOptions): EditorView {
       decorationsCompartment.of([]),
       keymapCompartment.of(keymap.of(defaultKeymap)),
       selectionCompartment.of(readingModeSelection),
+      // Cmd-F search spotlight — mode-independent (lives outside the
+      // compartments) so dim-the-rest/highlight-matches works in both
+      // reading and edit mode. Only engages while the search panel is open.
+      searchSpotlight(),
     ],
   });
   return new EditorView({ state, parent: opts.parent });
