@@ -348,16 +348,24 @@ export async function mountMobileSynced(
         /* no-op */
       }
     }
+    // Drop the per-pair throttle/in-flight record on unmount. If the view
+    // tears down mid-sync, the in-flight resolve/reject can no longer clear
+    // it, so without this a stale `{ inFlight: true }` would make every
+    // future auto-sync trigger (and the manual button) silently no-op until
+    // app restart. A fresh mount re-creates the record on first sync.
+    syncState.delete(pairing.pair_id_hex);
   };
 }
 
 function formatRelative(ms: number): string {
   const delta = Date.now() - ms;
   const minutes = Math.floor(delta / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t("mobile.synced.relative_just_now");
+  if (minutes < 60)
+    return tA11y("mobile.synced.relative_minutes", { n: String(minutes) });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24)
+    return tA11y("mobile.synced.relative_hours", { n: String(hours) });
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return tA11y("mobile.synced.relative_days", { n: String(days) });
 }

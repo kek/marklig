@@ -240,6 +240,11 @@ export const EN = {
   "mobile.synced.never_synced": "Not synced yet",
   "mobile.synced.pull_hint": "Pull down to sync",
   "mobile.synced.pull_release": "Release to sync",
+  // Per-file relative timestamps in the synced-file list ("5m ago").
+  "mobile.synced.relative_just_now": "just now",
+  "mobile.synced.relative_minutes": "{n}m ago",
+  "mobile.synced.relative_hours": "{n}h ago",
+  "mobile.synced.relative_days": "{n}d ago",
   "mobile.pair.scan_instructions":
     "Point the camera at the QR code shown in the desktop's Settings → Pairings.",
   "mobile.pair.scan_starting": "Starting camera…",
