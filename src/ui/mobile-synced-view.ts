@@ -395,6 +395,13 @@ export async function mountMobileSynced(
   }
 
   return () => {
+    // Clear the two-tap-confirm timer on teardown so it can't fire against a
+    // detached DOM subtree (and keep the closure pinning it) after the route
+    // changes while the button is armed.
+    if (disarmTimer !== null) {
+      window.clearTimeout(disarmTimer);
+      disarmTimer = null;
+    }
     for (const fn of cleanups) {
       try {
         fn();

@@ -307,6 +307,23 @@ pub async fn mobile_unpair<R: Runtime>(
         return Err("invalid pair_id_hex".into());
     }
 
+    // Nuke cached plaintext FIRST. A missing dir is fine (nothing was ever
+    // synced); other errors are surfaced because they may leak plaintext on
+    // disk. We delete before touching the store so that a failed delete
+    // leaves the pairing intact in the store rather than stranding the UI on
+    // an error screen for a pairing that no longer exists.
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?;
+    let synced_dir = app_data.join("synced").join(&pair_id_hex);
+    match std::fs::remove_dir_all(&synced_dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("remove {synced_dir:?}: {e}")),
+    }
+
+    // Cache directory is gone — now drop the pairing and its indexes.
     let store = tauri_plugin_store::StoreExt::store(&app, "viewer.store.json")
         .map_err(|e| e.to_string())?;
 
@@ -322,17 +339,5 @@ pub async fn mobile_unpair<R: Runtime>(
     }
     store.save().map_err(|e| e.to_string())?;
 
-    // Nuke cached plaintext. Best-effort: a missing dir is fine (nothing
-    // was ever synced); other errors are surfaced because they may leak
-    // plaintext on disk.
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app data dir: {e}"))?;
-    let synced_dir = app_data.join("synced").join(&pair_id_hex);
-    match std::fs::remove_dir_all(&synced_dir) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("remove {synced_dir:?}: {e}")),
-    }
+    Ok(())
 }
