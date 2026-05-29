@@ -1,6 +1,7 @@
 package se.karleklund.marklig
 
 import android.os.Bundle
+import android.util.Log
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
@@ -32,9 +33,16 @@ class MainActivity : TauriActivity() {
         override fun handleOnBackPressed() {
           val webView = findWebView()
           if (webView == null) {
-            // Webview not up yet (very early in launch). Fall back to
-            // the platform default: background the task rather than
-            // killing the process, so we don't lose deep-link state.
+            // Webview not up yet (very early in launch), or a future Wry
+            // layout change moved it out of the decor-view tree and broke
+            // findWebView(). Log a warning so the latter is detectable in
+            // logcat, then fall back to the platform default: background
+            // the task rather than killing the process, so we don't lose
+            // deep-link state.
+            Log.w(
+              "MainActivity",
+              "Back press: no WebView found; backgrounding task instead of routing in JS",
+            )
             moveTaskToBack(true)
             return
           }

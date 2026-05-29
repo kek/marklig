@@ -100,13 +100,12 @@ export type AndroidBackDecision =
 export function decideAndroidBack(route: Route): AndroidBackDecision {
   switch (route.kind) {
     case "document":
-      // A document reached via a share / recent has a back-bar to the
-      // library. A first-launch bundled-sample document has no recent
-      // entry — there is nothing to go back to, so let Android exit.
-      if (route.uriForRecents) {
-        return { handled: true, next: { kind: "library" } };
-      }
-      return { handled: false };
+      // The document route ALWAYS renders an on-screen "← Back" bar to the
+      // library (see renderRoute — even the first-launch bundled-sample
+      // view shows it). The hardware back button must agree with that
+      // affordance, so it pops to the library unconditionally rather than
+      // backgrounding the app on the sample view.
+      return { handled: true, next: { kind: "library" } };
     case "pair":
     case "synced":
       return { handled: true, next: { kind: "library" } };
@@ -324,17 +323,27 @@ export async function mobileBootstrap(): Promise<void> {
   // background the task (i.e. exit visibly without killing the process).
   //
   // This is mobile-only — desktop builds never assign the global. Routes:
-  //   document (with uriForRecents)   → library  (handled)
-  //   document (fresh-launch sample)  → exit     (unhandled)
-  //   library                         → exit     (unhandled)
-  //   pair                            → library  (handled)
-  //   synced                          → library  (handled)
+  //   document   → library  (handled — matches the always-visible back-bar)
+  //   library    → exit     (unhandled)
+  //   pair       → library  (handled)
+  //   synced     → library  (handled)
+  //
+  // `navigating` guards against a double-tap of the hardware back button
+  // re-entering `renderRoute` mid-transition (which destroys the EditorView
+  // and re-mounts #root). While a route change is in flight we consume the
+  // press (return true) without kicking off a second navigation, so a fast
+  // double-tap can't double-pop or background the app mid-transition.
+  let navigating = false;
   (window as unknown as {
     __marklig_android_back?: () => boolean;
   }).__marklig_android_back = (): boolean => {
+    if (navigating) return true;
     const decision = decideAndroidBack(currentRoute);
     if (decision.handled) {
-      void renderRoute(decision.next);
+      navigating = true;
+      void renderRoute(decision.next).finally(() => {
+        navigating = false;
+      });
       return true;
     }
     return false;
