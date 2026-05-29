@@ -1215,11 +1215,17 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
    Dim-the-rest: lower the contrast of document text toward --search-dim. We
    reach the per-construct .cm-md-* spans (which set their own color) with a
    broad descendant selector; non-match text fades but stays readable rather
-   than disappearing. Matches are then lifted back to full strength below. */
+   than disappearing. Matches are then lifted back to full strength below.
+
+   The color transition lives on the base (non-spotlight) selector so it
+   animates symmetrically — dim fades in when the panel opens AND fades back
+   out when it closes, rather than snapping off. */
+.cm-editor .cm-content {
+  transition: color 120ms ease;
+}
 .cm-editor.cm-search-spotlight .cm-content,
 .cm-editor.cm-search-spotlight .cm-content :not(.cm-searchMatch) {
   color: var(--search-dim) !important;
-  transition: color 120ms ease;
 }
 
 /* Every match: full-contrast foreground on a warm highlight wash. */
@@ -1228,8 +1234,15 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   background: var(--search-match-bg);
   border-radius: 2px;
 }
-.cm-editor.cm-search-spotlight .cm-searchMatch,
-.cm-editor.cm-search-spotlight .cm-searchMatch * {
+/* Restore matches (and their child spans — Shiki .cm-md-token-* / .cm-md-strong
+   / .cm-md-link-text) to full contrast. The dim rule above reaches child spans
+   via `.cm-content :not(.cm-searchMatch)` at specificity (0,4,0,0); a bare
+   `.cm-searchMatch *` is only (0,3,0,0) and would LOSE despite !important, so a
+   match's styled children would stay dimmed. We insert `.cm-content` here to
+   tie the specificity at (0,4,0,0); the restore rule then wins on source order
+   (it comes after the dim rule). Don't drop the `.cm-content` segment. */
+.cm-editor.cm-search-spotlight .cm-content .cm-searchMatch,
+.cm-editor.cm-search-spotlight .cm-content .cm-searchMatch * {
   color: var(--fg) !important;
 }
 
@@ -1244,10 +1257,9 @@ html:not([data-mode]) .cm-editor .cm-dropCursor {
   color: var(--search-active-fg) !important;
 }
 
-/* Respect reduced-motion: drop the dim cross-fade. */
+/* Respect reduced-motion: drop the dim cross-fade in both directions. */
 @media (prefers-reduced-motion: reduce) {
-  .cm-editor.cm-search-spotlight .cm-content,
-  .cm-editor.cm-search-spotlight .cm-content :not(.cm-searchMatch) {
+  .cm-editor .cm-content {
     transition: none;
   }
 }
