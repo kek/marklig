@@ -138,7 +138,7 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
         if (lineFrom === undefined) break;
         let cursor = lineFrom;
         for (const tok of line) {
-          const cls = colorClass(tok);
+          const cls = colorClasses(tok);
           if (cls && tok.content.length > 0) {
             ranges.push(
               Decoration.mark({ class: cls })
@@ -160,12 +160,29 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
   return Decoration.set(ranges, true);
 };
 
-function colorClass(tok: ThemedToken): string | null {
-  // Single-theme mode populates tok.color; multi-theme mode populates tok.htmlStyle.
-  const hex: string | undefined =
-    tok.color ??
-    (tok.htmlStyle as Record<string, string> | undefined)?.["color"];
-  if (!hex) return null;
-  const slug = hex.toLowerCase().replace(/^#/, "");
-  return `cm-md-token-${slug}`;
+/** Slug a hex color (with or without leading #) into a CSS-class-safe suffix. */
+function hexSlug(hex: string): string {
+  return hex.toLowerCase().replace(/^#/, "");
+}
+
+/**
+ * Token color classes for both themes.
+ *
+ * In multi-theme mode (`themes: { light, dark }`) Shiki populates
+ * `tok.htmlStyle` with `color` (the light palette hex) and `--shiki-dark`
+ * (the dark palette hex). We emit a class per palette:
+ *   - `cm-md-token-<lighthex>`   styled unconditionally (the default/light)
+ *   - `cm-md-tokdark-<darkhex>`  styled only under `html.theme-dark`
+ * so highlighting follows the app theme via the existing theme-light/
+ * theme-dark html classes. Single-theme fallback (`tok.color`) only yields
+ * the light class. See styles.css for the generated palettes.
+ */
+function colorClasses(tok: ThemedToken): string | null {
+  const style = tok.htmlStyle as Record<string, string> | undefined;
+  const lightHex = tok.color ?? style?.["color"];
+  const darkHex = style?.["--shiki-dark"];
+  const classes: string[] = [];
+  if (lightHex) classes.push(`cm-md-token-${hexSlug(lightHex)}`);
+  if (darkHex) classes.push(`cm-md-tokdark-${hexSlug(darkHex)}`);
+  return classes.length > 0 ? classes.join(" ") : null;
 }
