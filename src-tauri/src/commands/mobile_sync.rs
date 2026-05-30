@@ -282,3 +282,62 @@ pub async fn mobile_read_synced_file<R: Runtime>(
 
     std::fs::read_to_string(&canon).map_err(|e| format!("read {canon:?}: {e}"))
 }
+
+/// Remove a paired desktop from the phone-side store and delete the
+/// cached synced files for it.
+///
+/// Phone-side unpair is local-only by design (see issue #95): the desktop
+/// is not notified. The desktop entry becomes stale but harmless — the
+/// pair_id is derived deterministically from the static keys, so a future
+/// re-pair produces the same id and overwrites cleanly.
+///
+/// Wipes:
+///   - `mobile.pairings[pair_id_hex]`
+///   - `mobile.synced_files[pair_id_hex]`
+///   - `mobile.synced_folder_labels[pair_id_hex]`
+///   - `<app_data>/synced/<pair_id_hex>/` (cached plaintext)
+#[tauri::command]
+pub async fn mobile_unpair<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+) -> Result<(), String> {
+    if !pair_id_hex.chars().all(|c| c.is_ascii_hexdigit())
+        || pair_id_hex.len() != 32
+    {
+        return Err("invalid pair_id_hex".into());
+    }
+
+    // Nuke cached plaintext FIRST. A missing dir is fine (nothing was ever
+    // synced); other errors are surfaced because they may leak plaintext on
+    // disk. We delete before touching the store so that a failed delete
+    // leaves the pairing intact in the store rather than stranding the UI on
+    // an error screen for a pairing that no longer exists.
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?;
+    let synced_dir = app_data.join("synced").join(&pair_id_hex);
+    match std::fs::remove_dir_all(&synced_dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("remove {synced_dir:?}: {e}")),
+    }
+
+    // Cache directory is gone — now drop the pairing and its indexes.
+    let store = tauri_plugin_store::StoreExt::store(&app, "viewer.store.json")
+        .map_err(|e| e.to_string())?;
+
+    for key in [
+        "mobile.pairings",
+        "mobile.synced_files",
+        "mobile.synced_folder_labels",
+    ] {
+        if let Some(mut map) = store.get(key).and_then(|v| v.as_object().cloned()) {
+            map.remove(&pair_id_hex);
+            store.set(key, serde_json::Value::Object(map));
+        }
+    }
+    store.save().map_err(|e| e.to_string())?;
+
+    Ok(())
+}

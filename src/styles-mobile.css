@@ -237,3 +237,19 @@
   color: var(--accent, #4f6df0);
   border: 1px solid var(--accent, #4f6df0);
 }
+
+.mobile-synced__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.mobile-synced__unpair {
+  margin-top: 0;
+  color: #c0392b;
+  border-color: #c0392b;
+}
+.mobile-synced__unpair--armed {
+  background: #c0392b;
+  color: white;
+}

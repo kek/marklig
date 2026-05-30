@@ -15,11 +15,13 @@ import {
   syncNow,
   listSyncedFiles,
   syncedFolderLabels,
+  unpairMobile,
 } from "../shell/mobile-pairings";
 
 export interface MobileSyncedHandlers {
   onOpenFile: (file: SyncedFile) => void;
   onBack: () => void;
+  onUnpaired: () => void;
 }
 
 // Per-pair throttle / in-flight state, keyed by pair_id_hex. Module-scoped
@@ -66,11 +68,22 @@ export async function mountMobileSynced(
   sub.textContent = pairing.verification_fingerprint;
   wrap.appendChild(sub);
 
+  const actions = document.createElement("div");
+  actions.className = "mobile-synced__actions";
+  wrap.appendChild(actions);
+
   const syncBtn = document.createElement("button");
   syncBtn.type = "button";
   syncBtn.className = "mobile-library__pair-cta";
   syncBtn.textContent = t("mobile.synced.sync_now");
-  wrap.appendChild(syncBtn);
+  actions.appendChild(syncBtn);
+
+  const unpairBtn = document.createElement("button");
+  unpairBtn.type = "button";
+  unpairBtn.className =
+    "mobile-library__pair-cta mobile-library__pair-cta--secondary mobile-synced__unpair";
+  unpairBtn.textContent = t("mobile.synced.unpair");
+  actions.appendChild(unpairBtn);
 
   // Status line: live status during a sync, "Synced Xs ago" afterwards.
   const status = document.createElement("p");
@@ -172,6 +185,46 @@ export async function mountMobileSynced(
     }
   };
 
+  // Inline two-step confirm: first tap arms the button (label changes to
+  // "Confirm unpair?"), second tap commits. Tapping anything else or
+  // tapping Sync now disarms. No heavy modal.
+  const unpairDefaultLabel = t("mobile.synced.unpair");
+  const unpairConfirmLabel = t("mobile.synced.unpair_confirm");
+  let unpairArmed = false;
+  let disarmTimer: number | null = null;
+  const disarmUnpair = () => {
+    unpairArmed = false;
+    unpairBtn.textContent = unpairDefaultLabel;
+    unpairBtn.classList.remove("mobile-synced__unpair--armed");
+    if (disarmTimer !== null) {
+      window.clearTimeout(disarmTimer);
+      disarmTimer = null;
+    }
+  };
+
+  unpairBtn.addEventListener("click", async () => {
+    if (!unpairArmed) {
+      unpairArmed = true;
+      unpairBtn.textContent = unpairConfirmLabel;
+      unpairBtn.classList.add("mobile-synced__unpair--armed");
+      // Auto-disarm after 4s so a stray tap doesn't sit armed forever.
+      disarmTimer = window.setTimeout(disarmUnpair, 4000);
+      return;
+    }
+    disarmUnpair();
+    unpairBtn.disabled = true;
+    syncBtn.disabled = true;
+    try {
+      await unpairMobile(pairing.pair_id_hex);
+      handlers.onUnpaired();
+    } catch (err) {
+      status.textContent =
+        t("mobile.synced.unpair_failed_prefix") + String(err);
+      unpairBtn.disabled = false;
+      syncBtn.disabled = false;
+    }
+  });
+
   /** Run a sync for this pair, honoring throttle + in-flight rules.
    *  Returns true if a sync was attempted (regardless of outcome). */
   const runSync = async (opts: {
@@ -241,6 +294,7 @@ export async function mountMobileSynced(
   };
 
   syncBtn.addEventListener("click", () => {
+    disarmUnpair();
     void runSync({ source: "manual" });
   });
 
@@ -341,6 +395,13 @@ export async function mountMobileSynced(
   }
 
   return () => {
+    // Clear the two-tap-confirm timer on teardown so it can't fire against a
+    // detached DOM subtree (and keep the closure pinning it) after the route
+    // changes while the button is armed.
+    if (disarmTimer !== null) {
+      window.clearTimeout(disarmTimer);
+      disarmTimer = null;
+    }
     for (const fn of cleanups) {
       try {
         fn();

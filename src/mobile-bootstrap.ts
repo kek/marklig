@@ -212,6 +212,9 @@ export async function mobileBootstrap(): Promise<void> {
         onBack: () => {
           void renderRoute({ kind: "library" });
         },
+        onUnpaired: () => {
+          void renderRoute({ kind: "library" });
+        },
       });
       viewCleanups.push(teardown);
       return;

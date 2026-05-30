@@ -95,6 +95,13 @@ export async function syncedFolderLabels(
   return raw[pairIdHex] ?? {};
 }
 
+/** Remove a paired desktop from the phone's store and wipe its cached
+ *  synced files. Phone-side only — the desktop is not notified (see
+ *  issue #95). */
+export async function unpairMobile(pairIdHex: string): Promise<void> {
+  await invoke("mobile_unpair", { pairIdHex });
+}
+
 /** Read a synced file's plaintext via the Rust command (which bypasses
  *  the plugin-fs scope check by reading from the trusted synced root). */
 export async function readSyncedFile(

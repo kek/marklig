@@ -136,6 +136,7 @@ pub fn run() {
         commands::mobile_pairing::mobile_pairing_start,
         commands::mobile_sync::mobile_sync_now,
         commands::mobile_sync::mobile_read_synced_file,
+        commands::mobile_sync::mobile_unpair,
     ]);
 
     let app = builder
