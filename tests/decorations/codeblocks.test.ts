@@ -157,3 +157,40 @@ it("emits token-color marks once a fence has been highlighted", async () => {
   const tokenMarks = out.filter((x) => x.class.startsWith("cm-md-token-"));
   expect(tokenMarks.length).toBeGreaterThan(0);
 });
+
+it("emits both a light and a dark token-color class per colored token (#129)", async () => {
+  const src = "```js\nconst x = 1;\n```\n";
+  const tokens = parseMarkdown(src);
+  const fence = tokens.find((t) => t.type === "fence");
+  if (!fence || !fence.map) throw new Error("no fence");
+  await primeHighlighter(["javascript"]);
+  const entry = await highlightCache.compute("javascript", fence.content);
+  highlightCache.set(fence.content, entry);
+
+  const set = codeblocksProducer({ source: src, tokens });
+  const tokenClasses: string[] = [];
+  const cursor = set.iter();
+  while (cursor.value) {
+    const cls = (cursor.value.spec as { class?: string }).class ?? "";
+    if (cls.includes("cm-md-token-") || cls.includes("cm-md-tokdark-")) {
+      tokenClasses.push(cls);
+    }
+    cursor.next();
+  }
+
+  expect(tokenClasses.length).toBeGreaterThan(0);
+  // Every colored token carries the light (cm-md-token-) palette class and a
+  // theme-dark-scoped (cm-md-tokdark-) class, so the CSS cascade can swap
+  // palettes purely from the html theme class — no decoration recompute.
+  for (const cls of tokenClasses) {
+    expect(cls).toMatch(/\bcm-md-token-[0-9a-f]{6}\b/);
+    expect(cls).toMatch(/\bcm-md-tokdark-[0-9a-f]{6}\b/);
+  }
+
+  // The keyword `const` is red in light (#d73a49) and a distinct red in dark
+  // (#f97583): the two palette classes must differ, proving the dark palette
+  // isn't just echoing the light hex.
+  const constMark = tokenClasses.find((c) => c.includes("cm-md-token-d73a49"));
+  expect(constMark).toBeDefined();
+  expect(constMark).toContain("cm-md-tokdark-f97583");
+});
