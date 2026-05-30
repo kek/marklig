@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Theme-aware code syntax highlighting** (#129, #130). Code blocks now use the `github-dark` token palette in dark mode and `github-light` in light mode. Shiki is primed with both themes, and each token mark carries a light class (`cm-md-token-<hex>`, unconditional) plus a dark class (`cm-md-tokdark-<hex>`, scoped under `html.theme-dark`), so a theme switch swaps palettes purely via the CSS cascade — no decoration recompute.
+
+### Fixed
+
+- **Aliased code-fence languages now highlight** (#129). A fence tagged with a short alias (` ```ts `, ` ```js `, ` ```py `, ` ```sh `) never matched the canonical language names Shiki loads, so highlighting was never requested and the block rendered with no colors in either theme. The fence tag is now resolved to its canonical Shiki id (via `bundledLanguagesInfo`) before the load gate and highlight request; unknown tags pass through unchanged.
+
 ## [0.12.0] - 2026-05-12 — Sub-spec F: reading-mode screen-reader audit
 
 ### Added
