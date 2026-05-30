@@ -1,7 +1,12 @@
 import { Decoration } from "@codemirror/view";
 import { StateEffect } from "@codemirror/state";
 import type { Range } from "@codemirror/state";
-import { createHighlighter, type Highlighter, type ThemedToken } from "shiki";
+import {
+  createHighlighter,
+  bundledLanguagesInfo,
+  type Highlighter,
+  type ThemedToken,
+} from "shiki";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
@@ -10,19 +15,46 @@ import { tA11y } from "../../i18n/strings";
 let highlighter: Highlighter | null = null;
 const loadedLangs = new Set<string>();
 
+// Alias (and canonical id) -> canonical Shiki language id, lowercased keys.
+// Lets a fence tagged with a short alias (`ts`, `js`, `py`, `sh`, `c++`, …)
+// resolve to the language primeHighlighter actually loaded.
+const langAliases: Map<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const info of bundledLanguagesInfo) {
+    m.set(info.id.toLowerCase(), info.id);
+    for (const a of info.aliases ?? []) m.set(a.toLowerCase(), info.id);
+  }
+  return m;
+})();
+
+/**
+ * Resolve a fence language tag to the canonical Shiki language id.
+ *
+ * markdown-it hands us whatever the author typed after the fence (```ts,
+ * ```py, ```sh). Shiki loads languages under canonical ids (typescript,
+ * python, bash), and `loadedLangs` is keyed by those ids, so without this an
+ * aliased fence never matches a primed language and renders with no
+ * highlighting at all. Unknown tags pass through unchanged (and fall back to
+ * plaintext at compute time).
+ */
+export function resolveLang(lang: string): string {
+  return langAliases.get(lang.toLowerCase()) ?? lang;
+}
+
 export async function primeHighlighter(langs: string[] = []): Promise<void> {
   if (!highlighter) {
     highlighter = await createHighlighter({
       themes: ["github-light", "github-dark"],
       langs: ["text", ...langs],
     });
-    loadedLangs.add("text");
-    for (const l of langs) loadedLangs.add(l);
+    loadedLangs.add(resolveLang("text"));
+    for (const l of langs) loadedLangs.add(resolveLang(l));
   } else {
     for (const lang of langs) {
-      if (!loadedLangs.has(lang)) {
+      const canon = resolveLang(lang);
+      if (!loadedLangs.has(canon)) {
         await highlighter.loadLanguage(lang as never);
-        loadedLangs.add(lang);
+        loadedLangs.add(canon);
       }
     }
   }
@@ -148,11 +180,12 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
           cursor += tok.content.length;
         }
       }
-    } else if (highlighter && loadedLangs.has(lang)) {
+    } else if (highlighter && loadedLangs.has(resolveLang(lang))) {
       // Idempotent: dedupes in-flight computes so repeated decoration
       // recomputes (driven by cache-fill dispatches) don't re-kick off
-      // highlighting for the same content.
-      highlightCache.request(lang, fenceContent);
+      // highlighting for the same content. Resolve the alias so a fence
+      // tagged `ts`/`js`/`py` requests the canonical loaded language.
+      highlightCache.request(resolveLang(lang), fenceContent);
     }
   }
 
