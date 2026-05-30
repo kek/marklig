@@ -194,3 +194,44 @@ it("emits both a light and a dark token-color class per colored token (#129)", a
   expect(constMark).toBeDefined();
   expect(constMark).toContain("cm-md-tokdark-f97583");
 });
+
+async function poll(
+  fn: () => boolean,
+  { timeout = 3000, interval = 20 } = {},
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (fn()) return true;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return false;
+}
+
+it("highlights a fence tagged with a language alias (ts -> typescript)", async () => {
+  await primeHighlighter(["typescript"]);
+  // Unique content so the module-global cache misses and we exercise the real
+  // miss -> request -> compute path rather than a pre-seeded cache entry.
+  const src = "```ts\nconst zq: number = 99;\n```\n";
+  const tokens = parseMarkdown(src);
+  const fence = tokens.find((t) => t.type === "fence");
+  if (!fence || !fence.map) throw new Error("no fence");
+
+  // First pass: cache miss should kick off async highlighting for the resolved
+  // canonical language. With the alias unresolved, no request fires and the
+  // cache never fills.
+  codeblocksProducer({ source: src, tokens });
+  const filled = await poll(() => highlightCache.get(fence.content) !== undefined);
+  expect(filled).toBe(true);
+
+  // Second pass hits the now-filled cache and emits token marks.
+  const set = codeblocksProducer({ source: src, tokens });
+  let tokenMarks = 0;
+  const cursor = set.iter();
+  while (cursor.value) {
+    if (((cursor.value.spec as { class?: string }).class ?? "").includes("cm-md-token-")) {
+      tokenMarks++;
+    }
+    cursor.next();
+  }
+  expect(tokenMarks).toBeGreaterThan(0);
+});
