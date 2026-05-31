@@ -7,11 +7,38 @@ import type { DocStats, ToolbarHandle, ToolbarOptions } from "./toolbar";
 // from toolbar.ts.
 export type { DocStats, ToolbarHandle, ToolbarOptions } from "./toolbar";
 
-/** Set the OS window title (and document.title as a fallback when the Tauri
- *  API isn't reachable — e.g. in tests / vite-only `npm run dev`). */
-export async function setWindowTitle(path: string | null, dirty: boolean): Promise<void> {
+/** Build the window-title string from the file path, dirty flag, and optional
+ *  project folder root. Multi-window users with several projects open can't
+ *  tell windows apart when file names match (e.g. two `README.md` from
+ *  different repos), so append the project folder name as
+ *  `<file-name> — <project-folder-name>` when a folder is open (issue #98).
+ *  Falls back to the file name alone (or "Viewer") when no folder is open.
+ *
+ *  Exported for unit tests. */
+export function buildWindowTitle(
+  path: string | null,
+  dirty: boolean,
+  projectFolder?: string | null,
+): string {
   const base = path ? basename(path) : "Viewer";
-  const title = dirty ? `• ${base}` : base;
+  const project = projectFolder ? basename(projectFolder) : "";
+  // Append the project name unless there's no file open (bare "Viewer"
+  // placeholder) or the file basename already equals the project basename
+  // (e.g. the file is the folder itself) — repeating it adds no signal.
+  const withProject =
+    project && path && base !== project ? `${base} — ${project}` : base;
+  return dirty ? `• ${withProject}` : withProject;
+}
+
+/** Set the OS window title (and document.title as a fallback when the Tauri
+ *  API isn't reachable — e.g. in tests / vite-only `npm run dev`). When a
+ *  project folder is open its basename is appended (see `buildWindowTitle`). */
+export async function setWindowTitle(
+  path: string | null,
+  dirty: boolean,
+  projectFolder?: string | null,
+): Promise<void> {
+  const title = buildWindowTitle(path, dirty, projectFolder);
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().setTitle(title);

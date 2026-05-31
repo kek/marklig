@@ -311,7 +311,7 @@ async function bootstrap(): Promise<void> {
           watcherHandle = null;
         }
         currentPath = toAbs;
-        await setWindowTitle(currentPath, dirtyTracker.isDirty());
+        await setWindowTitle(currentPath, dirtyTracker.isDirty(), currentFolder);
         toolbar.setPath(currentPath);
         toc.setDocumentTitle(currentPath);
         folder.setActiveFile(currentPath);
@@ -833,6 +833,14 @@ async function bootstrap(): Promise<void> {
     if (opts.replaceBuffer) {
       await applyProjectFallbackBuffer(root);
     }
+    // Reflect the (possibly changed) project name in the window title. The
+    // file may not have changed — only the folder root — so refresh here
+    // rather than relying on the path-driven title updates. Skipped on the
+    // replaceBuffer path since loadAndApplyDoc already set the title with the
+    // new currentFolder.
+    if (!opts.replaceBuffer) {
+      await setWindowTitle(currentPath, dirtyTracker.isDirty(), currentFolder);
+    }
   }
 
   /** Replace the active buffer with the project-fallback file (or the
@@ -1006,7 +1014,7 @@ async function bootstrap(): Promise<void> {
   const unsubDirty = dirtyTracker.subscribe(async (dirty) => {
     toolbar.setDirty(dirty);
     toolbar.setPath(currentPath);
-    await setWindowTitle(currentPath, dirty);
+    await setWindowTitle(currentPath, dirty, currentFolder);
     cancelAutoSave();
     // Skip auto-save when the file has diverged (external change since
     // last load) — triggerSave would pop a 'save anyway?' modal mid-
@@ -1132,7 +1140,7 @@ async function bootstrap(): Promise<void> {
     currentPath = doc.path;
     dirtyTracker.reset();
     diverged = false;
-    await setWindowTitle(currentPath, false);
+    await setWindowTitle(currentPath, false, currentFolder);
     toolbar.setPath(currentPath);
     toc.setDocumentTitle(currentPath);
     folder.setActiveFile(currentPath);
@@ -1284,7 +1292,7 @@ async function bootstrap(): Promise<void> {
       currentPath = dest;
       dirtyTracker.reset();
       diverged = false;
-      await setWindowTitle(currentPath, false);
+      await setWindowTitle(currentPath, false, currentFolder);
       toolbar.setPath(currentPath);
       toc.setDocumentTitle(currentPath);
       await recordRecent(dest);
@@ -1589,7 +1597,7 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => unsubDrop());
 
-  await setWindowTitle(initialDoc?.path ?? null, false);
+  await setWindowTitle(initialDoc?.path ?? null, false, currentFolder);
 
   // OS file-association launches (double-click a .md, "Open With…", drag-drop
   // onto the dock/taskbar) deliver the path via Tauri's RunEvent::Opened.

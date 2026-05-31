@@ -3,7 +3,13 @@ import { JSDOM } from "jsdom";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
-import { mountTitlebar, isMacPlatform, applyPlatformClass } from "../../src/ui/titlebar";
+import {
+  mountTitlebar,
+  isMacPlatform,
+  applyPlatformClass,
+  buildWindowTitle,
+  setWindowTitle,
+} from "../../src/ui/titlebar";
 
 let host: HTMLElement;
 let dom: JSDOM;
@@ -86,6 +92,73 @@ describe("applyPlatformClass", () => {
     setNavigator({ platform: "Win32", userAgent: "" });
     applyPlatformClass();
     expect(document.documentElement.classList.contains("platform-macos")).toBe(false);
+  });
+});
+
+describe("buildWindowTitle", () => {
+  it("shows just the file name when no project folder is open", () => {
+    expect(buildWindowTitle("/Users/foo/notes/intro.md", false, null)).toBe(
+      "intro.md",
+    );
+    expect(buildWindowTitle("/Users/foo/notes/intro.md", false)).toBe(
+      "intro.md",
+    );
+  });
+
+  it("appends the project folder basename when a folder is open", () => {
+    expect(
+      buildWindowTitle("/repos/viewer/README.md", false, "/repos/viewer"),
+    ).toBe("README.md — viewer");
+    expect(
+      buildWindowTitle(
+        "/repos/marklig-mobile/README.md",
+        false,
+        "/repos/marklig-mobile",
+      ),
+    ).toBe("README.md — marklig-mobile");
+  });
+
+  it("uses the project basename, not the full path", () => {
+    expect(
+      buildWindowTitle("/a/b/c/notes.md", false, "/a/b/c"),
+    ).toBe("notes.md — c");
+  });
+
+  it("handles Windows-style backslash separators", () => {
+    expect(
+      buildWindowTitle("C:\\repos\\viewer\\README.md", false, "C:\\repos\\viewer"),
+    ).toBe("README.md — viewer");
+  });
+
+  it("prefixes the dirty bullet, with and without a project", () => {
+    expect(buildWindowTitle("/x/intro.md", true, null)).toBe("• intro.md");
+    expect(buildWindowTitle("/repos/viewer/README.md", true, "/repos/viewer")).toBe(
+      "• README.md — viewer",
+    );
+  });
+
+  it("falls back to 'Viewer' and never appends a project for a null path", () => {
+    expect(buildWindowTitle(null, false, "/repos/viewer")).toBe("Viewer");
+    expect(buildWindowTitle(null, true, "/repos/viewer")).toBe("• Viewer");
+  });
+
+  it("does not repeat the name when the file basename equals the project", () => {
+    expect(buildWindowTitle("/repos/viewer", false, "/repos/viewer")).toBe(
+      "viewer",
+    );
+  });
+});
+
+describe("setWindowTitle", () => {
+  it("writes the composed title to document.title when the Tauri API is absent", async () => {
+    await setWindowTitle("/repos/viewer/README.md", false, "/repos/viewer");
+    expect(document.title).toBe("README.md — viewer");
+
+    await setWindowTitle("/repos/viewer/README.md", true, "/repos/viewer");
+    expect(document.title).toBe("• README.md — viewer");
+
+    await setWindowTitle("/x/intro.md", false, null);
+    expect(document.title).toBe("intro.md");
   });
 });
 
