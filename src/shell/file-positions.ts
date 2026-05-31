@@ -1,13 +1,17 @@
 import { getValue, setValue } from "./store";
 
-/** Canonicalize an absolute path so two spellings of the same file (e.g.
- * `/foo/./bar.md` vs `/foo/bar.md`, or `/foo//bar.md`) collapse to the
- * same key. Falls back to the input on environments without the Tauri
- * path API (tests / vite-only). */
+/** Canonicalize a path to a stable, absolute, symlink-resolved string so two
+ * spellings of the same file or folder (`/foo/./bar.md` vs `/foo/bar.md`, a
+ * symlinked parent, or the bare basename the CLI shim passes) collapse to one
+ * key. Backed by the Rust `canonicalize_path` command (`std::fs::canonicalize`)
+ * — lexical normalization alone wouldn't resolve symlinks or absolutize a
+ * relative path. Falls back to the input on environments without the Tauri
+ * IPC (tests / vite-only / mobile) or when the path can't be resolved (doesn't
+ * exist yet). See issue #99. */
 export async function canonicalizePath(path: string): Promise<string> {
   try {
-    const { normalize } = await import("@tauri-apps/api/path");
-    return await normalize(path);
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("canonicalize_path", { path });
   } catch {
     return path;
   }

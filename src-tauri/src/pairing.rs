@@ -17,7 +17,6 @@
 //! the spec / plan. v2.0-alpha is opt-in pairing for early users; the
 //! threat model assumes a user-controlled laptop.
 
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -331,16 +330,26 @@ pub fn folder_sync_enable<R: Runtime>(
     folder: String,
 ) -> Result<(), PairingError> {
     update_pairing(&app, &pair_id_hex, |meta| {
-        let path = PathBuf::from(&folder);
-        let canonical = path
-            .canonicalize()
-            .ok()
-            .and_then(|p| p.to_str().map(str::to_string))
-            .unwrap_or(folder);
-        if !meta.synced_folders.iter().any(|f| f == &canonical) {
-            meta.synced_folders.push(canonical);
-        }
+        add_synced_folder(&mut meta.synced_folders, &folder);
     })
+}
+
+/// Add `folder` to a pairing's synced set, canonicalizing first so the same
+/// folder reached by different spellings never produces a duplicate entry.
+/// See issue #99.
+pub(crate) fn add_synced_folder(folders: &mut Vec<String>, folder: &str) {
+    let canonical = crate::commands::files::canonicalize_path_str(folder);
+    if !folders.iter().any(|f| f == &canonical) {
+        folders.push(canonical);
+    }
+}
+
+/// Remove `folder` from a pairing's synced set. Canonicalizes the argument so a
+/// caller passing a different spelling (e.g. a symlink) than the one stored at
+/// enable time still matches and removes the entry. See issue #99.
+pub(crate) fn remove_synced_folder(folders: &mut Vec<String>, folder: &str) {
+    let canonical = crate::commands::files::canonicalize_path_str(folder);
+    folders.retain(|f| f != &canonical);
 }
 
 #[tauri::command]
@@ -350,7 +359,7 @@ pub fn folder_sync_disable<R: Runtime>(
     folder: String,
 ) -> Result<(), PairingError> {
     update_pairing(&app, &pair_id_hex, |meta| {
-        meta.synced_folders.retain(|f| f != &folder);
+        remove_synced_folder(&mut meta.synced_folders, &folder);
     })
 }
 
@@ -517,4 +526,72 @@ fn drive_initiator_against_responder(
     initiator.write_message(&mut buf)?;
     responder.read_message(&buf)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod synced_folder_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn unique_tempdir(label: &str) -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir().join(format!(
+            "marklig-pairing-test-{}-{}-{}",
+            label,
+            std::process::id(),
+            n
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("create tempdir");
+        path
+    }
+
+    #[test]
+    fn add_synced_folder_stores_canonical_path_and_dedups() {
+        let base = unique_tempdir("add");
+        let real = base.join("proj");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = base.join("proj-link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let canonical = std::fs::canonicalize(&real)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        let mut folders: Vec<String> = Vec::new();
+        add_synced_folder(&mut folders, &real.to_string_lossy());
+        // Adding the same folder via its symlinked spelling must not create
+        // a second entry — same folder, same identity.
+        add_synced_folder(&mut folders, &link.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(folders, vec![canonical]);
+    }
+
+    #[test]
+    fn remove_synced_folder_matches_symlinked_spelling() {
+        // The folder was enabled via its real path (canonical), then the UI
+        // hands `folder_sync_disable` a different spelling (e.g. a symlink).
+        // Disable must canonicalize too, or the entry can never be removed.
+        let base = unique_tempdir("remove");
+        let real = base.join("proj");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = base.join("proj-link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let mut folders: Vec<String> = Vec::new();
+        add_synced_folder(&mut folders, &real.to_string_lossy());
+        assert_eq!(folders.len(), 1);
+
+        remove_synced_folder(&mut folders, &link.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert!(
+            folders.is_empty(),
+            "disable should canonicalize the arg and remove the matching entry"
+        );
+    }
 }

@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- **Folder paths are canonicalized to one identity** (#99). The same folder opened via different spellings — a symlinked path, a `..`-relative path, or the bare basename the CLI shim passes — was stored as different strings, breaking reflexive identity checks across recents, the sidebar root, the file-position cache, the window-routing map, and a pairing's synced-folders set. A new `canonicalize_path` command (`std::fs::canonicalize`) is now the single source of truth: `resolve_folder_root` returns canonical paths, `setCurrentFolder` and the file-open routing canonicalize before comparing or persisting, and pairing folder enable/disable both canonicalize (disable previously did not, so a folder enabled via one spelling could never be removed via another).
 - **Aliased code-fence languages now highlight** (#129). A fence tagged with a short alias (` ```ts `, ` ```js `, ` ```py `, ` ```sh `) never matched the canonical language names Shiki loads, so highlighting was never requested and the block rendered with no colors in either theme. The fence tag is now resolved to its canonical Shiki id (via `bundledLanguagesInfo`) before the load gate and highlight request; unknown tags pass through unchanged.
 
 ## [0.12.0] - 2026-05-12 — Sub-spec F: reading-mode screen-reader audit

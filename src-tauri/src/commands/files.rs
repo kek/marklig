@@ -231,7 +231,7 @@ pub fn resolve_folder_root(path: String) -> String {
     loop {
         for m in MARKERS {
             if cursor.join(m).exists() {
-                return cursor.to_string_lossy().to_string();
+                return canonicalize_path_str(&cursor.to_string_lossy());
             }
         }
         match cursor.parent() {
@@ -239,7 +239,30 @@ pub fn resolve_folder_root(path: String) -> String {
             _ => break,
         }
     }
-    start.to_string_lossy().to_string()
+    canonicalize_path_str(&start.to_string_lossy())
+}
+
+/// Canonicalize a path to a stable, absolute, symlink-resolved string via
+/// `std::fs::canonicalize`, so the same folder/file reached by different
+/// spellings (relative, `..`, doubled slashes, or through a symlink) collapses
+/// to one identity. Falls back to the input unchanged when the path can't be
+/// resolved (doesn't exist yet, permission denied), matching the JS
+/// `canonicalizePath` contract. This is the single source of truth for path
+/// identity — every entry point that records or compares a folder root routes
+/// through it so the JS layer never holds a non-canonical path string. See
+/// issue #99.
+pub(crate) fn canonicalize_path_str(path: &str) -> String {
+    std::fs::canonicalize(path)
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
+}
+
+/// Frontend-facing wrapper around [`canonicalize_path_str`]. The JS shell calls
+/// this before storing or comparing any folder root.
+#[tauri::command]
+pub fn canonicalize_path(path: String) -> String {
+    canonicalize_path_str(&path)
 }
 
 /// Reveal a file in the platform's file manager. Highlights the file itself
@@ -719,6 +742,55 @@ mod tests {
         assert!(!h1, ".gitignore'd path should be hidden");
         assert!(!h2, "hardcoded-ignored path should be hidden");
         assert!(v, "tracked file should be visible");
+    }
+
+    #[test]
+    fn canonicalize_path_str_resolves_symlinked_dir() {
+        let base = unique_tempdir("canon-str");
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let got = canonicalize_path_str(&link.to_string_lossy());
+        let want = std::fs::canonicalize(&real)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(got, want, "a symlinked spelling should resolve to the real path");
+    }
+
+    #[test]
+    fn canonicalize_path_str_falls_back_for_nonexistent() {
+        // A path that doesn't exist on disk can't be canonicalized; the
+        // contract is to return the input unchanged rather than error.
+        let p = "/marklig/no/such/path/zzz";
+        assert_eq!(canonicalize_path_str(p), p);
+    }
+
+    #[test]
+    fn resolve_folder_root_canonicalizes_symlinked_vcs_root() {
+        // Opening a folder via a symlinked spelling (e.g. `~/proj` where
+        // `proj` is a symlink) must yield the same canonical string as
+        // opening it via its real path — otherwise the same project hashes
+        // to two different identities. See issue #99.
+        let base = unique_tempdir("canon-root");
+        let real = base.join("realproj");
+        std::fs::create_dir_all(&real).unwrap();
+        git_init(&real);
+        let link = base.join("linkproj");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let got = resolve_folder_root(link.to_string_lossy().to_string());
+        let want = std::fs::canonicalize(&real)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(got, want, "symlinked folder root should canonicalize to the real path");
     }
 }
 

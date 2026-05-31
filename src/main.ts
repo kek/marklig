@@ -786,6 +786,12 @@ async function bootstrap(): Promise<void> {
     root: string | null,
     opts: { replaceBuffer?: boolean } = {},
   ): Promise<void> {
+    // Canonicalize before any identity check or persistence so the same folder
+    // reached via different spellings (a symlink, a `..`-relative path, the
+    // bare basename from the CLI shim) collapses to one identity across the
+    // recents list, sidebar root, file-position cache, window-routing map, and
+    // pairing's synced-folders set. See issue #99.
+    if (root) root = await canonicalizePath(root);
     if (root === currentFolder) {
       // No-op if unchanged — just resync active highlight in case the file did.
       if (root) folder.setActiveFile(currentPath);
@@ -1603,7 +1609,9 @@ async function bootstrap(): Promise<void> {
     // directory path. Treat that the same as the drag-drop directory case:
     // route to an existing window already showing it, or set folder root.
     if (paths.length === 1 && (await isDirectory(paths[0]))) {
-      const dir = paths[0];
+      // Canonicalize so the match against the (canonical) routing map is
+      // reflexive regardless of how the OS spelled the path. See issue #99.
+      const dir = await canonicalizePath(paths[0]);
       let matchedLabel: string | null = null;
       for (const [label, folder] of folderByLabel) {
         if (folder !== dir) continue;
