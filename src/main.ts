@@ -93,6 +93,7 @@ import {
   forgetFileInProject,
 } from "./shell/project-recents";
 import { resolveProjectFallbackFile } from "./shell/project-fallback";
+import { decideProjectRoute, dedupeSessionByFolder } from "./shell/project-routing";
 import { openSearchPanel } from "@codemirror/search";
 import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
@@ -843,6 +844,57 @@ async function bootstrap(): Promise<void> {
     }
   }
 
+  /** Raise a window to the foreground: unminimize if needed, then focus.
+   * Implements issue #100's "always raise + focus" for a window that may be
+   * minimized, hidden, or on another Space. */
+  async function raiseWindow(label: string): Promise<void> {
+    const w = await WebviewWindow.getByLabel(label);
+    if (!w) return;
+    try {
+      if (await w.isMinimized()) await w.unminimize();
+    } catch {
+      // isMinimized/unminimize unsupported or window vanished — focus anyway.
+    }
+    await w.setFocus();
+  }
+
+  /** Route a "switch to folder" request (issue #100). The main window owns
+   * folderByLabel and is the sole decision-maker, mirroring file-open-request.
+   *   - target already shown by a live window → raise + focus it;
+   *   - requesting window is unclaimed        → adopt the folder in place;
+   *   - otherwise                              → spawn a new window for it. */
+  async function routeToFolder(
+    target: string,
+    requestingLabel: string,
+  ): Promise<void> {
+    target = await canonicalizePath(target);
+
+    // Prune stale labels (a closed window can lag the map by a frame) so a
+    // focus decision never targets a dead window. Same guard the
+    // file-open-request handler uses.
+    for (const [label, folder] of [...folderByLabel]) {
+      if (folder !== target) continue;
+      if (!(await WebviewWindow.getByLabel(label))) folderByLabel.delete(label);
+    }
+
+    const route = decideProjectRoute({
+      target,
+      requestingLabel,
+      requestingFolder: folderByLabel.get(requestingLabel) ?? null,
+      folderByLabel,
+    });
+
+    if (route.kind === "focus") {
+      if (route.label !== requestingLabel) await raiseWindow(route.label);
+      return;
+    }
+    if (route.kind === "adopt") {
+      await emitTo(requestingLabel, "viewer:adopt-folder", target);
+      return;
+    }
+    await spawnNewWindow({ folder: target });
+  }
+
   /** Replace the active buffer with the project-fallback file (or the
    * welcome placeholder when the chain yields null). Called on user-driven
    * project switches; not on cold-start (the bootstrap already chose an
@@ -930,6 +982,11 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => {
     void emit("viewer:window-closed", { label: selfLabel });
   });
+
+  const unsubAdoptFolder = await listen<string>("viewer:adopt-folder", (e) => {
+    void setCurrentFolder(e.payload, { replaceBuffer: true });
+  });
+  window.addEventListener("beforeunload", () => unsubAdoptFolder());
 
   /** Derive the folder sidebar root from a file path on cold-start — the file's
    * repo (nearest .git/.jj/.hg/.svn ancestor) or its parent directory if no
@@ -1345,7 +1402,11 @@ async function bootstrap(): Promise<void> {
       await openPreferences();
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
-    openProject: async (path) => { await setCurrentFolder(path, { replaceBuffer: true }); },
+    openProject: async (path) => {
+      // Don't switch in place — let the main window route to the right window
+      // (focus existing / adopt here / spawn new). See issue #100.
+      void emit("viewer:switch-project-request", { folder: path, fromLabel: selfLabel });
+    },
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
     quickOpen: () => { void openQuickOpenPalette(currentFolder); },
@@ -1617,24 +1678,9 @@ async function bootstrap(): Promise<void> {
     // directory path. Treat that the same as the drag-drop directory case:
     // route to an existing window already showing it, or set folder root.
     if (paths.length === 1 && (await isDirectory(paths[0]))) {
-      // Canonicalize so the match against the (canonical) routing map is
-      // reflexive regardless of how the OS spelled the path. See issue #99.
-      const dir = await canonicalizePath(paths[0]);
-      let matchedLabel: string | null = null;
-      for (const [label, folder] of folderByLabel) {
-        if (folder !== dir) continue;
-        const w = await WebviewWindow.getByLabel(label);
-        if (w) { matchedLabel = label; break; }
-        folderByLabel.delete(label);
-      }
-      if (matchedLabel) {
-        if (matchedLabel !== selfLabel) {
-          const w = await WebviewWindow.getByLabel(matchedLabel);
-          await w?.setFocus();
-        }
-      } else {
-        await dispatchToFocused({ type: "openProject", path: dir });
-      }
+      // Same routing as in-app Switch Project: focus existing window, adopt
+      // into the (blank) main window, or spawn. See issue #100.
+      await routeToFolder(paths[0], selfLabel);
       return;
     }
     const doc = paths.find((p) => isSupportedExtension(p));
@@ -1662,6 +1708,15 @@ async function bootstrap(): Promise<void> {
     }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
+
+  const unsubSwitchProject = await listen<{ folder: string; fromLabel: string }>(
+    "viewer:switch-project-request",
+    async (e) => {
+      if (!isMainWindow()) return;
+      await routeToFolder(e.payload.folder, e.payload.fromLabel);
+    },
+  );
+  window.addEventListener("beforeunload", () => unsubSwitchProject());
 
   const unsubscribeHighlight = highlightCache.subscribe(() => {
     view.dispatch({ effects: highlightCacheEffect.of() });
@@ -1845,7 +1900,7 @@ async function loadAndApplySession(): Promise<WindowSessionEntry | null> {
   // Spawn secondary windows from the persisted session. If a previously-open
   // file no longer exists, skip that window silently — we don't want a modal
   // storm on launch.
-  for (const entry of session.windows) {
+  for (const entry of dedupeSessionByFolder(session.windows)) {
     if (entry.label === myLabel) continue;
     if (entry.path && !(await pathExists(entry.path))) continue;
     await spawnRestoredWindow(entry);
