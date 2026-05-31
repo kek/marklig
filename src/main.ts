@@ -1592,7 +1592,7 @@ async function bootstrap(): Promise<void> {
     // doc files yields five windows, each on its own document.
     await openWithDirtyPrompt(docFiles[0]);
     for (let i = 1; i < docFiles.length; i++) {
-      await spawnNewWindow(docFiles[i]);
+      await spawnNewWindow({ file: docFiles[i] });
     }
   });
   window.addEventListener("beforeunload", () => unsubDrop());
@@ -1658,7 +1658,7 @@ async function bootstrap(): Promise<void> {
         await w?.setFocus();
       }
     } else {
-      await spawnNewWindow(doc);
+      await spawnNewWindow({ file: doc });
     }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
@@ -1712,6 +1712,24 @@ async function resolveInitial(
     } catch {
       // Fall through if the path can't be read; window stays blank.
     }
+  }
+
+  // A window spawned for a project (issue #100) carries its folder root as a
+  // query param. Run the per-project fallback chain (last-in-project → root
+  // README → welcome) so the new window opens the project's active file with
+  // the sidebar rooted at that folder — mirroring the session-restore branch
+  // below.
+  const urlFolder = folderFromUrlQuery();
+  if (urlFolder) {
+    const fallbackFile = await resolveProjectFallbackFile(urlFolder);
+    if (fallbackFile) {
+      try {
+        return { doc: await readDoc(fallbackFile), folder: urlFolder };
+      } catch {
+        // Listed but unreadable — fall through to the placeholder in-project.
+      }
+    }
+    return { doc: null, folder: urlFolder };
   }
 
   // Other secondary windows (plain File -> New Window) start blank — the user
@@ -2008,15 +2026,20 @@ function stripTags(html: string): string {
 
 let nextWindowSeq = 2;
 
-/** Open a new app window. Without `initialFile`, the new window starts as an
- * empty blank slate — the user opens via dialog or drag-drop. With one, the
- * path is forwarded as a `?file=…` query param that bootstrap reads in place
- * of the usual recovery / last-opened resolution. */
-async function spawnNewWindow(initialFile?: string): Promise<void> {
+/** Open a new app window. Without options the new window starts as a blank
+ * slate — the user opens a file via dialog or drag-drop. Pass `file` to
+ * pre-load a document (`?file=…`), or `folder` to open with a sidebar root
+ * pre-set (`?folder=…`). */
+async function spawnNewWindow(
+  opts: { file?: string; folder?: string } = {},
+): Promise<void> {
   const label = await nextWindowLabel();
-  const url = initialFile
-    ? `/?file=${encodeURIComponent(initialFile)}`
-    : "/";
+  let url = "/";
+  if (opts.folder) {
+    url = `/?folder=${encodeURIComponent(opts.folder)}`;
+  } else if (opts.file) {
+    url = `/?file=${encodeURIComponent(opts.file)}`;
+  }
   const win = new WebviewWindow(label, {
     title: "Viewer",
     width: 1000,
@@ -2098,6 +2121,16 @@ function fileFromUrlQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
     const f = params.get("file");
+    return f && f.length > 0 ? f : null;
+  } catch {
+    return null;
+  }
+}
+
+function folderFromUrlQuery(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const f = params.get("folder");
     return f && f.length > 0 ? f : null;
   } catch {
     return null;
