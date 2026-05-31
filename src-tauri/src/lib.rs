@@ -113,6 +113,7 @@ pub fn run() {
             commands::files::is_directory,
             commands::files::path_exists,
             commands::files::resolve_folder_root,
+            commands::files::canonicalize_path,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
             commands::folder_watcher::folder_watcher_start,
