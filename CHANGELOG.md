@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Project name in the window title** (#98). When a folder is open in the sidebar, the window title now reads `<file-name> — <project-folder-name>` (e.g. `README.md — viewer`), so multi-window users with several projects open can tell windows apart even when the file names match. Falls back to the file name alone when no folder is open. `setWindowTitle` takes an optional project-folder argument plumbed from the per-window `currentFolder` state; the title also refreshes on project switch.
 - **Theme-aware code syntax highlighting** (#129, #130). Code blocks now use the `github-dark` token palette in dark mode and `github-light` in light mode. Shiki is primed with both themes, and each token mark carries a light class (`cm-md-token-<hex>`, unconditional) plus a dark class (`cm-md-tokdark-<hex>`, scoped under `html.theme-dark`), so a theme switch swaps palettes purely via the CSS cascade — no decoration recompute.
 
 ### Fixed
