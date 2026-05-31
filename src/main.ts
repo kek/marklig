@@ -1336,7 +1336,9 @@ async function bootstrap(): Promise<void> {
     },
     openFolder: async () => {
       const root = await pickFolder();
-      if (root) await setCurrentFolder(root, { replaceBuffer: true });
+      // Route through the same focus/adopt/spawn logic as Switch Project so
+      // Open Folder also honors the 1:1 folder↔window mapping (#100).
+      if (root) void emit("viewer:switch-project-request", { folder: root, fromLabel: selfLabel });
     },
     newWindow: async () => { await spawnNewWindow(); },
     saveFile: () => { void triggerSave(); },
