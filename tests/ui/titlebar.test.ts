@@ -236,6 +236,36 @@ describe("mountTitlebar", () => {
     expect(dirty.textContent).toBe("");
   });
 
+  it("appends the project folder name to the visible title when a folder is open (#98)", () => {
+    // Regression: on macOS the OS window title is hidden (hiddenTitle: true),
+    // so the project name must appear in this *visible* custom-titlebar readout,
+    // not only via setWindowTitle. setPath takes the project folder and renders
+    // `<file> — <project>`.
+    const view = makeView();
+    const handle = mountTitlebar(host, {
+      view,
+      modeExtensions: {
+        reading: { decorations: [], keymap: [] },
+        edit: { decorations: [], keymap: [] },
+      },
+      initialMode: "reading",
+    });
+    const path = host.querySelector(".viewer-titlebar-path") as HTMLElement;
+
+    handle.setPath("/repos/viewer/README.md", "/repos/viewer");
+    expect(path.textContent).toBe("README.md — viewer");
+    // Full path still preserved in the title attribute for hover/tooling.
+    expect(path.title).toBe("/repos/viewer/README.md");
+
+    // No folder → file name only (unchanged behavior).
+    handle.setPath("/repos/viewer/README.md", null);
+    expect(path.textContent).toBe("README.md");
+
+    // Clearing the path clears the readout.
+    handle.setPath(null, "/repos/viewer");
+    expect(path.textContent).toBe("");
+  });
+
   it("renders word/char/time stats", () => {
     const view = makeView();
     const handle = mountTitlebar(host, {

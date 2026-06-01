@@ -214,6 +214,30 @@ async function bootstrap(): Promise<void> {
     source: initialDoc?.source ?? defaultPlaceholder(),
   });
 
+  // Subscribe to the async widget caches *immediately* after the view exists,
+  // before any `await` below. The editor's first decoration compute (on the
+  // initial doc) fires Shiki / Mermaid / Graphviz requests synchronously during
+  // bootstrap; their results land via a microtask at the next await. If these
+  // subscriptions were registered later (after the many awaited Tauri-IPC calls
+  // in bootstrap), that first cache-fill would notify an empty listener set and
+  // the "re-render with highlights" dispatch would be lost — leaving code blocks
+  // unhighlighted on load until the user typed or toggled mode. Registering here
+  // guarantees a subscriber is present before any compute resolves.
+  const unsubscribeHighlight = highlightCache.subscribe(() => {
+    view.dispatch({ effects: highlightCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeHighlight());
+
+  const unsubscribeMermaid = mermaidCache.subscribe(() => {
+    view.dispatch({ effects: mermaidCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeMermaid());
+
+  const unsubscribeGraphviz = graphvizCache.subscribe(() => {
+    view.dispatch({ effects: graphvizCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeGraphviz());
+
   // Preview pane + splitter. Appended after the editor so they sit to the right.
   const previewPane: PreviewPaneHandle = mountPreviewPane({ parent: shell });
 
@@ -313,7 +337,7 @@ async function bootstrap(): Promise<void> {
         }
         currentPath = toAbs;
         await setWindowTitle(currentPath, dirtyTracker.isDirty(), currentFolder);
-        toolbar.setPath(currentPath);
+        toolbar.setPath(currentPath, currentFolder);
         toc.setDocumentTitle(currentPath);
         folder.setActiveFile(currentPath);
         await renameRecent(fromAbs, toAbs);
@@ -841,6 +865,10 @@ async function bootstrap(): Promise<void> {
     // new currentFolder.
     if (!opts.replaceBuffer) {
       await setWindowTitle(currentPath, dirtyTracker.isDirty(), currentFolder);
+      // Also refresh the *visible* custom titlebar / toolbar name — on macOS
+      // the OS title set above is hidden, so this is the only place the project
+      // name actually appears (issue #98).
+      toolbar.setPath(currentPath, currentFolder);
     }
   }
 
@@ -1070,7 +1098,7 @@ async function bootstrap(): Promise<void> {
   };
   const unsubDirty = dirtyTracker.subscribe(async (dirty) => {
     toolbar.setDirty(dirty);
-    toolbar.setPath(currentPath);
+    toolbar.setPath(currentPath, currentFolder);
     await setWindowTitle(currentPath, dirty, currentFolder);
     cancelAutoSave();
     // Skip auto-save when the file has diverged (external change since
@@ -1198,7 +1226,7 @@ async function bootstrap(): Promise<void> {
     dirtyTracker.reset();
     diverged = false;
     await setWindowTitle(currentPath, false, currentFolder);
-    toolbar.setPath(currentPath);
+    toolbar.setPath(currentPath, currentFolder);
     toc.setDocumentTitle(currentPath);
     folder.setActiveFile(currentPath);
     if (currentPath) {
@@ -1352,7 +1380,7 @@ async function bootstrap(): Promise<void> {
       dirtyTracker.reset();
       diverged = false;
       await setWindowTitle(currentPath, false, currentFolder);
-      toolbar.setPath(currentPath);
+      toolbar.setPath(currentPath, currentFolder);
       toc.setDocumentTitle(currentPath);
       await recordRecent(dest);
       await startWatching(dest);
@@ -1720,20 +1748,9 @@ async function bootstrap(): Promise<void> {
   );
   window.addEventListener("beforeunload", () => unsubSwitchProject());
 
-  const unsubscribeHighlight = highlightCache.subscribe(() => {
-    view.dispatch({ effects: highlightCacheEffect.of() });
-  });
-  window.addEventListener("beforeunload", () => unsubscribeHighlight());
-
-  const unsubscribeMermaid = mermaidCache.subscribe(() => {
-    view.dispatch({ effects: mermaidCacheEffect.of() });
-  });
-  window.addEventListener("beforeunload", () => unsubscribeMermaid());
-
-  const unsubscribeGraphviz = graphvizCache.subscribe(() => {
-    view.dispatch({ effects: graphvizCacheEffect.of() });
-  });
-  window.addEventListener("beforeunload", () => unsubscribeGraphviz());
+  // (The highlight / mermaid / graphviz cache subscriptions were moved up to
+  // immediately after createEditor — see the note there — so the first
+  // bootstrap-time cache fill isn't lost before a subscriber exists.)
 
   // Install per-format extensions for the initial doc (no-op for .md). If the
   // initial doc is a .typ file, also open the compile session. Reading mode

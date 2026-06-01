@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,38 +10,11 @@ const __dirname = dirname(__filename);
 let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
 
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  // Wait for vite to be reachable.
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try {
-      process.kill(-viteProc.pid);
-    } catch {
-      // ignore — vite may have already exited
-    }
-  }
-});
-
-test("renders headings and code from a sample doc", async ({ page }) => {
-  // Stub the Tauri invoke for read_text_file by intercepting the page load.
-  await page.addInitScript(() => {
-    const sample = `# Sample Document\n\nA paragraph with **bold**, *italic*, and \`code\`.\n\n## Lists\n\n- a\n- b\n\n## Code\n\n\`\`\`js\nconst x = 42;\n\`\`\`\n`;
-
-    // Callback registry (mirrors the real Tauri internals).
+/** Install a Tauri-internals stub so the app boots in a plain browser and
+ * `read_text_file` returns `sample`. Mirrors the real Tauri internals enough
+ * for bootstrap to run (invoke, event listen/emit, store, recovery). */
+async function installTauriStub(page: Page, sample: string): Promise<void> {
+  await page.addInitScript((sampleArg: string) => {
     let cbId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
     function transformCallback(cb: (data: unknown) => void, once = false): number {
@@ -51,13 +24,12 @@ test("renders headings and code from a sample doc", async ({ page }) => {
     }
     function unregisterCallback(id: number): void { callbacks.delete(id); }
 
-    // Event listener registry for plugin:event|listen.
     const eventListeners = new Map<number, (data: unknown) => void>();
 
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args?: Record<string, unknown>) => {
         if (cmd === "path_exists") return true;
-        if (cmd === "read_text_file") return sample;
+        if (cmd === "read_text_file") return sampleArg;
         if (cmd === "take_pending_open_paths") return [];
         if (cmd === "plugin:cli|argv") return [];
         if (cmd === "plugin:dialog|open") return "/virtual/sample.md";
@@ -66,11 +38,9 @@ test("renders headings and code from a sample doc", async ({ page }) => {
         if (cmd === "watcher_start" || cmd === "watcher_stop" || cmd === "watcher_mark_self_write") return null;
         if (cmd.startsWith("plugin:window|")) return null;
 
-        // Menu plugin — new() returns [rid, id]; everything else no-op
         if (cmd === "plugin:menu|new") return [1, "mock-id"];
         if (cmd.startsWith("plugin:menu|")) return null;
 
-        // Store plugin — must return proper shapes to avoid destructuring errors
         if (cmd === "plugin:store|load") return 1;
         if (cmd === "plugin:store|get_store") return null;
         if (cmd === "plugin:store|get") return [null, false];
@@ -87,7 +57,6 @@ test("renders headings and code from a sample doc", async ({ page }) => {
         if (cmd === "plugin:store|reload") return null;
         if (cmd.startsWith("plugin:store|")) return null;
 
-        // Recovery — no-op so the recovery prompt doesn't fire
         if (cmd === "read_all_recovery") return [];
         if (cmd === "clear_recovery") return null;
         if (cmd === "write_recovery") return null;
@@ -119,7 +88,38 @@ test("renders headings and code from a sample doc", async ({ page }) => {
         unregisterCallback(id);
       },
     };
+  }, sample);
+}
+
+test.beforeAll(async () => {
+  viteProc = spawn("npm", ["run", "dev"], {
+    cwd: resolve(__dirname, "..", ".."),
+    stdio: "inherit",
+    detached: true,
   });
+  // Wait for vite to be reachable.
+  for (let i = 0; i < 60; i++) {
+    try {
+      const r = await fetch(APP_URL);
+      if (r.ok) break;
+    } catch {}
+    await sleep(500);
+  }
+});
+
+test.afterAll(async () => {
+  if (viteProc?.pid) {
+    try {
+      process.kill(-viteProc.pid);
+    } catch {
+      // ignore — vite may have already exited
+    }
+  }
+});
+
+test("renders headings and code from a sample doc", async ({ page }) => {
+  const sample = `# Sample Document\n\nA paragraph with **bold**, *italic*, and \`code\`.\n\n## Lists\n\n- a\n- b\n\n## Code\n\n\`\`\`js\nconst x = 42;\n\`\`\`\n`;
+  await installTauriStub(page, sample);
 
   await page.goto(APP_URL);
 
@@ -133,4 +133,29 @@ test("renders headings and code from a sample doc", async ({ page }) => {
   // The code body text is present in the editor — the fence open/close lines are
   // elided in reading mode (cm-md-reading-elide-line), but the body text is always visible.
   await expect(page.locator(".cm-line").filter({ hasText: "const x = 42;" })).toBeVisible();
+});
+
+test("syntax-highlights a code fence on initial load with no interaction", async ({ page }) => {
+  // Regression: the Shiki highlight result filled the module-global cache, but
+  // the "re-render with highlights" dispatch was lost because highlightCache's
+  // subscription was registered (far) after the editor was created and its
+  // first async highlight request had already resolved into an empty listener
+  // set. In reading mode nothing else recomputed the field, so token-color
+  // marks never appeared until the user typed / toggled mode. Token marks must
+  // be present on load, with zero interaction.
+  const sample = `# Doc\n\n\`\`\`ts\nexport const answer: number = 42;\n\`\`\`\n`;
+  await installTauriStub(page, sample);
+
+  await page.goto(APP_URL);
+
+  // Body text renders first…
+  await expect(
+    page.locator(".cm-line").filter({ hasText: "export const answer" }),
+  ).toBeVisible();
+
+  // …and the Shiki token-color marks (cm-md-token-<hex>) must appear without
+  // any edit or mode toggle. Generous timeout: Shiki primes + computes async.
+  await expect(
+    page.locator('[class*="cm-md-token-"]').first(),
+  ).toBeVisible({ timeout: 10_000 });
 });
