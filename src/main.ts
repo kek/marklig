@@ -93,6 +93,7 @@ import {
   forgetFileInProject,
 } from "./shell/project-recents";
 import { resolveProjectFallbackFile } from "./shell/project-fallback";
+import { decideProjectRoute, dedupeSessionByFolder } from "./shell/project-routing";
 import { openSearchPanel } from "@codemirror/search";
 import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
@@ -843,6 +844,57 @@ async function bootstrap(): Promise<void> {
     }
   }
 
+  /** Raise a window to the foreground: unminimize if needed, then focus.
+   * Implements issue #100's "always raise + focus" for a window that may be
+   * minimized, hidden, or on another Space. */
+  async function raiseWindow(label: string): Promise<void> {
+    const w = await WebviewWindow.getByLabel(label);
+    if (!w) return;
+    try {
+      if (await w.isMinimized()) await w.unminimize();
+    } catch {
+      // isMinimized/unminimize unsupported or window vanished — focus anyway.
+    }
+    await w.setFocus();
+  }
+
+  /** Route a "switch to folder" request (issue #100). The main window owns
+   * folderByLabel and is the sole decision-maker, mirroring file-open-request.
+   *   - target already shown by a live window → raise + focus it;
+   *   - requesting window is unclaimed        → adopt the folder in place;
+   *   - otherwise                              → spawn a new window for it. */
+  async function routeToFolder(
+    target: string,
+    requestingLabel: string,
+  ): Promise<void> {
+    target = await canonicalizePath(target);
+
+    // Prune stale labels (a closed window can lag the map by a frame) so a
+    // focus decision never targets a dead window. Same guard the
+    // file-open-request handler uses.
+    for (const [label, folder] of [...folderByLabel]) {
+      if (folder !== target) continue;
+      if (!(await WebviewWindow.getByLabel(label))) folderByLabel.delete(label);
+    }
+
+    const route = decideProjectRoute({
+      target,
+      requestingLabel,
+      requestingFolder: folderByLabel.get(requestingLabel) ?? null,
+      folderByLabel,
+    });
+
+    if (route.kind === "focus") {
+      if (route.label !== requestingLabel) await raiseWindow(route.label);
+      return;
+    }
+    if (route.kind === "adopt") {
+      await emitTo(requestingLabel, "viewer:adopt-folder", target);
+      return;
+    }
+    await spawnNewWindow({ folder: target });
+  }
+
   /** Replace the active buffer with the project-fallback file (or the
    * welcome placeholder when the chain yields null). Called on user-driven
    * project switches; not on cold-start (the bootstrap already chose an
@@ -930,6 +982,11 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => {
     void emit("viewer:window-closed", { label: selfLabel });
   });
+
+  const unsubAdoptFolder = await listen<string>("viewer:adopt-folder", (e) => {
+    void setCurrentFolder(e.payload, { replaceBuffer: true });
+  });
+  window.addEventListener("beforeunload", () => unsubAdoptFolder());
 
   /** Derive the folder sidebar root from a file path on cold-start — the file's
    * repo (nearest .git/.jj/.hg/.svn ancestor) or its parent directory if no
@@ -1279,7 +1336,9 @@ async function bootstrap(): Promise<void> {
     },
     openFolder: async () => {
       const root = await pickFolder();
-      if (root) await setCurrentFolder(root, { replaceBuffer: true });
+      // Route through the same focus/adopt/spawn logic as Switch Project so
+      // Open Folder also honors the 1:1 folder↔window mapping (#100).
+      if (root) void emit("viewer:switch-project-request", { folder: root, fromLabel: selfLabel });
     },
     newWindow: async () => { await spawnNewWindow(); },
     saveFile: () => { void triggerSave(); },
@@ -1345,7 +1404,11 @@ async function bootstrap(): Promise<void> {
       await openPreferences();
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
-    openProject: async (path) => { await setCurrentFolder(path, { replaceBuffer: true }); },
+    openProject: async (path) => {
+      // Don't switch in place — let the main window route to the right window
+      // (focus existing / adopt here / spawn new). See issue #100.
+      void emit("viewer:switch-project-request", { folder: path, fromLabel: selfLabel });
+    },
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
     quickOpen: () => { void openQuickOpenPalette(currentFolder); },
@@ -1592,7 +1655,7 @@ async function bootstrap(): Promise<void> {
     // doc files yields five windows, each on its own document.
     await openWithDirtyPrompt(docFiles[0]);
     for (let i = 1; i < docFiles.length; i++) {
-      await spawnNewWindow(docFiles[i]);
+      await spawnNewWindow({ file: docFiles[i] });
     }
   });
   window.addEventListener("beforeunload", () => unsubDrop());
@@ -1617,24 +1680,9 @@ async function bootstrap(): Promise<void> {
     // directory path. Treat that the same as the drag-drop directory case:
     // route to an existing window already showing it, or set folder root.
     if (paths.length === 1 && (await isDirectory(paths[0]))) {
-      // Canonicalize so the match against the (canonical) routing map is
-      // reflexive regardless of how the OS spelled the path. See issue #99.
-      const dir = await canonicalizePath(paths[0]);
-      let matchedLabel: string | null = null;
-      for (const [label, folder] of folderByLabel) {
-        if (folder !== dir) continue;
-        const w = await WebviewWindow.getByLabel(label);
-        if (w) { matchedLabel = label; break; }
-        folderByLabel.delete(label);
-      }
-      if (matchedLabel) {
-        if (matchedLabel !== selfLabel) {
-          const w = await WebviewWindow.getByLabel(matchedLabel);
-          await w?.setFocus();
-        }
-      } else {
-        await dispatchToFocused({ type: "openProject", path: dir });
-      }
+      // Same routing as in-app Switch Project: focus existing window, adopt
+      // into the (blank) main window, or spawn. See issue #100.
+      await routeToFolder(paths[0], selfLabel);
       return;
     }
     const doc = paths.find((p) => isSupportedExtension(p));
@@ -1658,10 +1706,19 @@ async function bootstrap(): Promise<void> {
         await w?.setFocus();
       }
     } else {
-      await spawnNewWindow(doc);
+      await spawnNewWindow({ file: doc });
     }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
+
+  const unsubSwitchProject = await listen<{ folder: string; fromLabel: string }>(
+    "viewer:switch-project-request",
+    async (e) => {
+      if (!isMainWindow()) return;
+      await routeToFolder(e.payload.folder, e.payload.fromLabel);
+    },
+  );
+  window.addEventListener("beforeunload", () => unsubSwitchProject());
 
   const unsubscribeHighlight = highlightCache.subscribe(() => {
     view.dispatch({ effects: highlightCacheEffect.of() });
@@ -1712,6 +1769,24 @@ async function resolveInitial(
     } catch {
       // Fall through if the path can't be read; window stays blank.
     }
+  }
+
+  // A window spawned for a project (issue #100) carries its folder root as a
+  // query param. Run the per-project fallback chain (last-in-project → root
+  // README → welcome) so the new window opens the project's active file with
+  // the sidebar rooted at that folder — mirroring the session-restore branch
+  // below.
+  const urlFolder = folderFromUrlQuery();
+  if (urlFolder) {
+    const fallbackFile = await resolveProjectFallbackFile(urlFolder);
+    if (fallbackFile) {
+      try {
+        return { doc: await readDoc(fallbackFile), folder: urlFolder };
+      } catch {
+        // Listed but unreadable — fall through to the placeholder in-project.
+      }
+    }
+    return { doc: null, folder: urlFolder };
   }
 
   // Other secondary windows (plain File -> New Window) start blank — the user
@@ -1827,7 +1902,7 @@ async function loadAndApplySession(): Promise<WindowSessionEntry | null> {
   // Spawn secondary windows from the persisted session. If a previously-open
   // file no longer exists, skip that window silently — we don't want a modal
   // storm on launch.
-  for (const entry of session.windows) {
+  for (const entry of dedupeSessionByFolder(session.windows)) {
     if (entry.label === myLabel) continue;
     if (entry.path && !(await pathExists(entry.path))) continue;
     await spawnRestoredWindow(entry);
@@ -2008,15 +2083,20 @@ function stripTags(html: string): string {
 
 let nextWindowSeq = 2;
 
-/** Open a new app window. Without `initialFile`, the new window starts as an
- * empty blank slate — the user opens via dialog or drag-drop. With one, the
- * path is forwarded as a `?file=…` query param that bootstrap reads in place
- * of the usual recovery / last-opened resolution. */
-async function spawnNewWindow(initialFile?: string): Promise<void> {
+/** Open a new app window. Without options the new window starts as a blank
+ * slate — the user opens a file via dialog or drag-drop. Pass `file` to
+ * pre-load a document (`?file=…`), or `folder` to open with a sidebar root
+ * pre-set (`?folder=…`). */
+async function spawnNewWindow(
+  opts: { file?: string; folder?: string } = {},
+): Promise<void> {
   const label = await nextWindowLabel();
-  const url = initialFile
-    ? `/?file=${encodeURIComponent(initialFile)}`
-    : "/";
+  let url = "/";
+  if (opts.folder) {
+    url = `/?folder=${encodeURIComponent(opts.folder)}`;
+  } else if (opts.file) {
+    url = `/?file=${encodeURIComponent(opts.file)}`;
+  }
   const win = new WebviewWindow(label, {
     title: "Viewer",
     width: 1000,
@@ -2098,6 +2178,16 @@ function fileFromUrlQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
     const f = params.get("file");
+    return f && f.length > 0 ? f : null;
+  } catch {
+    return null;
+  }
+}
+
+function folderFromUrlQuery(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const f = params.get("folder");
     return f && f.length > 0 ? f : null;
   } catch {
     return null;
