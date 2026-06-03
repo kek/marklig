@@ -3,6 +3,7 @@ import type { EditorView } from "@codemirror/view";
 import { setMode } from "../editor/editor";
 import type { Mode, ModeExtensions } from "../editor/editor";
 import { t } from "../i18n/strings";
+import { formatDocName } from "./titlebar";
 
 export interface ToolbarOptions {
   view: EditorView;
@@ -22,8 +23,10 @@ export interface ToolbarHandle {
   setSidebarVisible: (visible: boolean) => void;
   /** Update the document-stat readout (words / chars / reading time). */
   setStats: (stats: DocStats) => void;
-  /** Update the path readout in the toolbar. Pass null when no doc is open. */
-  setPath: (path: string | null) => void;
+  /** Update the path readout in the toolbar. Pass null when no doc is open.
+   * `projectFolder` (when a folder is open) appends `— <project>` so windows
+   * with same-named files are distinguishable (issue #98). */
+  setPath: (path: string | null, projectFolder?: string | null) => void;
   /** Update the right-side transient status text (e.g. Typst compile state).
    * Pass null to clear. */
   setStatus: (text: string | null) => void;
@@ -117,12 +120,12 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
     setSidebarVisible(visible) {
       sidebar.setAttribute("aria-pressed", visible ? "true" : "false");
     },
-    setPath(p) {
-      // Show the file name in the toolbar (so it's always visible regardless
-      // of path length); keep the full path in the title attribute and the
-      // dataset for hover/tooling. Long paths in the toolbar would just
-      // ellipsis-truncate to the leading dirs, which isn't useful.
-      pathEl.textContent = p ? basename(p) : "";
+    setPath(p, projectFolder) {
+      // Show the file name (plus `— <project>` when a folder is open) in the
+      // toolbar so it's always visible regardless of path length; keep the full
+      // path in the title attribute and the dataset for hover/tooling. Long
+      // paths would just ellipsis-truncate to the leading dirs, which isn't useful.
+      pathEl.textContent = p ? formatDocName(p, projectFolder) : "";
       pathEl.title = p ?? "";
       if (p) pathEl.dataset.path = p;
       else delete pathEl.dataset.path;
@@ -141,11 +144,6 @@ export function mountToolbar(parent: HTMLElement, opts: ToolbarOptions): Toolbar
       status.textContent = text ?? "";
     },
   };
-}
-
-function basename(path: string): string {
-  const m = path.match(/[^\\/]+$/);
-  return m ? m[0] : path;
 }
 
 /** Compute word/char counts and a reading-time estimate from raw markdown.

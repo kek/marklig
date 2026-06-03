@@ -20,14 +20,24 @@ export function buildWindowTitle(
   dirty: boolean,
   projectFolder?: string | null,
 ): string {
-  const base = path ? basename(path) : "Viewer";
-  const project = projectFolder ? basename(projectFolder) : "";
-  // Append the project name unless there's no file open (bare "Viewer"
-  // placeholder) or the file basename already equals the project basename
-  // (e.g. the file is the folder itself) — repeating it adds no signal.
-  const withProject =
-    project && path && base !== project ? `${base} — ${project}` : base;
+  const withProject = path ? formatDocName(path, projectFolder) : "Viewer";
   return dirty ? `• ${withProject}` : withProject;
+}
+
+/** Display name for an open file: `<file-name> — <project-folder-name>` when a
+ *  project folder is open, else just the file name. Used by both the OS window
+ *  title (`buildWindowTitle`) and the *visible* custom titlebar / toolbar name
+ *  readout — on macOS the OS title is hidden (`hiddenTitle: true`), so the
+ *  custom bar's readout is the only place the project name actually shows.
+ *  Appends the project name unless the file basename already equals the project
+ *  basename (e.g. the file is the folder itself) — repeating it adds no signal. */
+export function formatDocName(
+  path: string,
+  projectFolder?: string | null,
+): string {
+  const base = basename(path);
+  const project = projectFolder ? basename(projectFolder) : "";
+  return project && base !== project ? `${base} — ${project}` : base;
 }
 
 /** Set the OS window title (and document.title as a fallback when the Tauri
@@ -195,8 +205,8 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
     setSidebarVisible(visible) {
       sidebar.setAttribute("aria-pressed", visible ? "true" : "false");
     },
-    setPath(p) {
-      pathEl.textContent = p ? basenameFile(p) : "";
+    setPath(p, projectFolder) {
+      pathEl.textContent = p ? formatDocName(p, projectFolder) : "";
       pathEl.title = p ?? "";
       if (p) pathEl.dataset.path = p;
       else delete pathEl.dataset.path;
@@ -213,11 +223,6 @@ export function mountTitlebar(parent: HTMLElement, opts: ToolbarOptions): Toolba
       status.textContent = text ?? "";
     },
   };
-}
-
-function basenameFile(path: string): string {
-  const m = path.match(/[^\\/]+$/);
-  return m ? m[0] : path;
 }
 
 // Lucide-style inline SVGs duplicated from toolbar.ts. Kept inline (rather
