@@ -43,6 +43,24 @@ describe("decideProjectRoute", () => {
     expect(route).toEqual({ kind: "focus", label: "main" });
   });
 
+  it("focuses the owning window regardless of which window requested (issue #137)", () => {
+    // `md .` for folder A while folder B's window (or another app) is
+    // frontmost: the request arrives at main (the requester), but the
+    // owning window is window-2. The decision must name the *owner*, not
+    // the requester — the router then raises that window.
+    const route = decideProjectRoute({
+      target: "/proj/a",
+      requestingLabel: "main",
+      requestingFolder: "/proj/b",
+      folderByLabel: new Map([
+        ["main", "/proj/b"],
+        ["window-2", "/proj/a"],
+        ["window-3", "/proj/c"],
+      ]),
+    });
+    expect(route).toEqual({ kind: "focus", label: "window-2" });
+  });
+
   it("adopts when the target is unowned and the requesting window has no folder", () => {
     const route = decideProjectRoute({
       target: "/proj/a",

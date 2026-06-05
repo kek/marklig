@@ -222,22 +222,28 @@ pub fn run() {
                 }
                 return;
             }
-            // Route to a single window, not all of them — when several
-            // windows are open, broadcasting would have every window
-            // run the open flow simultaneously. Prefer the currently
-            // focused window; fall back to "main"; fall back to any
-            // window.
-            let target = app
-                .webview_windows()
-                .into_iter()
-                .find(|(_, w)| w.is_focused().unwrap_or(false))
-                .or_else(|| {
-                    app.webview_windows()
-                        .into_iter()
-                        .find(|(label, _)| label == "main")
-                })
-                .or_else(|| app.webview_windows().into_iter().next());
-            if let Some((label, win)) = target {
+            // Route to a single window, not all of them — broadcasting
+            // would have every window run the open flow simultaneously.
+            // Only the "main" window runs the routing logic (it owns the
+            // folder→window map and gates on `isMainWindow()`), so deliver
+            // there whenever it exists. The frontend's `routeToFolder` /
+            // `file-open-request` handler then decides which window owns
+            // the target folder and raises *that* one — which may be a
+            // different window than whichever was frontmost. Crucially we do
+            // NOT `set_focus()` here: focusing the currently-frontmost (or
+            // arbitrary) window would fight the routing decision and pull the
+            // wrong window forward (issue #137).
+            //
+            // Fallback: if "main" has been closed (macOS keeps the app alive
+            // with only secondary windows), there is no router to delegate
+            // to. Deliver to any surviving window and focus it directly so
+            // the open still happens — best-effort, since no folder routing
+            // is possible without the map.
+            let windows = app.webview_windows();
+            if windows.contains_key("main") {
+                // Routing (not Rust) decides which window to focus.
+                let _ = app.emit_to("main", "file-open-request", paths);
+            } else if let Some((label, win)) = windows.into_iter().next() {
                 let _ = win.set_focus();
                 let _ = app.emit_to(label.as_str(), "file-open-request", paths);
             }
