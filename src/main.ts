@@ -913,7 +913,15 @@ async function bootstrap(): Promise<void> {
     });
 
     if (route.kind === "focus") {
-      if (route.label !== requestingLabel) await raiseWindow(route.label);
+      // Always raise the owning window — including when it *is* the
+      // requesting window. For in-app project switches the requester is
+      // already frontmost so this is a harmless no-op, but for a
+      // `file-open-request` from `md .` the requester is always the main
+      // window, which may not be frontmost (another app or a secondary
+      // window was). Raising it here is what brings folder A's window
+      // forward; the Rust side deliberately no longer calls set_focus()
+      // so this routing decision is the sole source of focus (issue #137).
+      await raiseWindow(route.label);
       return;
     }
     if (route.kind === "adopt") {
@@ -1729,10 +1737,13 @@ async function bootstrap(): Promise<void> {
     }
     if (matchedLabel) {
       await emitTo(matchedLabel, "viewer:open-file", doc);
-      if (matchedLabel !== selfLabel) {
-        const w = await WebviewWindow.getByLabel(matchedLabel);
-        await w?.setFocus();
-      }
+      // Raise the owning window — including when it is the main window
+      // itself. The Rust side no longer set_focus()es the frontmost
+      // window (issue #137), so without raising here a `md <file>` for a
+      // file in main's folder would foreground the app but leave main
+      // unraised if another window/app was frontmost. raiseWindow on the
+      // already-frontmost window is a harmless no-op.
+      await raiseWindow(matchedLabel);
     } else {
       await spawnNewWindow({ file: doc });
     }
