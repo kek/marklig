@@ -925,7 +925,13 @@ async function bootstrap(): Promise<void> {
       return;
     }
     if (route.kind === "adopt") {
-      await emitTo(requestingLabel, "viewer:adopt-folder", target);
+      // Same Tauri-v2 caveat as viewer:open-file: emitTo doesn't scope a
+      // global listener, so address the blank window explicitly by label or
+      // every window would adopt the folder.
+      await emitTo(requestingLabel, "viewer:adopt-folder", {
+        label: requestingLabel,
+        folder: target,
+      });
       return;
     }
     await spawnNewWindow({ folder: target });
@@ -984,14 +990,22 @@ async function bootstrap(): Promise<void> {
   }
 
   // Every window listens for a targeted open request; main routes here when
-  // it has decided this window owns the file's folder. emitTo only delivers
-  // to the named window, so other windows ignore by virtue of not receiving.
-  const unsubTargetedOpen = await listen<string>("viewer:open-file", async (e) => {
-    const md = typeof e.payload === "string" ? e.payload : null;
-    if (!md) return;
-    await openWithDirtyPrompt(md);
-    await getCurrentWindow().setFocus();
-  });
+  // it has decided this window owns the file's folder. NOTE: a global
+  // `listen()` receives an event regardless of the `emitTo` target — in
+  // Tauri v2 `emitTo(label, …)` does NOT restrict delivery to that window's
+  // global listeners (verified: an emitTo to one label fired this handler in
+  // every open window, opening the file everywhere). So the addressing has to
+  // be explicit: the payload carries the intended label and every other
+  // window ignores it. Do not "simplify" this back to a bare string payload.
+  const unsubTargetedOpen = await listen<{ label: string; path: string }>(
+    "viewer:open-file",
+    async (e) => {
+      const { label, path: md } = e.payload ?? { label: "", path: "" };
+      if (label !== selfLabel || !md) return;
+      await openWithDirtyPrompt(md);
+      await getCurrentWindow().setFocus();
+    },
+  );
   window.addEventListener("beforeunload", () => unsubTargetedOpen());
 
   // Every window answers a re-announce request by re-broadcasting its current
@@ -1048,9 +1062,13 @@ async function bootstrap(): Promise<void> {
     void emit("viewer:window-closed", { label: selfLabel });
   });
 
-  const unsubAdoptFolder = await listen<string>("viewer:adopt-folder", (e) => {
-    void setCurrentFolder(e.payload, { replaceBuffer: true });
-  });
+  const unsubAdoptFolder = await listen<{ label: string; folder: string }>(
+    "viewer:adopt-folder",
+    (e) => {
+      if (e.payload?.label !== selfLabel) return;
+      void setCurrentFolder(e.payload.folder, { replaceBuffer: true });
+    },
+  );
   window.addEventListener("beforeunload", () => unsubAdoptFolder());
 
   /** Derive the folder sidebar root from a file path on cold-start — the file's
@@ -1772,7 +1790,7 @@ async function bootstrap(): Promise<void> {
       folderByLabel,
     });
     if (match) {
-      await emitTo(match.label, "viewer:open-file", doc);
+      await emitTo(match.label, "viewer:open-file", { label: match.label, path: doc });
       // Raise the owning window — including when it is the main window
       // itself. The Rust side no longer set_focus()es the frontmost
       // window (issue #137), so without raising here a `md <file>` for a
