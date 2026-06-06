@@ -93,7 +93,7 @@ import {
   forgetFileInProject,
 } from "./shell/project-recents";
 import { resolveProjectFallbackFile } from "./shell/project-fallback";
-import { decideProjectRoute, dedupeSessionByFolder } from "./shell/project-routing";
+import { decideProjectRoute, dedupeSessionByFolder, deepestContainingFolder } from "./shell/project-routing";
 import { openSearchPanel } from "@codemirror/search";
 import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
@@ -1752,29 +1752,41 @@ async function bootstrap(): Promise<void> {
     }
     const doc = paths.find((p) => isSupportedExtension(p));
     if (!doc) return;
-    let targetRoot: string | null = null;
-    try { targetRoot = await resolveFolderRoot(doc); } catch { /* fall through */ }
-    let matchedLabel: string | null = null;
-    if (targetRoot) {
-      for (const [label, folder] of folderByLabel) {
-        if (folder !== targetRoot) continue;
-        // The map can lag a closed window by a frame; verify before routing.
-        const w = await WebviewWindow.getByLabel(label);
-        if (w) { matchedLabel = label; break; }
-        folderByLabel.delete(label);
-      }
+    // Route the file to the open window whose sidebar tree *contains* it
+    // (deepest/most-specific wins), not the one whose folder equals the file's
+    // computed VCS root (issue #142). Canonicalize the file the same way
+    // routeToFolder canonicalizes a target; the folder map values are already
+    // canonical (resolve_folder_root canonicalizes its result).
+    let fileCanonical = doc;
+    try { fileCanonical = await canonicalizePath(doc); } catch { /* use raw */ }
+
+    // Prune stale labels (a closed window can lag the map by a frame) so the
+    // containment search never names a dead window. Same guard routeToFolder
+    // uses; here we verify every live candidate rather than a single match.
+    for (const [label] of [...folderByLabel]) {
+      if (!(await WebviewWindow.getByLabel(label))) folderByLabel.delete(label);
     }
-    if (matchedLabel) {
-      await emitTo(matchedLabel, "viewer:open-file", doc);
+
+    const match = deepestContainingFolder({
+      file: fileCanonical,
+      folderByLabel,
+    });
+    if (match) {
+      await emitTo(match.label, "viewer:open-file", doc);
       // Raise the owning window — including when it is the main window
       // itself. The Rust side no longer set_focus()es the frontmost
       // window (issue #137), so without raising here a `md <file>` for a
       // file in main's folder would foreground the app but leave main
       // unraised if another window/app was frontmost. raiseWindow on the
       // already-frontmost window is a harmless no-op.
-      await raiseWindow(matchedLabel);
+      await raiseWindow(match.label);
     } else {
-      await spawnNewWindow({ file: doc });
+      // No open window's tree contains the file: spawn a window rooted at the
+      // file's own directory tree (nearest VCS root, else its parent) with the
+      // file loaded — not a bare-file window with no sidebar (issue #142).
+      let folder: string | null = null;
+      try { folder = await resolveFolderRoot(doc); } catch { /* fall through */ }
+      await spawnNewWindow(folder ? { folder, file: doc } : { file: doc });
     }
   });
   window.addEventListener("beforeunload", () => unsubFileOpen());
@@ -1821,10 +1833,17 @@ async function resolveInitial(
   // same channel) load that file directly.
   const urlFile = fileFromUrlQuery();
   if (urlFile) {
+    // A file spawned with no open tree carries both ?file= and ?folder= so the
+    // new window loads the file *and* roots its sidebar at the file's directory
+    // tree (issue #142). Without ?folder= the window loads the bare file with
+    // no sidebar, as before. Keep the folder even if the file read fails so the
+    // sidebar still shows the tree.
+    const urlFolderForFile = folderFromUrlQuery();
     try {
-      return { doc: await readDoc(urlFile), folder: null };
+      return { doc: await readDoc(urlFile), folder: urlFolderForFile };
     } catch {
-      // Fall through if the path can't be read; window stays blank.
+      // Fall through if the path can't be read; window stays blank (or, if a
+      // folder was given, falls through to the folder-rooted branch below).
     }
   }
 
@@ -2149,11 +2168,15 @@ async function spawnNewWindow(
 ): Promise<void> {
   const label = await nextWindowLabel();
   let url = "/";
-  if (opts.folder) {
-    url = `/?folder=${encodeURIComponent(opts.folder)}`;
-  } else if (opts.file) {
-    url = `/?file=${encodeURIComponent(opts.file)}`;
-  }
+  // Both params can be present: a window spawned for a file with no open tree
+  // is rooted at the file's directory (folder) AND loads that specific file
+  // (file) — see resolveInitial (issue #142). When only one is given the
+  // single-param behaviour is unchanged.
+  const params = new URLSearchParams();
+  if (opts.folder) params.set("folder", opts.folder);
+  if (opts.file) params.set("file", opts.file);
+  const qs = params.toString();
+  if (qs) url = `/?${qs}`;
   const win = new WebviewWindow(label, {
     title: "Viewer",
     width: 1000,

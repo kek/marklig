@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { decideProjectRoute, dedupeSessionByFolder } from "../../src/shell/project-routing";
+import {
+  decideProjectRoute,
+  dedupeSessionByFolder,
+  deepestContainingFolder,
+} from "../../src/shell/project-routing";
 import type { WindowSessionEntry } from "../../src/shell/window-session";
 
 function entry(p: Partial<WindowSessionEntry>): WindowSessionEntry {
@@ -89,6 +93,112 @@ describe("decideProjectRoute", () => {
       folderByLabel: new Map(),
     });
     expect(route).toEqual({ kind: "adopt" });
+  });
+});
+
+describe("deepestContainingFolder", () => {
+  it("matches a window rooted exactly at the file's folder", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/docs/x.md",
+      folderByLabel: new Map([["main", "/proj/docs"]]),
+    });
+    expect(out).toEqual({ label: "main", folder: "/proj/docs" });
+  });
+
+  it("matches a window whose tree contains the file in a subfolder", () => {
+    // Window rooted at /proj contains /proj/docs/x.md even though the file
+    // lives two segments deeper.
+    const out = deepestContainingFolder({
+      file: "/proj/docs/x.md",
+      folderByLabel: new Map([["main", "/proj"]]),
+    });
+    expect(out).toEqual({ label: "main", folder: "/proj" });
+  });
+
+  it("picks the deepest (most specific) window when several contain the file", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/docs/x.md",
+      folderByLabel: new Map([
+        ["main", "/proj"],
+        ["window-2", "/proj/docs"],
+        ["window-3", "/other"],
+      ]),
+    });
+    expect(out).toEqual({ label: "window-2", folder: "/proj/docs" });
+  });
+
+  it("picks the deepest regardless of map insertion order", () => {
+    const out = deepestContainingFolder({
+      file: "/a/b/c/file.md",
+      folderByLabel: new Map([
+        ["window-2", "/a/b/c"],
+        ["main", "/a"],
+        ["window-3", "/a/b"],
+      ]),
+    });
+    expect(out).toEqual({ label: "window-2", folder: "/a/b/c" });
+  });
+
+  it("does not treat /proj/docs as containing /proj/docs-old/x.md (boundary)", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/docs-old/x.md",
+      folderByLabel: new Map([["main", "/proj/docs"]]),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("returns null when no open window's tree contains the file", () => {
+    const out = deepestContainingFolder({
+      file: "/elsewhere/y.md",
+      folderByLabel: new Map([
+        ["main", "/proj"],
+        ["window-2", "/proj/docs"],
+      ]),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("returns null for an empty map (signals spawn)", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/x.md",
+      folderByLabel: new Map(),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("ignores blank (null-folder) windows", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/x.md",
+      folderByLabel: new Map([
+        ["main", null],
+        ["window-2", "/proj"],
+      ]),
+    });
+    expect(out).toEqual({ label: "window-2", folder: "/proj" });
+  });
+
+  it("returns null when only blank windows are open", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/x.md",
+      folderByLabel: new Map([["main", null]]),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("tolerates a trailing slash on the folder root", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/docs/x.md",
+      folderByLabel: new Map([["main", "/proj/docs/"]]),
+    });
+    expect(out).toEqual({ label: "main", folder: "/proj/docs/" });
+  });
+
+  it("does not match when the folder is deeper than the file", () => {
+    const out = deepestContainingFolder({
+      file: "/proj/x.md",
+      folderByLabel: new Map([["main", "/proj/docs"]]),
+    });
+    expect(out).toBeNull();
   });
 });
 
