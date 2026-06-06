@@ -6,6 +6,8 @@ mod pairing;
 #[cfg(desktop)]
 mod pairing_ws;
 #[cfg(desktop)]
+mod sync_log;
+#[cfg(desktop)]
 pub mod typst;
 
 #[cfg(desktop)]
@@ -89,6 +91,25 @@ pub fn run() {
             // Spin up the pairing-WS server. Runs for the app's lifetime
             // and only accepts handshakes when armed via pairing_start.
             pairing_ws::spawn_server(app.handle().clone());
+            // Reconcile sync logs: catch drift from while the app was closed.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let pairings = crate::pairing::list_all_pairings(&app_handle)
+                        .unwrap_or_default();
+                    for meta in pairings {
+                        for folder in &meta.synced_folders {
+                            if let Err(e) = crate::sync_log::reconcile_folder(
+                                &app_handle,
+                                &meta.pair_id_hex,
+                                folder,
+                            ) {
+                                eprintln!("sync reconcile {folder}: {e}");
+                            }
+                        }
+                    }
+                });
+            }
             // Wire the Typst package cache to the app's data dir so that
             // downloaded `@preview/...` packages persist across launches.
             // If the data dir is unavailable for some reason, the package

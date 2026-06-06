@@ -315,11 +315,21 @@ pub fn pairing_unpair<R: Runtime>(
         .get(STORE_KEY_PAIRINGS)
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
+
+    // Load meta before removal to iterate synced_folders for teardown.
+    let meta: Option<PairingMeta> = map
+        .get(&pair_id_hex)
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
     map.remove(&pair_id_hex);
     store.set(STORE_KEY_PAIRINGS, serde_json::Value::Object(map));
-    store
-        .save()
-        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    store.save().map_err(|e| PairingError::Storage(e.to_string()))?;
+
+    if let Some(meta) = meta {
+        for folder in &meta.synced_folders {
+            let _ = crate::sync_log::teardown_folder(&app, &pair_id_hex, folder);
+        }
+    }
     Ok(())
 }
 
@@ -331,7 +341,11 @@ pub fn folder_sync_enable<R: Runtime>(
 ) -> Result<(), PairingError> {
     update_pairing(&app, &pair_id_hex, |meta| {
         add_synced_folder(&mut meta.synced_folders, &folder);
-    })
+    })?;
+    if let Err(e) = crate::sync_log::seed_folder(&app, &pair_id_hex, &folder) {
+        eprintln!("sync seed {folder}: {e}");
+    }
+    Ok(())
 }
 
 /// Add `folder` to a pairing's synced set, canonicalizing first so the same
@@ -360,7 +374,9 @@ pub fn folder_sync_disable<R: Runtime>(
 ) -> Result<(), PairingError> {
     update_pairing(&app, &pair_id_hex, |meta| {
         remove_synced_folder(&mut meta.synced_folders, &folder);
-    })
+    })?;
+    let _ = crate::sync_log::teardown_folder(&app, &pair_id_hex, &folder);
+    Ok(())
 }
 
 fn update_pairing<R: Runtime>(
@@ -476,6 +492,28 @@ pub fn load_pair_key<R: Runtime>(
         .and_then(|v| v.as_str())
         .map(str::to_string);
     Ok(hex.and_then(|h| decode_hex_32(&h)))
+}
+
+/// Return all registered pairings. Used at startup for reconciliation.
+pub fn list_all_pairings<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<PairingMeta>, PairingError> {
+    let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
+        .map_err(|e| PairingError::Storage(e.to_string()))?;
+    let obj = match store
+        .get(STORE_KEY_PAIRINGS)
+        .and_then(|v| v.as_object().cloned())
+    {
+        Some(o) => o,
+        None => return Ok(vec![]),
+    };
+    let mut out = Vec::new();
+    for v in obj.values() {
+        if let Ok(meta) = serde_json::from_value::<PairingMeta>(v.clone()) {
+            out.push(meta);
+        }
+    }
+    Ok(out)
 }
 
 /// Load the full meta for a single pair_id, including synced_folders.

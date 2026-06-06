@@ -337,7 +337,7 @@ async fn handle_sync_request<R: Runtime>(
 
 /// Deterministic per-pair-per-folder identifier. Stable across re-syncs
 /// so the phone's library uses the same folder_id for the same folder.
-fn pair_id_from_folder(pair_id_hex: &str, folder: &str) -> [u8; 16] {
+pub(crate) fn pair_id_from_folder(pair_id_hex: &str, folder: &str) -> [u8; 16] {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(b"marklig-folder-id-v1");
@@ -350,7 +350,7 @@ fn pair_id_from_folder(pair_id_hex: &str, folder: &str) -> [u8; 16] {
     out
 }
 
-fn pair_id_from_folder_hex(pair_id_hex: &str, folder: &str) -> String {
+pub(crate) fn pair_id_from_folder_hex(pair_id_hex: &str, folder: &str) -> String {
     let bytes = pair_id_from_folder(pair_id_hex, folder);
     let mut s = String::with_capacity(32);
     for b in &bytes {
@@ -359,7 +359,12 @@ fn pair_id_from_folder_hex(pair_id_hex: &str, folder: &str) -> String {
     s
 }
 
-fn walk_markdown(root: &str) -> Vec<(String, String)> {
+pub(crate) fn read_markdown_file(root: &str, relpath: &str) -> Option<String> {
+    let path = std::path::Path::new(root).join(relpath);
+    std::fs::read_to_string(path).ok()
+}
+
+pub(crate) fn walk_markdown(root: &str) -> Vec<(String, String)> {
     fn rec(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
         let entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
