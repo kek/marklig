@@ -482,7 +482,14 @@ async function bootstrap(): Promise<void> {
     try {
       const key = await canonicalizePath(path);
       const saved = await getFilePosition(key);
-      if (saved) restorePosition(saved);
+      // A file with a saved position restores to it; one without (never
+      // scrolled, or first open) must reset to the top. Without the explicit
+      // reset, the previous doc's scrollTop bleeds through (issue #146).
+      // Routing the reset through restorePosition (rather than a bare
+      // `scrollTop = 0`) reuses the rAF watchdog so it survives late
+      // Shiki/Mermaid reflow, and arms suppressPositionSave so we don't
+      // persist a bogus position for the freshly-opened file.
+      restorePosition(saved ?? { scrollTop: 0, line: 1, col: 0 });
     } catch {
       // best-effort
     }
