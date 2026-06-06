@@ -3,6 +3,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getValue } from "./store";
+import { SyncClient } from "./mobile-sync-client";
+
+const activeSyncClients = new Map<string, SyncClient>();
 
 export interface MobilePairing {
   pair_id_hex: string;
@@ -114,4 +117,19 @@ export async function readSyncedFile(
     folderIdHex,
     relpath,
   });
+}
+
+export function startSyncClient(pairing: MobilePairing): void {
+  if (activeSyncClients.has(pairing.pair_id_hex)) return;
+  const client = new SyncClient(pairing);
+  activeSyncClients.set(pairing.pair_id_hex, client);
+  client.start();
+}
+
+export function stopSyncClient(pairIdHex: string): void {
+  const client = activeSyncClients.get(pairIdHex);
+  if (client) {
+    client.stop();
+    activeSyncClients.delete(pairIdHex);
+  }
 }

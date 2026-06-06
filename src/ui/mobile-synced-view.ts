@@ -17,6 +17,7 @@ import {
   syncedFolderLabels,
   unpairMobile,
 } from "../shell/mobile-pairings";
+import { LIVE_OP_EVENT, CAUGHT_UP_EVENT } from "../shell/mobile-sync-client";
 
 export interface MobileSyncedHandlers {
   onOpenFile: (file: SyncedFile) => void;
@@ -301,6 +302,25 @@ export async function mountMobileSynced(
   // --- Auto-sync triggers (mobile-only) -----------------------------------
 
   const cleanups: Array<() => void> = [];
+
+  const onLiveOp = (e: Event) => {
+    const ev = e as CustomEvent<{ pairIdHex: string }>;
+    if (ev.detail.pairIdHex !== pairing.pair_id_hex) return;
+    void refresh();
+  };
+  const onCaughtUp = (e: Event) => {
+    const ev = e as CustomEvent<{ pairIdHex: string }>;
+    if (ev.detail.pairIdHex !== pairing.pair_id_hex) return;
+    const now = Date.now();
+    lastDisplayedSuccessMs = now;
+    renderRelativeStatus();
+  };
+  window.addEventListener(LIVE_OP_EVENT, onLiveOp);
+  window.addEventListener(CAUGHT_UP_EVENT, onCaughtUp);
+  cleanups.push(() => {
+    window.removeEventListener(LIVE_OP_EVENT, onLiveOp);
+    window.removeEventListener(CAUGHT_UP_EVENT, onCaughtUp);
+  });
 
   if (isMobile()) {
     // Trigger 1: app resume / focus. Use visibilitychange — it fires

@@ -248,6 +248,7 @@ export const EN = {
   "mobile.synced.unpair": "Unpair",
   "mobile.synced.unpair_confirm": "Confirm unpair?",
   "mobile.synced.unpair_failed_prefix": "Unpair failed: ",
+  "sync.file_deleted_on_desktop": "Removed on desktop",
   "mobile.pair.scan_instructions":
     "Point the camera at the QR code shown in the desktop's Settings → Pairings.",
   "mobile.pair.scan_starting": "Starting camera…",
