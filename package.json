@@ -17,6 +17,8 @@
     "tauri:android:dev": "tauri android dev",
     "tauri:android:build": "tauri android build",
     "tauri:android:build:debug": "tauri android build --debug",
+    "md-dev:build": "tauri build --debug --bundles app",
+    "md-dev:launch": "scripts/md-dev-launch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

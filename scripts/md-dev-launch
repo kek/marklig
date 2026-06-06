@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# md-dev-launch — run the local DEBUG app bundle so it owns the bundle id, with
+# its stderr captured to a log file. Pair with `scripts/md-dev` to test the
+# `md` CLI / file-open routing against your working tree.
+#
+#     npm run md-dev:build      # build/refresh the debug bundle
+#     npm run md-dev:launch     # quit installed app, run the debug build
+#     scripts/md-dev some/dir   # (in another shell) drive it like `md`
+#
+# Logs (Rust `eprintln!` + any frontend lines forwarded to stderr) stream to
+# the terminal and to $MD_DEV_LOG (default /tmp/marklig-dev.log).
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bundle="$(/bin/ls -d "$repo"/target/debug/bundle/macos/*.app 2>/dev/null | head -1 || true)"
+if [ -z "$bundle" ]; then
+  echo "md-dev-launch: no debug bundle. Run: npm run md-dev:build" >&2
+  exit 1
+fi
+bin="$(/bin/ls "$bundle"/Contents/MacOS/* 2>/dev/null | head -1 || true)"
+if [ -z "$bin" ]; then
+  echo "md-dev-launch: no executable inside $bundle" >&2
+  exit 1
+fi
+
+log="${MD_DEV_LOG:-/tmp/marklig-dev.log}"
+
+# A debug bundle shares the installed app's bundle id; if the installed app is
+# running, open(1) routes events to it instead. Quit any running instance first.
+osascript -e 'quit app "Märklig"' >/dev/null 2>&1 || true
+sleep 1
+pkill -f "Märklig.app/Contents/MacOS/" >/dev/null 2>&1 || true
+sleep 1
+
+echo "md-dev-launch: $bin"
+echo "md-dev-launch: logging to $log"
+# Running the binary directly (rather than `open`) keeps stderr attached while
+# still registering as the bundle, so a later `open -a "$bundle" <path>` routes
+# its RunEvent::Opened here.
+exec "$bin" 2>&1 | tee "$log"
