@@ -177,6 +177,7 @@ pub fn run() {
             self::typst::typst_open,
             self::typst::typst_compile,
             self::typst::typst_close,
+            commands::mobile_sync::sync_compact,
             take_pending_open_paths,
         ]);
 
@@ -187,6 +188,7 @@ pub fn run() {
         commands::mobile_sync::mobile_sync_now,
         commands::mobile_sync::mobile_read_synced_file,
         commands::mobile_sync::mobile_unpair,
+        commands::mobile_sync::mobile_apply_sync_op,
     ]);
 
     let app = builder
