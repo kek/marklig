@@ -480,6 +480,7 @@ pub async fn mobile_unpair<R: Runtime>(
         "mobile.pairings",
         "mobile.synced_files",
         "mobile.synced_folder_labels",
+        "mobile.sync_cursors",
     ] {
         if let Some(mut map) = store.get(key).and_then(|v| v.as_object().cloned()) {
             map.remove(&pair_id_hex);
