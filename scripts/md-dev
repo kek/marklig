@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#
+# md-dev — drive the local DEBUG app bundle with `md`-style arguments.
+#
+# The real `md` CLI launcher (installed via Settings → "Install CLI tool")
+# bakes in `/Applications/Märklig.app` and runs `open -a` against it. That path
+# only exercises the *installed* app, so testing changes to the file-open /
+# window-routing flow (RunEvent::Opened → routing → focus, e.g. issues
+# #100/#137/#141/#142) used to mean reinstalling into /Applications each time.
+#
+# `md-dev` instead targets the debug bundle produced by:
+#
+#     npm run md-dev:build      # tauri build --debug --bundles app
+#
+# Usage:
+#     scripts/md-dev <file-or-dir> [more...]   # like `md`, but the dev build
+#     scripts/md-dev                            # just launch/activate it
+#
+# NOTE: a debug bundle shares its bundle identifier with the installed app, so
+# if /Applications/Märklig.app is already running, macOS routes the open event
+# to THAT instance, not the debug one. Use `npm run md-dev:launch` first — it
+# quits any running instance and launches the debug build (capturing its logs).
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bundle="$(/bin/ls -d "$repo"/target/debug/bundle/macos/*.app 2>/dev/null | head -1 || true)"
+if [ -z "$bundle" ]; then
+  echo "md-dev: no debug bundle under target/debug/bundle/macos/." >&2
+  echo "        Build it first:  npm run md-dev:build" >&2
+  exit 1
+fi
+
+# Resolve args to absolute paths, materialising not-yet-existing Markdown files
+# so `open` will launch (mirrors the real launcher's `touch` behaviour).
+args=()
+for arg in "$@"; do
+  dir="$(cd "$(dirname "$arg")" 2>/dev/null && pwd || true)"
+  if [ -n "$dir" ]; then
+    abs="$dir/$(basename "$arg")"
+    if [ ! -e "$abs" ]; then
+      case "$(printf '%s' "$abs" | tr '[:upper:]' '[:lower:]')" in
+        *.md | *.markdown | *.mdx | *.mdown) : >"$abs" 2>/dev/null || true ;;
+      esac
+    fi
+    args+=("$abs")
+  fi
+done
+
+if [ ${#args[@]} -eq 0 ]; then
+  exec open -a "$bundle"
+else
+  exec open -a "$bundle" "${args[@]}"
+fi

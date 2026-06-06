@@ -26,6 +26,28 @@ npm run tauri:dev   # Tauri dev server (recommended)
 npm run dev         # Vite-only (browser, no native shell)
 ```
 
+### Testing the `md` CLI against your working tree
+
+`npm run tauri:dev` runs an unbundled binary, so it is **not** registered with
+macOS LaunchServices — `open -a` / the `md` launcher can't target it and
+`RunEvent::Opened` never fires. To exercise the file-open and window-routing
+flow (issues #100/#137/#141/#142) you need a real `.app`. Build a debug bundle
+and drive it with the `md-dev` helpers instead of reinstalling into
+`/Applications`:
+
+```bash
+npm run md-dev:build     # tauri build --debug --bundles app (faster than release)
+npm run md-dev:launch    # quit the installed app, run the debug build, stream logs
+scripts/md-dev some/dir  # in another shell: behaves like `md`, but hits the debug build
+scripts/md-dev a/b/file.md
+```
+
+`md-dev:launch` quits any running instance first because a debug bundle shares
+the installed app's bundle id — otherwise `open` would route events to the
+installed copy. Logs (Rust `eprintln!` plus anything the frontend forwards to
+stderr) stream to the terminal and to `/tmp/marklig-dev.log` (override with
+`MD_DEV_LOG`).
+
 ### Website
 
 The marketing site at `kek.github.io/marklig` is built from this repo —
