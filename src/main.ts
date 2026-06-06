@@ -994,6 +994,20 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => unsubTargetedOpen());
 
+  // Every window answers a re-announce request by re-broadcasting its current
+  // folder. This is the replay half of the handshake that fixes #140: on
+  // session restore, main and the restored secondaries bootstrap concurrently,
+  // and a secondary's one-shot `viewer:window-folder` announce (below) can fire
+  // before main has attached its listener — permanently dropping that window
+  // from folderByLabel. The fix is for main to ask everyone to re-announce once
+  // its listener is live; the answer here always carries *currentFolder* (not
+  // the bootstrap-time null) so the map converges to live state. Idempotent —
+  // every answer is just a Map.set keyed by label.
+  const unsubAnnounceRequest = await listen("viewer:request-folder-announce", () => {
+    void emit("viewer:window-folder", { label: selfLabel, folder: currentFolder });
+  });
+  window.addEventListener("beforeunload", () => unsubAnnounceRequest());
+
   // Track other windows' folder roots (main only). Each window broadcasts on
   // every setCurrentFolder; close announcements clear stale entries (best-
   // effort — beforeunload may not always deliver, so we also verify the
@@ -1011,6 +1025,21 @@ async function bootstrap(): Promise<void> {
       unsubFolderState();
       unsubWindowClosed();
     });
+    // Now that main's listener is attached, ask every window to (re-)announce.
+    // We fire the request twice with a short gap to close the *remaining* race:
+    // a secondary may attach its own `request-folder-announce` listener (above)
+    // only after the first request has already been delivered, so it wouldn't
+    // hear it. The delayed second request catches such late-attaching windows.
+    // Convergence does not depend on a specific bootstrap order — every window
+    // both announces unprompted on startup AND replies to requests, and main
+    // both requests on attach AND keeps recording late replies via the
+    // listener above; the map only ever gains/refreshes entries via idempotent
+    // sets, so re-running the handshake can never make it less correct. The
+    // 250ms delay is a pragmatic upper bound on per-window bootstrap-to-listen
+    // latency; the unprompted startup announce is the primary path and this is
+    // belt-and-suspenders for the restore race.
+    void emit("viewer:request-folder-announce");
+    setTimeout(() => { void emit("viewer:request-folder-announce"); }, 250);
   }
   // Announce this window's initial state (null until syncFolderToFile runs)
   // so the main window's map sees us even when we have no folder yet.
