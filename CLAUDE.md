@@ -99,8 +99,10 @@ Three modules:
   `PairKey` + stable `PairId` from the handshake hash.
 - `envelope`: per-file ChaCha20-Poly1305 with HKDF-derived keys
   (`info = b"file:" || folder_id || relpath`). 12-byte nonce + tag.
-- `ops`: append-only sync op log + Lamport clock + deterministic
-  conflict resolution.
+- `ops`: append-only sync op log (`OpLog` — JSONL + flat blob store under
+  `<app_data>/sync/<pair>/<folder>/`) + Lamport clock + deterministic
+  conflict resolution. Used on the wire since the live-push-sync
+  implementation (issue #97).
 
 **ABI stability:** HKDF salt / info strings and the `marklig-pair://v1/`
 QR payload format are part of the wire ABI — once a phone is in the
