@@ -20,7 +20,7 @@
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 use marklig_sync_core::pair::{
     HandshakeError, HandshakeInitiator, HandshakeResponder, PairKey, QrPayload, TransportPair,
@@ -328,6 +328,9 @@ pub fn pairing_unpair<R: Runtime>(
     if let Some(meta) = meta {
         for folder in &meta.synced_folders {
             let _ = crate::sync_log::teardown_folder(&app, &pair_id_hex, folder);
+            if let Some(watcher_state) = app.try_state::<std::sync::Arc<crate::sync_watcher::SyncWatcherState>>() {
+                watcher_state.unregister(&pair_id_hex, folder);
+            }
         }
     }
     Ok(())
@@ -344,6 +347,9 @@ pub fn folder_sync_enable<R: Runtime>(
     })?;
     if let Err(e) = crate::sync_log::seed_folder(&app, &pair_id_hex, &folder) {
         eprintln!("sync seed {folder}: {e}");
+    }
+    if let Some(watcher_state) = app.try_state::<std::sync::Arc<crate::sync_watcher::SyncWatcherState>>() {
+        let _ = watcher_state.register(&app, &pair_id_hex, &folder);
     }
     Ok(())
 }
@@ -376,6 +382,9 @@ pub fn folder_sync_disable<R: Runtime>(
         remove_synced_folder(&mut meta.synced_folders, &folder);
     })?;
     let _ = crate::sync_log::teardown_folder(&app, &pair_id_hex, &folder);
+    if let Some(watcher_state) = app.try_state::<std::sync::Arc<crate::sync_watcher::SyncWatcherState>>() {
+        watcher_state.unregister(&pair_id_hex, &folder);
+    }
     Ok(())
 }
 
