@@ -23,7 +23,7 @@ pub mod ops;
 pub mod pair;
 
 pub use envelope::{derive_file_key, open, seal, EnvelopeError};
-pub use ops::{LamportClock, Op, OpKind, resolve};
+pub use ops::{LamportClock, LoggedOp, Op, OpKind, OpLog, SyncError, resolve};
 pub use pair::{
     HandshakeError, HandshakeInitiator, HandshakeResponder, PairId, PairKey, QrPayload,
     TransportPair,
