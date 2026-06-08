@@ -33,6 +33,7 @@ import {
 import { frontmatterProducer } from "./editor/decorations/frontmatter";
 import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
+import { readingLinkWidgetsProducer } from "./editor/decorations/reading-links";
 import { mathProducer } from "./editor/decorations/math";
 import {
   mermaidProducer,
@@ -278,6 +279,7 @@ export async function mobileBootstrap(): Promise<void> {
       frontmatterProducer,
       footnotesProducer,
       readingWidgetsProducer,
+      readingLinkWidgetsProducer,
       mathProducer,
       mermaidProducer,
       graphvizProducer,

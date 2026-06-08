@@ -28,6 +28,7 @@ import { codeblocksProducer, primeHighlighter, highlightCache, highlightCacheEff
 import { frontmatterProducer } from "./editor/decorations/frontmatter";
 import { footnotesProducer } from "./editor/decorations/footnotes";
 import { readingWidgetsProducer } from "./editor/decorations/reading-widgets";
+import { readingLinkWidgetsProducer } from "./editor/decorations/reading-links";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
@@ -258,7 +259,7 @@ async function bootstrap(): Promise<void> {
     // decoration.
     lineNamesProducer,
   ];
-  const readingProducers = [...editingProducers, readingWidgetsProducer, mathProducer, mermaidProducer, graphvizProducer];
+  const readingProducers = [...editingProducers, readingWidgetsProducer, readingLinkWidgetsProducer, mathProducer, mermaidProducer, graphvizProducer];
 
   const editingSet = buildDecorationField(editingProducers);
   const readingSet = buildDecorationField(readingProducers);
