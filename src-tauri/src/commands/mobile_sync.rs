@@ -227,6 +227,155 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// Apply a single live-sync op from the desktop to phone-side storage.
+/// Called by the phone's `SyncClient` for each incoming `op_put` /
+/// `op_delete` frame.
+#[tauri::command]
+pub async fn mobile_apply_sync_op<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+    folder_id_hex: String,
+    relpath: String,
+    mtime_logical: u64,
+    ciphertext_b64: Option<String>,
+    kind: String,
+) -> Result<(), String> {
+    if !pair_id_hex.chars().all(|c| c.is_ascii_hexdigit()) || pair_id_hex.len() != 32 {
+        return Err("invalid pair_id_hex".into());
+    }
+    if !folder_id_hex.chars().all(|c| c.is_ascii_hexdigit()) || folder_id_hex.len() != 32 {
+        return Err("invalid folder_id_hex".into());
+    }
+    for part in relpath.split('/') {
+        if part == ".." || part.is_empty() {
+            return Err("relpath contains forbidden component".into());
+        }
+    }
+
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let synced_root = app_data
+        .join("synced")
+        .join(&pair_id_hex)
+        .join(&folder_id_hex);
+    let store = tauri_plugin_store::StoreExt::store(&app, "viewer.store.json")
+        .map_err(|e| e.to_string())?;
+
+    match kind.as_str() {
+        "put" => {
+            let ct_b64 =
+                ciphertext_b64.ok_or_else(|| "put op requires ciphertext_b64".to_string())?;
+            let ct = base64::engine::general_purpose::STANDARD
+                .decode(&ct_b64)
+                .map_err(|e| format!("b64 decode: {e}"))?;
+
+            let pairings = store
+                .get("mobile.pairings")
+                .and_then(|v| v.as_object().cloned())
+                .ok_or_else(|| "no pairings stored".to_string())?;
+            let entry = pairings
+                .get(&pair_id_hex)
+                .cloned()
+                .ok_or_else(|| format!("no such pair_id: {pair_id_hex}"))?;
+            let pair_key_hex = entry
+                .get("pair_key")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "stored pairing missing pair_key".to_string())?
+                .to_string();
+            let pair_key = hex_to_32(&pair_key_hex)
+                .ok_or_else(|| "stored pair_key malformed".to_string())?;
+            let folder_id = hex_to_16(&folder_id_hex)
+                .ok_or_else(|| format!("folder_id_hex malformed: {folder_id_hex}"))?;
+
+            let file_key = marklig_sync_core::envelope::derive_file_key(
+                &marklig_sync_core::pair::PairKey(pair_key),
+                &marklig_sync_core::pair::PairId(folder_id),
+                &relpath,
+            );
+            let plaintext = marklig_sync_core::envelope::open(&file_key, &ct)
+                .map_err(|e| format!("envelope open: {e}"))?;
+
+            std::fs::create_dir_all(&synced_root).map_err(|e| e.to_string())?;
+            let target = synced_root.join(&relpath);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&target, &plaintext)
+                .map_err(|e| format!("write {target:?}: {e}"))?;
+
+            let mut idx = store
+                .get("mobile.synced_files")
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            let scoped = idx
+                .entry(pair_id_hex.clone())
+                .or_insert_with(|| serde_json::Value::Array(vec![]));
+            let mut files: Vec<serde_json::Value> =
+                scoped.as_array().cloned().unwrap_or_default();
+            files.retain(|f| {
+                !(f.get("folder_id_hex").and_then(|v| v.as_str()) == Some(&folder_id_hex)
+                    && f.get("relpath").and_then(|v| v.as_str()) == Some(&relpath))
+            });
+            files.push(serde_json::json!({
+                "pair_id_hex": pair_id_hex,
+                "folder_id_hex": folder_id_hex,
+                "relpath": relpath,
+                "abs_path": target.to_string_lossy(),
+                "synced_at_unix": now_unix(),
+            }));
+            *scoped = serde_json::Value::Array(files);
+            store.set("mobile.synced_files", serde_json::Value::Object(idx));
+            store.save().map_err(|e| e.to_string())?;
+        }
+        "delete" => {
+            let target = synced_root.join(&relpath);
+            match std::fs::remove_file(&target) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("remove {target:?}: {e}")),
+            }
+
+            let mut idx = store
+                .get("mobile.synced_files")
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            if let Some(scoped) = idx.get_mut(&pair_id_hex) {
+                if let Some(files) = scoped.as_array_mut() {
+                    files.retain(|f| {
+                        !(f.get("folder_id_hex").and_then(|v| v.as_str())
+                            == Some(&folder_id_hex)
+                            && f.get("relpath").and_then(|v| v.as_str()) == Some(&relpath))
+                    });
+                }
+            }
+            store.set("mobile.synced_files", serde_json::Value::Object(idx));
+            store.save().map_err(|e| e.to_string())?;
+        }
+        _ => return Err(format!("unknown op kind: {kind}")),
+    }
+
+    let _ = mtime_logical; // cursor advance is done in JS
+    Ok(())
+}
+
+/// Compact the op log for a single `(pair_id, folder)` — desktop-side
+/// maintenance command for settings or diagnostics.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn sync_compact<R: Runtime>(
+    app: AppHandle<R>,
+    pair_id_hex: String,
+    folder: String,
+) -> Result<(u64, u64), String> {
+    let folder_id_hex = crate::pairing_ws::pair_id_from_folder_hex(&pair_id_hex, &folder);
+    let dir = crate::sync_log::sync_dir(&app, &pair_id_hex, &folder_id_hex)?;
+    let mut log = marklig_sync_core::ops::OpLog::open(&dir)
+        .map_err(|e: marklig_sync_core::ops::SyncError| e.to_string())?;
+    let (ops, blobs) = log
+        .compact()
+        .map_err(|e: marklig_sync_core::ops::SyncError| e.to_string())?;
+    Ok((ops as u64, blobs as u64))
+}
+
 /// Read a synced file's plaintext from the phone's app-private storage.
 ///
 /// The plugin-fs scope on Android doesn't grant access to arbitrary
@@ -331,6 +480,7 @@ pub async fn mobile_unpair<R: Runtime>(
         "mobile.pairings",
         "mobile.synced_files",
         "mobile.synced_folder_labels",
+        "mobile.sync_cursors",
     ] {
         if let Some(mut map) = store.get(key).and_then(|v| v.as_object().cloned()) {
             map.remove(&pair_id_hex);

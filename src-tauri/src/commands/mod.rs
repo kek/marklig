@@ -21,5 +21,8 @@ pub mod watcher;
 // the handshake itself.
 #[cfg(mobile)]
 pub mod mobile_pairing;
-#[cfg(mobile)]
+// mobile_sync is exposed on all targets: mobile commands (mobile_sync_now,
+// mobile_apply_sync_op, etc.) are gated by the mobile invoke_handler;
+// sync_compact is #[cfg(desktop)] inside the module and wired into the
+// desktop invoke_handler only.
 pub mod mobile_sync;

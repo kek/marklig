@@ -118,7 +118,12 @@ Read-only Android companion app sharing the desktop renderer, with LAN-only sync
 - [ ] **Step 5 — Desktop pairing UX.** QR modal, settings → Pairings pane, per-folder "Sync this folder to phone" menu action.
 - [ ] **Step 6 — LAN transport.** mDNS discovery (`_marklig-sync._tcp`) + direct TCP, WebRTC fallback.
 - [ ] **Step 7 — Phone pairing UX + sync wire-up.** Scan QR, resolve mDNS, run handshake, subscribe to folder, render synced content.
-- [ ] **Step 8 — Soft launch (v2.0).** Android internal track, then production.
+- [x] **Step 8 — Live push sync (issue #97).** Desktop watches synced
+  folders via `notify-debouncer-full`; op log is maintained per
+  `(pair_id, folder_id)` under `<app_data>/sync/`; phone holds a
+  long-lived subscribe session and applies ops live. Cursor-based replay
+  on reconnect. PR #_.
+- [ ] **Step 9 — Soft launch (v2.0).** Android internal track, then production.
 - [ ] **(v2.1+, deferred)** Blind-relay path for off-LAN sync. Separate spec.
 
 ## Future

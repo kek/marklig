@@ -6,6 +6,12 @@ mod pairing;
 #[cfg(desktop)]
 mod pairing_ws;
 #[cfg(desktop)]
+mod sync_log;
+#[cfg(desktop)]
+mod sync_watcher;
+#[cfg(desktop)]
+mod sync_session;
+#[cfg(desktop)]
 pub mod typst;
 
 #[cfg(desktop)]
@@ -85,10 +91,53 @@ pub fn run() {
         .manage(pairing::PairingState::new())
         .manage(std::sync::Arc::new(pairing_ws::WsServerState::new()))
         .manage(self::typst::TypstState::new())
+        .manage(std::sync::Arc::new(sync_watcher::SyncWatcherState::new()))
+        .manage(std::sync::Arc::new(sync_session::SyncSessionRegistry::new()))
         .setup(|app| {
             // Spin up the pairing-WS server. Runs for the app's lifetime
             // and only accepts handshakes when armed via pairing_start.
             pairing_ws::spawn_server(app.handle().clone());
+            // Reconcile sync logs: catch drift from while the app was closed.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let pairings = crate::pairing::list_all_pairings(&app_handle)
+                        .unwrap_or_default();
+                    for meta in pairings {
+                        for folder in &meta.synced_folders {
+                            if let Err(e) = crate::sync_log::reconcile_folder(
+                                &app_handle,
+                                &meta.pair_id_hex,
+                                folder,
+                            ) {
+                                eprintln!("sync reconcile {folder}: {e}");
+                            }
+                        }
+                    }
+                });
+            }
+            // Start file watchers for all already-synced folders so that
+            // changes made while the app was open are picked up immediately.
+            {
+                let app_handle_w = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let pairings = crate::pairing::list_all_pairings(&app_handle_w)
+                        .unwrap_or_default();
+                    if let Some(watcher_state) = app_handle_w
+                        .try_state::<std::sync::Arc<crate::sync_watcher::SyncWatcherState>>()
+                    {
+                        for meta in pairings {
+                            for folder in &meta.synced_folders {
+                                let _ = watcher_state.register(
+                                    &app_handle_w,
+                                    &meta.pair_id_hex,
+                                    folder,
+                                );
+                            }
+                        }
+                    }
+                });
+            }
             // Wire the Typst package cache to the app's data dir so that
             // downloaded `@preview/...` packages persist across launches.
             // If the data dir is unavailable for some reason, the package
@@ -128,6 +177,7 @@ pub fn run() {
             self::typst::typst_open,
             self::typst::typst_compile,
             self::typst::typst_close,
+            commands::mobile_sync::sync_compact,
             take_pending_open_paths,
         ]);
 
@@ -138,6 +188,7 @@ pub fn run() {
         commands::mobile_sync::mobile_sync_now,
         commands::mobile_sync::mobile_read_synced_file,
         commands::mobile_sync::mobile_unpair,
+        commands::mobile_sync::mobile_apply_sync_op,
     ]);
 
     let app = builder

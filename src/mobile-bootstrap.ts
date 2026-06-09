@@ -66,11 +66,15 @@ import { mountMobileLibrary } from "./ui/mobile-library";
 import {
   listMobilePairings,
   type MobilePairing,
+  startSyncClient,
+  stopSyncClient,
+  readSyncedFile,
 } from "./shell/mobile-pairings";
 import {
   mountMobilePairForm,
   showMobilePairSuccess,
 } from "./ui/mobile-pair-form";
+import { LIVE_OP_EVENT } from "./shell/mobile-sync-client";
 import { mountMobileSynced } from "./ui/mobile-synced-view";
 import { t } from "./i18n/strings";
 
@@ -134,6 +138,11 @@ export async function mobileBootstrap(): Promise<void> {
 
   let currentView: EditorView | null = null;
   let viewCleanups: Array<() => void> = [];
+  let currentSyncedFile: {
+    pairIdHex: string;
+    folderIdHex: string;
+    relpath: string;
+  } | null = null;
   // Mirror of the most recently rendered route. The Android back-press
   // bridge (see `__marklig_android_back` below) reads this synchronously
   // to decide whether to pop to library or let Android background the
@@ -196,7 +205,6 @@ export async function mobileBootstrap(): Promise<void> {
     }
 
     if (route.kind === "synced") {
-      const { readSyncedFile } = await import("./shell/mobile-pairings");
       const teardown = await mountMobileSynced(root, route.pairing, {
         onOpenFile: async (file) => {
           try {
@@ -205,19 +213,30 @@ export async function mobileBootstrap(): Promise<void> {
               file.folder_id_hex,
               file.relpath,
             );
+            currentSyncedFile = {
+              pairIdHex: file.pair_id_hex,
+              folderIdHex: file.folder_id_hex,
+              relpath: file.relpath,
+            };
             await renderRoute({ kind: "document", source });
           } catch (err) {
             console.error("failed to open synced file", file, err);
           }
         },
         onBack: () => {
+          currentSyncedFile = null;
           void renderRoute({ kind: "library" });
         },
         onUnpaired: () => {
+          currentSyncedFile = null;
           void renderRoute({ kind: "library" });
         },
       });
-      viewCleanups.push(teardown);
+      viewCleanups.push(() => {
+        teardown();
+        stopSyncClient(route.pairing.pair_id_hex);
+      });
+      startSyncClient(route.pairing);
       return;
     }
 
@@ -321,6 +340,54 @@ export async function mobileBootstrap(): Promise<void> {
       });
     }
   };
+
+  window.addEventListener(LIVE_OP_EVENT, (e) => {
+    const ev = e as CustomEvent<{
+      pairIdHex: string;
+      folderIdHex: string;
+      relpath: string;
+      kind: "put" | "delete";
+    }>;
+    const f = currentSyncedFile;
+    if (
+      !f ||
+      f.pairIdHex !== ev.detail.pairIdHex ||
+      f.folderIdHex !== ev.detail.folderIdHex ||
+      f.relpath !== ev.detail.relpath
+    ) {
+      return;
+    }
+    if (ev.detail.kind === "put") {
+      void (async () => {
+        try {
+          const source = await readSyncedFile(
+            f.pairIdHex,
+            f.folderIdHex,
+            f.relpath,
+          );
+          if (currentView) {
+            const { EditorSelection } = await import("@codemirror/state");
+            const scrollTop = currentView.scrollDOM.scrollTop;
+            currentView.dispatch({
+              changes: {
+                from: 0,
+                to: currentView.state.doc.length,
+                insert: source,
+              },
+              selection: EditorSelection.cursor(0),
+            });
+            currentView.scrollDOM.scrollTop = scrollTop;
+          }
+        } catch {
+          void renderRoute({ kind: "library" });
+          currentSyncedFile = null;
+        }
+      })();
+    } else {
+      void renderRoute({ kind: "library" });
+      currentSyncedFile = null;
+    }
+  });
 
   // Android system back-button bridge (issue #96). MainActivity registers
   // an `OnBackPressedCallback` that synchronously evaluates

@@ -113,7 +113,13 @@ async fn handle_connection<R: Runtime>(
             handle_pairing(app, tx, rx, bytes, peer).await
         }
         FirstFrame::Text(text) => {
-            handle_sync_request(app, tx, rx, text).await
+            let frame_type = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string));
+            match frame_type.as_deref() {
+                Some("subscribe") => handle_subscribe(app, tx, rx, text).await,
+                _ => handle_sync_request(app, tx, rx, text).await,
+            }
         }
     }
 }
@@ -335,9 +341,175 @@ async fn handle_sync_request<R: Runtime>(
     Ok(())
 }
 
+/// Long-lived sync-session handler. The phone sends a `subscribe` frame
+/// with per-folder cursors; the desktop replays ops since each cursor,
+/// then streams live ops via the `SyncSessionRegistry` channel.
+async fn handle_subscribe<R: Runtime>(
+    app: AppHandle<R>,
+    mut tx: futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        Message,
+    >,
+    mut rx: futures_util::stream::SplitStream<
+        tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    >,
+    first_text: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use std::collections::HashMap;
+    use tokio::time::Duration;
+
+    let req: serde_json::Value = serde_json::from_str(&first_text)?;
+    let pair_id_hex = req
+        .get("pair_id")
+        .and_then(|v| v.as_str())
+        .ok_or("missing pair_id")?
+        .to_string();
+    let cursors: HashMap<String, u64> = req
+        .get("cursors")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    let meta = match crate::pairing::load_pairing(&app, &pair_id_hex)
+        .map_err(|e| e.to_string())?
+    {
+        Some(m) => m,
+        None => {
+            let _ = tx
+                .send(Message::Text(
+                    serde_json::json!({"type":"error","reason":"unknown pair_id"}).to_string(),
+                ))
+                .await;
+            return Ok(());
+        }
+    };
+
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+
+    // Replay ops since cursor for each folder
+    for folder in &meta.synced_folders {
+        let folder_id_hex = pair_id_from_folder_hex(&pair_id_hex, folder);
+        let cursor = cursors.get(&folder_id_hex).copied().unwrap_or(0);
+        let sync_dir = data_dir
+            .join("sync")
+            .join(&pair_id_hex)
+            .join(&folder_id_hex);
+
+        if let Ok(log) = marklig_sync_core::ops::OpLog::open(&sync_dir) {
+            let ops = match log.ops_since(cursor) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            for op in ops {
+                let frame = match op.kind {
+                    marklig_sync_core::ops::OpKind::Put => {
+                        let ref_hex = match &op.ciphertext_ref_hex {
+                            Some(r) => r.clone(),
+                            None => continue,
+                        };
+                        let ct = match log.read_blob(&ref_hex) {
+                            Some(c) => c,
+                            None => {
+                                let _ = tx
+                                    .send(Message::Text(
+                                        serde_json::json!({
+                                            "type": "error",
+                                            "reason": "blob missing",
+                                            "folder_id_hex": folder_id_hex,
+                                            "relpath": op.relpath,
+                                        })
+                                        .to_string(),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+                        };
+                        serde_json::json!({
+                            "type": "op_put",
+                            "folder_id_hex": folder_id_hex,
+                            "relpath": op.relpath,
+                            "mtime_logical": op.mtime_logical,
+                            "ciphertext_b64": base64::engine::general_purpose::STANDARD.encode(&ct),
+                        })
+                    }
+                    marklig_sync_core::ops::OpKind::Delete => {
+                        serde_json::json!({
+                            "type": "op_delete",
+                            "folder_id_hex": folder_id_hex,
+                            "relpath": op.relpath,
+                            "mtime_logical": op.mtime_logical,
+                        })
+                    }
+                };
+                tx.send(Message::Text(frame.to_string())).await?;
+            }
+        }
+    }
+
+    tx.send(Message::Text(
+        serde_json::json!({"type":"caught_up"}).to_string(),
+    ))
+    .await?;
+
+    // Register with the session registry
+    let (chan_tx, mut chan_rx) = tokio::sync::mpsc::channel::<serde_json::Value>(128);
+    let registry = app
+        .try_state::<std::sync::Arc<crate::sync_session::SyncSessionRegistry>>()
+        .ok_or("SyncSessionRegistry not mounted")?;
+    let session_id = registry.register(&pair_id_hex, chan_tx);
+
+    // Forward loop + heartbeat
+    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut pong_due_by: Option<tokio::time::Instant> = None;
+
+    loop {
+        if let Some(dl) = pong_due_by {
+            if tokio::time::Instant::now() > dl {
+                break;
+            }
+        }
+
+        tokio::select! {
+            _ = ping_interval.tick() => {
+                if tx.send(Message::Text(serde_json::json!({"type":"ping"}).to_string())).await.is_err() {
+                    break;
+                }
+                pong_due_by = Some(tokio::time::Instant::now() + Duration::from_secs(10));
+            }
+            frame = chan_rx.recv() => {
+                match frame {
+                    Some(f) => {
+                        if tx.send(Message::Text(f.to_string())).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
+            msg = rx.next() => {
+                match msg {
+                    Some(Ok(Message::Text(t))) => {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) {
+                            if v.get("type").and_then(|x| x.as_str()) == Some("pong") {
+                                pong_due_by = None;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    registry.unregister(&pair_id_hex, session_id);
+    Ok(())
+}
+
 /// Deterministic per-pair-per-folder identifier. Stable across re-syncs
 /// so the phone's library uses the same folder_id for the same folder.
-fn pair_id_from_folder(pair_id_hex: &str, folder: &str) -> [u8; 16] {
+pub(crate) fn pair_id_from_folder(pair_id_hex: &str, folder: &str) -> [u8; 16] {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(b"marklig-folder-id-v1");
@@ -350,7 +522,7 @@ fn pair_id_from_folder(pair_id_hex: &str, folder: &str) -> [u8; 16] {
     out
 }
 
-fn pair_id_from_folder_hex(pair_id_hex: &str, folder: &str) -> String {
+pub(crate) fn pair_id_from_folder_hex(pair_id_hex: &str, folder: &str) -> String {
     let bytes = pair_id_from_folder(pair_id_hex, folder);
     let mut s = String::with_capacity(32);
     for b in &bytes {
@@ -359,7 +531,12 @@ fn pair_id_from_folder_hex(pair_id_hex: &str, folder: &str) -> String {
     s
 }
 
-fn walk_markdown(root: &str) -> Vec<(String, String)> {
+pub(crate) fn read_markdown_file(root: &str, relpath: &str) -> Option<String> {
+    let path = std::path::Path::new(root).join(relpath);
+    std::fs::read_to_string(path).ok()
+}
+
+pub(crate) fn walk_markdown(root: &str) -> Vec<(String, String)> {
     fn rec(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
         let entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
