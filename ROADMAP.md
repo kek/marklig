@@ -100,7 +100,7 @@ Shipped in two batches: 2026-05-09 (modal a11y, reduced-motion, keyboard-navigab
 
 All new AT-facing strings flow through `t()` / `tA11y()` in `src/i18n/strings.ts` under the `a11y.*` namespace.
 
-**Deferred to a future iteration:** semantic `<a>` for reading-mode links — depends on a reading-mode click-handler decision that's out of scope here. Tracked in [Future](#future).
+**Shipped as a follow-up (#149):** semantic `<a>` for reading-mode links. http/https `[text](url)` links and bare-URL autolinks are now replaced by a real `<a>` widget (`src/editor/decorations/reading-links.ts`) showing just the link text — announced as a link by screen readers and keyboard-activatable (Enter/Space). Plain activation opens the URL externally via `@tauri-apps/plugin-opener`, with the scheme re-validated to http/https only.
 
 **Spec:** `docs/superpowers/specs/2026-05-12-reading-mode-screen-reader-audit-design.md`. **Plan:** `docs/superpowers/plans/2026-05-12-reading-mode-screen-reader-audit.md`.
 
@@ -131,8 +131,6 @@ De-scoped from the v1 sub-specs because they can't be meaningfully built or veri
 - **Auto-updater.** `tauri-plugin-updater` integration with stable / pre-release / off channels, consent-required apply. Blocked on signing keys (same Developer ID dependency as Quick Look on macOS) and an update-feed host. Pure infra blocker — the code shape is well-trodden.
 - **Native print-to-PDF.** A first-class "Export as PDF…" menu entry that doesn't route through the OS print dialog. Needs a Rust-side webview-to-PDF call from Tauri; currently the OS print dialog's "Save as PDF" covers the workflow.
 - **Mermaid in HTML exports.** Mermaid is async per-instance; rendering during a synchronous export pass would block. Either pre-render all diagrams ahead of `buildHtmlExport` or move the export pipeline to async. Fenced `mermaid` blocks currently export as source.
-- **Semantic `<a>` for reading-mode links.** Reading-mode links are styled via mark decorations on the literal `[text](url)` source, not real `<a>` elements — so screen readers don't announce them as links and there's no keyboard activation. Doing this properly requires a reading-mode click-handler design (when does the underlying source click pass through, when does it activate the link?). Out of scope for the F audit; tracked as a follow-up.
-
 When the infra/access blockers lift (Apple Developer cert + notarization pipeline; access to Windows + Linux dev environments), promote items back into a sub-spec.
 
 ---

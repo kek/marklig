@@ -110,6 +110,20 @@ html, body, #root {
 html[data-mode="reading"] .cm-md-link-text,
 html[data-mode="reading"] .cm-md-link-url,
 html[data-mode="reading"] .cm-md-link-auto { cursor: pointer; }
+/* Reading-mode semantic <a> widget (reading-links.ts) — http/https links are
+ * replaced by a real anchor showing just the link text. */
+.cm-md-reading-link {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-color: rgba(44,93,138,0.4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cm-md-reading-link:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .cm-md-image             { color: var(--muted); font-family: var(--mono); font-size: 0.9em; }
 
 /* Blockquotes */

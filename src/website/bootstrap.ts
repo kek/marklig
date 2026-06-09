@@ -38,6 +38,7 @@ import {
 import { frontmatterProducer } from "../editor/decorations/frontmatter";
 import { footnotesProducer } from "../editor/decorations/footnotes";
 import { readingWidgetsProducer } from "../editor/decorations/reading-widgets";
+import { readingLinkWidgetsProducer } from "../editor/decorations/reading-links";
 import { mathProducer } from "../editor/decorations/math";
 import { mermaidProducer } from "../editor/decorations/mermaid";
 import { graphvizProducer } from "../editor/decorations/graphviz";
@@ -65,6 +66,7 @@ const READING_PRODUCERS = [
   frontmatterProducer,
   footnotesProducer,
   readingWidgetsProducer,
+  readingLinkWidgetsProducer,
   mathProducer,
   mermaidProducer,
   graphvizProducer,
