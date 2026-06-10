@@ -184,6 +184,27 @@ describe("live-op refresh", () => {
   });
 });
 
+describe("search overlay + hardware back", () => {
+  it("handleBack closes the overlay and returns true instead of exiting the view", async () => {
+    (listSyncedFiles as any).mockResolvedValue([sf("f1", "a.md")]);
+    (syncedFolderLabels as any).mockResolvedValue({ f1: "Notes" });
+    const handle = await mountMobileSynced(root(), PAIR, {
+      onOpenFile: () => {},
+      onBack: () => {},
+      onUnpaired: () => {},
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    root().querySelector<HTMLElement>(".mobile-browse__search-btn")!.click();
+    expect(root().querySelector(".mobile-search")).not.toBeNull();
+
+    expect(handle.handleBack()).toBe(true);
+    expect(root().querySelector(".mobile-search")).toBeNull();
+    handle.teardown();
+  });
+});
+
 describe("handleBack at top level", () => {
   it("returns false so the router falls back to onBack/library", async () => {
     (listSyncedFiles as any).mockResolvedValue([sf("f1", "a.md")]);

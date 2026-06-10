@@ -71,7 +71,7 @@ export async function mountMobileSynced(
   backBtn.type = "button";
   backBtn.className = "mobile-document__back";
   backBtn.textContent = "← " + t("mobile.library.back");
-  // backBtn click handler is wired after handleBack is defined (hoisted via closure).
+  // backBtn's click handler is wired below, after handleBack is defined.
   root.appendChild(backBtn);
 
   const wrap = document.createElement("div");
@@ -233,6 +233,16 @@ export async function mountMobileSynced(
   function renderLevel(): void {
     list.innerHTML = "";
     crumb.innerHTML = "";
+
+    // Show sync controls (Sync now, Unpair, status, pull hint) only at the
+    // level where they are actionable: the projects level (multi-folder
+    // pairings) or the single-folder root (when the projects level is skipped).
+    const atSyncControlLevel =
+      path.folderIdHex === null ||
+      (tree.folders.length === 1 && path.segments.length === 0);
+    actions.style.display = atSyncControlLevel ? "" : "none";
+    status.style.display = atSyncControlLevel ? "" : "none";
+    pullHint.style.display = atSyncControlLevel ? "" : "none";
 
     if (path.folderIdHex === null) {
       // Projects level: list synced folders.
