@@ -205,8 +205,8 @@ export async function mobileBootstrap(): Promise<void> {
     }
 
     if (route.kind === "synced") {
-      const teardown = await mountMobileSynced(root, route.pairing, {
-        onOpenFile: async (file) => {
+      const handle = await mountMobileSynced(root, route.pairing, {
+        onOpenFile: async (file, _path) => {
           try {
             const source = await readSyncedFile(
               file.pair_id_hex,
@@ -233,7 +233,7 @@ export async function mobileBootstrap(): Promise<void> {
         },
       });
       viewCleanups.push(() => {
-        teardown();
+        handle.teardown();
         stopSyncClient(route.pairing.pair_id_hex);
       });
       startSyncClient(route.pairing);
