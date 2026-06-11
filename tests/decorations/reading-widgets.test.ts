@@ -231,6 +231,7 @@ describe("readingWidgetsProducer", () => {
     expect(softbreaks[0].from).toBe(3); // \n after "foo"
     expect(softbreaks[0].to).toBe(4);
     expect(softbreaks[1].from).toBe(7); // \n after "bar"
+    expect(softbreaks[1].to).toBe(8); // no leading whitespace → range is exactly nl+1
   });
 
   it("collapses leading indentation on a continuation line into the softbreak", () => {
@@ -266,6 +267,19 @@ describe("readingWidgetsProducer", () => {
 
   it("does not collapse a CommonMark hard-break (two trailing spaces)", () => {
     const src = "foo  \nbar\n";
+    const r = specs(src);
+    const softbreaks = r.filter((x) => {
+      const w = (x.spec as { widget?: { constructor?: { name?: string } } }).widget;
+      return w?.constructor?.name === "SoftBreakWidget";
+    });
+    expect(softbreaks).toHaveLength(0);
+  });
+
+  it("does not collapse leading indent after a hard break", () => {
+    // Guards against reordering the indentation-widening before the
+    // hard-break checks: two trailing spaces make this a hard break, so the
+    // newline (and the indentation on the next line) must NOT be collapsed.
+    const src = "foo  \n   bar\n";
     const r = specs(src);
     const softbreaks = r.filter((x) => {
       const w = (x.spec as { widget?: { constructor?: { name?: string } } }).widget;
