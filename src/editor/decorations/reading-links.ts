@@ -30,6 +30,7 @@ import type Token from "markdown-it/lib/token.mjs";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { findInlineLinkSpan } from "./links";
 import { t } from "../../i18n/strings";
 
 /** True only for `http:` / `https:` URLs. Pure, case-insensitive. Everything
@@ -154,25 +155,25 @@ function walk(
         }
         cursor = idx + nextText.content.length;
       } else {
-        // Inline link: [text](url)
+        // Inline link: [text](url). The displayed label is the concatenated
+        // child text (so nested markers like `_emphasis_` aren't shown raw),
+        // but the decoration RANGE is located by scanning the real source for
+        // the `[ … ]( … )` structure — reconstructing the bracketed literal
+        // from text tokens fails the moment the link text has nested inline
+        // markup (em/strong/code/strikethrough), since those markers are
+        // dropped from the reconstruction. See issue #156.
         const text = collectTextUntilClose(children, i + 1);
-        const literal = "[" + text + "]";
-        const textIdx = lineSource.indexOf(literal, cursor);
-        if (textIdx < 0) continue;
-        const urlStart = lineSource.indexOf("(", textIdx + literal.length);
-        if (urlStart < 0) continue;
-        const urlEnd = lineSource.indexOf(")", urlStart);
-        if (urlEnd < 0) continue;
-        const constructEnd = urlEnd + 1;
+        const span = findInlineLinkSpan(lineSource, cursor);
+        if (!span) continue;
         if (isExternalLinkScheme(href)) {
           out.push(
             Decoration.replace({ widget: new LinkWidget(href, text) }).range(
-              lineStart + textIdx,
-              lineStart + constructEnd,
+              lineStart + span.from,
+              lineStart + span.to,
             ),
           );
         }
-        cursor = constructEnd;
+        cursor = span.to;
       }
     } else if (c.type === "text" && /^https?:\/\/\S+/.test(c.content)) {
       // Fallback: plain-text URL when linkify is disabled.
@@ -196,8 +197,12 @@ function walk(
 function collectTextUntilClose(children: Token[], start: number): string {
   let out = "";
   for (let i = start; i < children.length; i++) {
-    if (children[i].type === "link_close") break;
-    if (children[i].type === "text") out += children[i].content;
+    const type = children[i].type;
+    if (type === "link_close") break;
+    // `text` and `code_inline` both carry visible content; emphasis/strong/
+    // strikethrough markers carry none and are skipped, which gives a clean
+    // de-marked label for the rendered `<a>`.
+    if (type === "text" || type === "code_inline") out += children[i].content;
   }
   return out;
 }
