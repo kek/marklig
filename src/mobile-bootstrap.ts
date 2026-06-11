@@ -76,6 +76,7 @@ import {
 } from "./ui/mobile-pair-form";
 import { LIVE_OP_EVENT } from "./shell/mobile-sync-client";
 import { mountMobileSynced } from "./ui/mobile-synced-view";
+import type { SyncedPath, MobileSyncedHandle } from "./ui/mobile-synced-view";
 import { t } from "./i18n/strings";
 
 import sampleSource from "./sample.md?raw";
@@ -86,7 +87,7 @@ type Route =
   | { kind: "library" }
   | { kind: "document"; source: string; uriForRecents?: string }
   | { kind: "pair" }
-  | { kind: "synced"; pairing: MobilePairing };
+  | { kind: "synced"; pairing: MobilePairing; path?: SyncedPath };
 
 /**
  * Decide what the Android system back-button should do given the
@@ -143,11 +144,29 @@ export async function mobileBootstrap(): Promise<void> {
     folderIdHex: string;
     relpath: string;
   } | null = null;
+  // Live handle to the mounted synced view, for the Android back bridge.
+  let currentSyncedHandle: MobileSyncedHandle | null = null;
+  // Where to return when backing out of a file opened from the synced browser.
+  let syncedReturn: { pairing: MobilePairing; path: SyncedPath } | null = null;
   // Mirror of the most recently rendered route. The Android back-press
   // bridge (see `__marklig_android_back` below) reads this synchronously
   // to decide whether to pop to library or let Android background the
   // task. Treat as read-only outside `renderRoute`.
   let currentRoute: Route = { kind: "library" };
+
+  // Back action shared by both document-route back buttons (Typst-unsupported
+  // guard + normal editor mount). If the document was opened from the synced
+  // browser, return to that synced path; otherwise go to the library.
+  const handleDocBack = (): void => {
+    if (syncedReturn) {
+      const ret = syncedReturn;
+      syncedReturn = null;
+      currentSyncedFile = null;
+      void renderRoute({ kind: "synced", pairing: ret.pairing, path: ret.path });
+    } else {
+      void renderRoute({ kind: "library" });
+    }
+  };
 
   const renderRoute = async (route: Route): Promise<void> => {
     currentRoute = route;
@@ -171,6 +190,10 @@ export async function mobileBootstrap(): Promise<void> {
         onOpenRecent: async (uri) => {
           try {
             const source = await readTextFile(uri);
+            // Opening a recent is NOT a synced-browser context; clear any
+            // stale return state so back goes to the library, not a synced view.
+            syncedReturn = null;
+            currentSyncedFile = null;
             await renderRoute({
               kind: "document",
               source,
@@ -205,35 +228,45 @@ export async function mobileBootstrap(): Promise<void> {
     }
 
     if (route.kind === "synced") {
-      const teardown = await mountMobileSynced(root, route.pairing, {
-        onOpenFile: async (file) => {
-          try {
-            const source = await readSyncedFile(
-              file.pair_id_hex,
-              file.folder_id_hex,
-              file.relpath,
-            );
-            currentSyncedFile = {
-              pairIdHex: file.pair_id_hex,
-              folderIdHex: file.folder_id_hex,
-              relpath: file.relpath,
-            };
-            await renderRoute({ kind: "document", source });
-          } catch (err) {
-            console.error("failed to open synced file", file, err);
-          }
+      const handle = await mountMobileSynced(
+        root,
+        route.pairing,
+        {
+          onOpenFile: async (file, path) => {
+            try {
+              const source = await readSyncedFile(
+                file.pair_id_hex,
+                file.folder_id_hex,
+                file.relpath,
+              );
+              currentSyncedFile = {
+                pairIdHex: file.pair_id_hex,
+                folderIdHex: file.folder_id_hex,
+                relpath: file.relpath,
+              };
+              syncedReturn = { pairing: route.pairing, path };
+              await renderRoute({ kind: "document", source });
+            } catch (err) {
+              console.error("failed to open synced file", file, err);
+            }
+          },
+          onBack: () => {
+            currentSyncedFile = null;
+            syncedReturn = null;
+            void renderRoute({ kind: "library" });
+          },
+          onUnpaired: () => {
+            currentSyncedFile = null;
+            syncedReturn = null;
+            void renderRoute({ kind: "library" });
+          },
         },
-        onBack: () => {
-          currentSyncedFile = null;
-          void renderRoute({ kind: "library" });
-        },
-        onUnpaired: () => {
-          currentSyncedFile = null;
-          void renderRoute({ kind: "library" });
-        },
-      });
+        route.path,
+      );
+      currentSyncedHandle = handle;
       viewCleanups.push(() => {
-        teardown();
+        handle.teardown();
+        currentSyncedHandle = null;
         stopSyncClient(route.pairing.pair_id_hex);
       });
       startSyncClient(route.pairing);
@@ -253,9 +286,7 @@ export async function mobileBootstrap(): Promise<void> {
       backBtn.type = "button";
       backBtn.className = "mobile-document__back";
       backBtn.textContent = "← " + t("mobile.library.back");
-      backBtn.addEventListener("click", () => {
-        void renderRoute({ kind: "library" });
-      });
+      backBtn.addEventListener("click", handleDocBack);
       wrap.appendChild(backBtn);
       const msg = document.createElement("p");
       msg.className = "mobile-document__unsupported";
@@ -272,9 +303,7 @@ export async function mobileBootstrap(): Promise<void> {
     backBtn.type = "button";
     backBtn.className = "mobile-document__back";
     backBtn.textContent = "← " + t("mobile.library.back");
-    backBtn.addEventListener("click", () => {
-      void renderRoute({ kind: "library" });
-    });
+    backBtn.addEventListener("click", handleDocBack);
     wrap.appendChild(backBtn);
 
     const editorMount = document.createElement("div");
@@ -381,11 +410,13 @@ export async function mobileBootstrap(): Promise<void> {
         } catch {
           void renderRoute({ kind: "library" });
           currentSyncedFile = null;
+          syncedReturn = null;
         }
       })();
     } else {
       void renderRoute({ kind: "library" });
       currentSyncedFile = null;
+      syncedReturn = null;
     }
   });
 
@@ -411,6 +442,26 @@ export async function mobileBootstrap(): Promise<void> {
     __marklig_android_back?: () => boolean;
   }).__marklig_android_back = (): boolean => {
     if (navigating) return true;
+
+    // Synced browser: pop a level / close search before leaving the view.
+    if (currentRoute.kind === "synced" && currentSyncedHandle) {
+      if (currentSyncedHandle.handleBack()) return true;
+      navigating = true;
+      void renderRoute({ kind: "library" }).finally(() => { navigating = false; });
+      return true;
+    }
+
+    // Document opened from the synced browser: return to its path.
+    if (currentRoute.kind === "document" && syncedReturn) {
+      const ret = syncedReturn;
+      syncedReturn = null;
+      currentSyncedFile = null;
+      navigating = true;
+      void renderRoute({ kind: "synced", pairing: ret.pairing, path: ret.path })
+        .finally(() => { navigating = false; });
+      return true;
+    }
+
     const decision = decideAndroidBack(currentRoute);
     if (decision.handled) {
       navigating = true;
@@ -455,6 +506,10 @@ export async function mobileBootstrap(): Promise<void> {
     if (urls.length === 0) return;
     try {
       const source = await readTextFile(urls[0]);
+      // A share-intent document is NOT a synced-browser context; clear any
+      // stale return state so back goes to the library, not a synced view.
+      syncedReturn = null;
+      currentSyncedFile = null;
       await renderRoute({
         kind: "document",
         source,

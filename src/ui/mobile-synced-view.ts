@@ -18,11 +18,31 @@ import {
   unpairMobile,
 } from "../shell/mobile-pairings";
 import { LIVE_OP_EVENT, CAUGHT_UP_EVENT } from "../shell/mobile-sync-client";
+import { buildTree, childrenAt, flattenForSearch } from "./mobile-file-tree";
+import type { FileTree, FileLeaf, SearchEntry, DirNode } from "./mobile-file-tree";
+import { scoreMatch, buildHighlightedSpans } from "./fuzzy";
+
+/** Where the user is in the drill-in browser. `folderIdHex === null` is the
+ * projects level (only reachable when the pairing has >1 synced folder). */
+export interface SyncedPath {
+  folderIdHex: string | null;
+  segments: string[];
+}
 
 export interface MobileSyncedHandlers {
-  onOpenFile: (file: SyncedFile) => void;
+  /** `path` is where the user was when they opened the file, so the router
+   * can restore it on back. */
+  onOpenFile: (file: SyncedFile, path: SyncedPath) => void;
   onBack: () => void;
   onUnpaired: () => void;
+}
+
+/** Handle returned by mountMobileSynced. `handleBack` pops one browse level
+ * (or closes the search overlay) and returns true if it consumed the action;
+ * false means "already at the top — router should go to the library". */
+export interface MobileSyncedHandle {
+  teardown: () => void;
+  handleBack: () => boolean;
 }
 
 // Per-pair throttle / in-flight state, keyed by pair_id_hex. Module-scoped
@@ -43,14 +63,15 @@ export async function mountMobileSynced(
   root: HTMLElement,
   pairing: MobilePairing,
   handlers: MobileSyncedHandlers,
-): Promise<() => void> {
+  initialPath?: SyncedPath,
+): Promise<MobileSyncedHandle> {
   root.innerHTML = "";
 
   const backBtn = document.createElement("button");
   backBtn.type = "button";
   backBtn.className = "mobile-document__back";
   backBtn.textContent = "← " + t("mobile.library.back");
-  backBtn.addEventListener("click", () => handlers.onBack());
+  // backBtn's click handler is wired below, after handleBack is defined.
   root.appendChild(backBtn);
 
   const wrap = document.createElement("div");
@@ -102,16 +123,34 @@ export async function mountMobileSynced(
   pullHint.textContent = t("mobile.synced.pull_hint");
   wrap.appendChild(pullHint);
 
+  // Breadcrumb / level header rendered above the list.
+  const crumb = document.createElement("div");
+  crumb.className = "mobile-browse__crumb";
+  wrap.appendChild(crumb);
+
   const list = document.createElement("ul");
   list.className = "mobile-library__list";
   wrap.appendChild(list);
 
   root.appendChild(wrap);
 
+  // Search button lives in the back-bar row.
+  const searchBtn = document.createElement("button");
+  searchBtn.type = "button";
+  searchBtn.className = "mobile-browse__search-btn";
+  searchBtn.setAttribute("aria-label", t("mobile.browse.search_label"));
+  searchBtn.textContent = "🔍";
+  searchBtn.addEventListener("click", () => openSearch());
+  root.insertBefore(searchBtn, wrap); // top-right; positioned via CSS
+
   // Track whether at least one successful sync has happened during this
   // mount so we can render the "synced Xs ago" line accurately.
   let lastDisplayedSuccessMs: number | null = null;
   let statusTickHandle: ReturnType<typeof setInterval> | null = null;
+
+  // Drill-in browse state. tree is rebuilt from the store on every refresh().
+  let tree: FileTree = { folders: [] };
+  let path: SyncedPath = initialPath ?? { folderIdHex: null, segments: [] };
 
   const renderRelativeStatus = (): void => {
     const existing = syncState.get(pairing.pair_id_hex);
@@ -142,49 +181,275 @@ export async function mountMobileSynced(
   const refresh = async (): Promise<void> => {
     const files = await listSyncedFiles(pairing.pair_id_hex);
     const labels = await syncedFolderLabels(pairing.pair_id_hex);
-    list.innerHTML = "";
+    // Map the store's snake_case SyncedFile shape to the tree module's
+    // camelCase TreeInputFile at the boundary (the pure module stays
+    // independent of store naming).
+    tree = buildTree(
+      files.map((x) => ({
+        folderIdHex: x.folder_id_hex,
+        relpath: x.relpath,
+        syncedAtUnix: x.synced_at_unix,
+      })),
+      labels,
+    );
+
     if (files.length === 0 && lastDisplayedSuccessMs === null) {
       // Only show the "no synced files yet" hint before the first sync;
       // once we've synced and still have zero files, the relative-time
       // status line is more informative than re-stating empty state.
       status.textContent = t("mobile.synced.empty");
     }
-    // Group by folder for readability.
-    const byFolder = new Map<string, SyncedFile[]>();
-    for (const f of files) {
-      const arr = byFolder.get(f.folder_id_hex) ?? [];
-      arr.push(f);
-      byFolder.set(f.folder_id_hex, arr);
+
+    // If the pairing has exactly one folder and we're at the projects level,
+    // drop straight into that folder's root.
+    if (path.folderIdHex === null && tree.folders.length === 1) {
+      path = { folderIdHex: tree.folders[0].folderIdHex, segments: [] };
     }
-    for (const [folderId, items] of byFolder) {
-      const header = document.createElement("h2");
-      header.className = "mobile-library__section";
-      header.textContent = labels[folderId] ?? folderId.slice(0, 8);
-      list.appendChild(header);
-      for (const file of items.sort((a, b) =>
-        a.relpath.localeCompare(b.relpath),
-      )) {
+    // If our current path vanished (e.g. live delete), pop to nearest ancestor.
+    normalizePath();
+    renderLevel();
+  };
+
+  /** Pop trailing segments until the path resolves, then drop to projects
+   * level if even the folder is gone. */
+  function normalizePath(): void {
+    if (path.folderIdHex === null) return;
+    // Capture the non-null folderIdHex for the type-narrowed loop.
+    let fid: string = path.folderIdHex;
+    while (childrenAt(tree, fid, path.segments) === null) {
+      if (path.segments.length > 0) {
+        path = { folderIdHex: fid, segments: path.segments.slice(0, -1) };
+      } else {
+        path = { folderIdHex: null, segments: [] };
+        // Re-apply single-folder skip after a reset.
+        if (tree.folders.length === 1) {
+          path = { folderIdHex: tree.folders[0].folderIdHex, segments: [] };
+        }
+        return;
+      }
+    }
+  }
+
+  function renderLevel(): void {
+    list.innerHTML = "";
+    crumb.innerHTML = "";
+
+    // Show sync controls (Sync now, Unpair, status, pull hint) only at the
+    // level where they are actionable: the projects level (multi-folder
+    // pairings) or the single-folder root (when the projects level is skipped).
+    const atSyncControlLevel =
+      path.folderIdHex === null ||
+      (tree.folders.length === 1 && path.segments.length === 0);
+    actions.style.display = atSyncControlLevel ? "" : "none";
+    status.style.display = atSyncControlLevel ? "" : "none";
+    pullHint.style.display = atSyncControlLevel ? "" : "none";
+
+    if (path.folderIdHex === null) {
+      // Projects level: list synced folders.
+      crumb.textContent = pairing.friendly_name || pairing.pair_id_hex.slice(0, 12);
+      for (const folder of tree.folders) {
+        list.appendChild(
+          browseRow("dir", folder.label, tA11y("mobile.browse.file_count", { n: String(folder.fileCount) }), () => {
+            path = { folderIdHex: folder.folderIdHex, segments: [] };
+            renderLevel();
+          }),
+        );
+      }
+      return;
+    }
+
+    const node = childrenAt(tree, path.folderIdHex, path.segments);
+    if (!node) return; // normalizePath guarantees this won't happen
+    renderBreadcrumb();
+
+    if (node.dirs.size === 0 && node.files.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "mobile-browse__empty";
+      empty.textContent = t("mobile.browse.empty_dir");
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const [name, child] of node.dirs) {
+      list.appendChild(
+        browseRow("dir", name, tA11y("mobile.browse.file_count", { n: String(countFiles(child)) }), () => {
+          path = { folderIdHex: path.folderIdHex, segments: [...path.segments, name] };
+          renderLevel();
+        }),
+      );
+    }
+    for (const file of node.files) {
+      list.appendChild(
+        browseRow("file", file.name, formatRelative(file.syncedAtUnix * 1000), () =>
+          handlers.onOpenFile(toSyncedFile(file), path),
+        ),
+      );
+    }
+  }
+
+  function renderBreadcrumb(): void {
+    // Build clickable crumbs: <folder label> / seg / seg
+    const parts: { label: string; segments: string[] }[] = [];
+    const folder = tree.folders.find((x) => x.folderIdHex === path.folderIdHex);
+    parts.push({ label: folder?.label ?? "", segments: [] });
+    for (let i = 0; i < path.segments.length; i++) {
+      parts.push({ label: path.segments[i], segments: path.segments.slice(0, i + 1) });
+    }
+    crumb.innerHTML = "";
+    parts.forEach((part, idx) => {
+      if (idx > 0) crumb.appendChild(document.createTextNode(" / "));
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mobile-browse__crumb-btn";
+      btn.textContent = part.label;
+      btn.addEventListener("click", () => {
+        path = { folderIdHex: path.folderIdHex, segments: part.segments };
+        renderLevel();
+      });
+      crumb.appendChild(btn);
+    });
+  }
+
+  function browseRow(
+    kind: "dir" | "file",
+    name: string,
+    meta: string,
+    onActivate: () => void,
+  ): HTMLLIElement {
+    const li = document.createElement("li");
+    li.className = `mobile-browse__row mobile-browse__row--${kind} mobile-library__item`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mobile-library__item-btn";
+    btn.addEventListener("click", onActivate);
+    const nameEl = document.createElement("span");
+    nameEl.className = "mobile-library__item-name";
+    nameEl.textContent = (kind === "dir" ? "📁 " : "") + name;
+    const metaEl = document.createElement("span");
+    metaEl.className = "mobile-library__item-when";
+    metaEl.textContent = meta;
+    btn.append(nameEl, metaEl);
+    li.appendChild(btn);
+    return li;
+  }
+
+  /** Recursive total file count under a dir, so a folder/project row's count
+   * consistently means "total files inside" (matches the projects level). */
+  function countFiles(dir: DirNode): number {
+    let n = dir.files.length;
+    for (const child of dir.dirs.values()) n += countFiles(child);
+    return n;
+  }
+
+  /** Reconstruct the store-shaped SyncedFile from a tree leaf for onOpenFile. */
+  function toSyncedFile(leaf: FileLeaf): SyncedFile {
+    return {
+      pair_id_hex: pairing.pair_id_hex,
+      folder_id_hex: leaf.folderIdHex,
+      relpath: leaf.relpath,
+      abs_path: "",
+      synced_at_unix: leaf.syncedAtUnix,
+    };
+  }
+
+  // --- Search overlay --------------------------------------------------------
+
+  let searchOverlay: HTMLElement | null = null;
+
+  function openSearch(): void {
+    if (searchOverlay) return;
+    const overlay = document.createElement("div");
+    overlay.className = "mobile-search";
+    searchOverlay = overlay;
+
+    const bar = document.createElement("div");
+    bar.className = "mobile-search__bar";
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "mobile-search__close";
+    closeBtn.setAttribute("aria-label", t("mobile.search.close"));
+    closeBtn.textContent = "✕";
+    closeBtn.addEventListener("click", closeSearch);
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "mobile-search__input";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.placeholder = t("mobile.search.placeholder");
+    input.setAttribute("aria-label", t("mobile.search.input_label"));
+    bar.append(closeBtn, input);
+
+    const results = document.createElement("ul");
+    results.className = "mobile-search__results";
+    const empty = document.createElement("p");
+    empty.className = "mobile-search__empty";
+    empty.style.display = "none";
+    empty.textContent = t("mobile.search.no_matches");
+
+    overlay.append(bar, results, empty);
+    root.appendChild(overlay);
+
+    const render = (): void => {
+      // Recompute from the live tree each render so a LIVE_OP_EVENT that
+      // rebuilds `tree` while the overlay is open reflects in results.
+      const all: SearchEntry[] = flattenForSearch(tree);
+      const q = input.value.trim();
+      results.innerHTML = "";
+      const matched =
+        q.length === 0
+          ? all.map((e) => ({ entry: e, positions: [] as number[], score: 0 }))
+          : all
+              .map((entry) => {
+                const m = scoreMatch(entry.searchKey, q);
+                return m ? { entry, positions: m.positions, score: m.score } : null;
+              })
+              .filter((x): x is { entry: SearchEntry; positions: number[]; score: number } => x !== null)
+              .sort((a, b) => b.score - a.score || a.entry.relpath.localeCompare(b.entry.relpath));
+
+      empty.style.display = matched.length === 0 ? "block" : "none";
+      for (const { entry, positions } of matched) {
         const li = document.createElement("li");
-        li.className = "mobile-library__item";
+        li.className = "mobile-search__result mobile-library__item";
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "mobile-library__item-btn";
-        btn.addEventListener("click", () => handlers.onOpenFile(file));
-
-        const name = document.createElement("span");
-        name.className = "mobile-library__item-name";
-        name.textContent = file.relpath;
-        const when = document.createElement("span");
-        when.className = "mobile-library__item-when";
-        when.textContent = formatRelative(file.synced_at_unix * 1000);
-
-        btn.appendChild(name);
-        btn.appendChild(when);
+        const nameEl = document.createElement("span");
+        nameEl.className = "mobile-library__item-name";
+        for (const node of buildHighlightedSpans(entry.relpath, positions)) nameEl.append(node);
+        const metaEl = document.createElement("span");
+        metaEl.className = "mobile-library__item-when";
+        metaEl.textContent = entry.label;
+        btn.append(nameEl, metaEl);
+        const openEntry = () => {
+          closeSearch();
+          handlers.onOpenFile(
+            {
+              pair_id_hex: pairing.pair_id_hex,
+              folder_id_hex: entry.folderIdHex,
+              relpath: entry.relpath,
+              abs_path: "",
+              synced_at_unix: 0,
+            },
+            path,
+          );
+        };
+        btn.addEventListener("click", openEntry);
         li.appendChild(btn);
-        list.appendChild(li);
+        results.appendChild(li);
       }
+    };
+
+    input.addEventListener("input", render);
+    render();
+    input.focus();
+  }
+
+  function closeSearch(): void {
+    if (searchOverlay) {
+      searchOverlay.remove();
+      searchOverlay = null;
     }
-  };
+  }
 
   // Inline two-step confirm: first tap arms the button (label changes to
   // "Confirm unpair?"), second tap commits. Tapping anything else or
@@ -414,20 +679,37 @@ export async function mountMobileSynced(
     void runSync({ source: "resume" });
   }
 
-  return () => {
-    // Clear the two-tap-confirm timer on teardown so it can't fire against a
-    // detached DOM subtree (and keep the closure pinning it) after the route
-    // changes while the button is armed.
+  // --- Handle: teardown + handleBack ---------------------------------------
+
+  const handleBack = (): boolean => {
+    if (searchOverlay) { closeSearch(); return true; }
+    if (path.folderIdHex !== null && path.segments.length > 0) {
+      path = { folderIdHex: path.folderIdHex, segments: path.segments.slice(0, -1) };
+      renderLevel();
+      return true;
+    }
+    if (path.folderIdHex !== null && tree.folders.length > 1) {
+      // Back to the projects level (only when it wasn't skipped).
+      path = { folderIdHex: null, segments: [] };
+      renderLevel();
+      return true;
+    }
+    return false; // top level — router goes to library
+  };
+
+  // Wire the back button now that handleBack is defined.
+  backBtn.addEventListener("click", () => {
+    if (!handleBack()) handlers.onBack();
+  });
+
+  const teardown = (): void => {
     if (disarmTimer !== null) {
       window.clearTimeout(disarmTimer);
       disarmTimer = null;
     }
+    closeSearch();
     for (const fn of cleanups) {
-      try {
-        fn();
-      } catch {
-        /* no-op */
-      }
+      try { fn(); } catch { /* no-op */ }
     }
     // Drop the per-pair throttle/in-flight record on unmount. If the view
     // tears down mid-sync, the in-flight resolve/reject can no longer clear
@@ -436,6 +718,8 @@ export async function mountMobileSynced(
     // app restart. A fresh mount re-creates the record on first sync.
     syncState.delete(pairing.pair_id_hex);
   };
+
+  return { teardown, handleBack };
 }
 
 function formatRelative(ms: number): string {

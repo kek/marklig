@@ -249,6 +249,13 @@ export const EN = {
   "mobile.synced.unpair": "Unpair",
   "mobile.synced.unpair_confirm": "Confirm unpair?",
   "mobile.synced.unpair_failed_prefix": "Unpair failed: ",
+  "mobile.browse.empty_dir": "No files here yet",
+  "mobile.browse.file_count": "{n} items",
+  "mobile.browse.search_label": "Search files",
+  "mobile.search.placeholder": "Search files…",
+  "mobile.search.input_label": "Search synced files",
+  "mobile.search.no_matches": "No matching files",
+  "mobile.search.close": "Close search",
   "sync.file_deleted_on_desktop": "Removed on desktop",
   "mobile.pair.scan_instructions":
     "Point the camera at the QR code shown in the desktop's Settings → Pairings.",
