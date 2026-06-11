@@ -51,6 +51,29 @@ describe("resolveLinkAt", () => {
     const r = resolveLinkAt(src, 7);
     expect(r?.href).toBe("#intro");
   });
+
+  it("resolves a relative link whose text contains nested emphasis", () => {
+    const src = "see [see _my notes_](./notes.md) end\n";
+    // "_my notes_" sits inside the link text; click somewhere within it.
+    const clickPos = src.indexOf("_my notes_") + 2;
+    const r = resolveLinkAt(src, clickPos);
+    expect(r?.href).toBe("./notes.md");
+    // Range covers the whole `[see _my notes_](./notes.md)`.
+    expect(r?.from).toBe(src.indexOf("[see"));
+    expect(r?.to).toBe(src.indexOf("(./notes.md)") + "(./notes.md)".length);
+  });
+
+  it("resolves an anchor link whose text is bold", () => {
+    const src = "# Sec\n\njump [**x**](#sec) here\n";
+    const r = resolveLinkAt(src, src.indexOf("**x**") + 2);
+    expect(r?.href).toBe("#sec");
+  });
+
+  it("resolves a mailto link whose text contains emphasis", () => {
+    const src = "mail [_a_](mailto:x@y.z) now\n";
+    const r = resolveLinkAt(src, src.indexOf("_a_") + 1);
+    expect(r?.href).toBe("mailto:x@y.z");
+  });
 });
 
 describe("classifyLink", () => {

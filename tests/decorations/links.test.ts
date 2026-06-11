@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 
 import { parseMarkdown } from "../../src/editor/parser";
-import { linksProducer } from "../../src/editor/decorations/links";
+import {
+  linksProducer,
+  findInlineLinkSpan,
+} from "../../src/editor/decorations/links";
 
 function ranges(source: string) {
   const tokens = parseMarkdown(source);
@@ -74,5 +77,38 @@ describe("linksProducer", () => {
     expect(r).toContainEqual(
       expect.objectContaining({ class: "cm-md-link-url", from: 9, to: 30 }),
     );
+  });
+});
+
+describe("findInlineLinkSpan", () => {
+  it("covers the full construct for a plain link", () => {
+    const s = "[t](http://x)";
+    const span = findInlineLinkSpan(s, 0);
+    expect(span).toEqual({ from: 0, textTo: 3, to: s.length });
+  });
+
+  it("does not let a ) inside a double-quoted title truncate the URL", () => {
+    const s = '[t](http://x "a)b")';
+    const span = findInlineLinkSpan(s, 0);
+    // Without title-aware scanning the `)` inside the title would close early.
+    expect(span).toEqual({ from: 0, textTo: 3, to: s.length });
+  });
+
+  it("does not let a ) inside a single-quoted title truncate the URL", () => {
+    const s = "[t](http://x 'a)b')";
+    const span = findInlineLinkSpan(s, 0);
+    expect(span).toEqual({ from: 0, textTo: 3, to: s.length });
+  });
+
+  it("returns null when the closing paren is missing", () => {
+    expect(findInlineLinkSpan("[t](url", 0)).toBeNull();
+  });
+
+  it("returns null when a space separates ] and ( (not an inline link)", () => {
+    expect(findInlineLinkSpan("[t] (url)", 0)).toBeNull();
+  });
+
+  it("returns null when there is no bracket at all", () => {
+    expect(findInlineLinkSpan("no link here", 0)).toBeNull();
   });
 });

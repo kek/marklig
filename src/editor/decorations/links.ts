@@ -68,7 +68,7 @@ function walkLinkChildren(
         );
         out.push(
           Decoration.mark({ class: "cm-md-link-url" }).range(
-            lineStart + span.urlFrom,
+            lineStart + span.textTo,
             lineStart + span.to,
           ),
         );
@@ -95,15 +95,16 @@ function walkLinkChildren(
 
 /** Source positions of an inline `[text](url)` construct, all relative to the
  *  start of `source`:
- *   - `from`    — the opening `[`
- *   - `textTo`  — one past the closing `]` (i.e. the `(`)
- *   - `urlFrom` — the opening `(`  (same as `textTo`)
- *   - `to`      — one past the closing `)`
+ *   - `from`   — the opening `[`
+ *   - `textTo` — one past the closing `]`, i.e. the opening `(`. This is both
+ *                the end of the `[text]` portion and the start of the `(url)`
+ *                portion — they coincide by construction (`]` is immediately
+ *                followed by `(` for an inline link), so a single field serves.
+ *   - `to`     — one past the closing `)`
  */
 export interface InlineLinkSpan {
   from: number;
   textTo: number;
-  urlFrom: number;
   to: number;
 }
 
@@ -116,12 +117,15 @@ export interface InlineLinkSpan {
  * (e.g. an image `![alt](src)` or another bracket pair inside the link text)
  * doesn't prematurely close the link text. The matching `]` must be
  * immediately followed by `(`, and the URL portion runs to the matching `)`,
- * also depth-tracked so parenthesised URLs / titles close correctly.
+ * also depth-tracked so parenthesised URLs close correctly. A `)` inside a
+ * quoted link title — `[t](url "ti)tle")` / `[t](url 'ti)tle')` — is skipped
+ * by scanning the quoted string to its matching close quote (honoring `\`
+ * escapes) without counting parens, so the title's `)` doesn't end the URL.
  *
- * Known limitation: a literal `]` or `)` inside the link text that markdown-it
- * accepted via backslash-escaping or balanced nesting we don't model can lead
- * us to skip the link (we never produce a wrong range — we return null). This
- * matches the prior behaviour for those rare cases.
+ * Known limitation: a literal unescaped `]` or `)` inside the link *text* that
+ * markdown-it accepted via balanced nesting we don't model can lead us to skip
+ * the link (return null) — we never emit a wrong range for that case. (A `)`
+ * inside the URL's quoted title, however, is handled correctly per above.)
  */
 export function findInlineLinkSpan(
   source: string,
@@ -154,13 +158,27 @@ export function findInlineLinkSpan(
   const urlFrom = closeBracket + 1;
   if (source[urlFrom] !== "(") return null;
 
-  // Find the matching `)`, honoring nested `( )` (e.g. in the URL or title).
+  // Find the matching `)`, honoring nested `( )` (e.g. in the URL). A quoted
+  // link title (`"…"` or `'…'`) is scanned as an opaque string so a `)` inside
+  // it doesn't prematurely close the URL.
   let parenDepth = 0;
   let closeParen = -1;
   for (let i = urlFrom; i < source.length; i++) {
     const ch = source[i];
     if (ch === "\\") {
       i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      // Skip to the matching close quote (or end of source if unterminated),
+      // ignoring parens inside the title string.
+      const quote = ch;
+      i++;
+      while (i < source.length && source[i] !== quote) {
+        if (source[i] === "\\") i++; // skip escaped char inside the title
+        i++;
+      }
+      // i now points at the close quote (or === length); loop's i++ advances.
       continue;
     }
     if (ch === "(") parenDepth++;
@@ -177,7 +195,6 @@ export function findInlineLinkSpan(
   return {
     from: open,
     textTo: urlFrom,
-    urlFrom,
     to: closeParen + 1,
   };
 }

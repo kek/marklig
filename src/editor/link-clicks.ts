@@ -22,6 +22,7 @@ import type { Extension } from "@codemirror/state";
 
 import { parseMarkdown } from "./parser";
 import { computeLineStarts } from "./decorations";
+import { findInlineLinkSpan } from "./decorations/links";
 import { extractTocEntries } from "../ui/sidebar/toc";
 
 export interface ResolvedLink {
@@ -72,21 +73,18 @@ export function resolveLinkAt(source: string, pos: number): ResolvedLink | null 
           }
           cursor = idx + next.content.length;
         } else {
-          // Inline link: [text](url)
-          const text = collectTextUntilClose(children, j + 1);
-          const literal = "[" + text + "]";
-          const textIdx = blockSource.indexOf(literal, cursor);
-          if (textIdx < 0) continue;
-          const from = blockStart + textIdx;
-          const urlStart = blockSource.indexOf("(", textIdx + literal.length);
-          if (urlStart < 0) continue;
-          const urlEnd = blockSource.indexOf(")", urlStart);
-          if (urlEnd < 0) continue;
-          const to = blockStart + urlEnd + 1;
+          // Inline link: [text](url). Locate the span by scanning the real
+          // source structure — reconstructing `[text]` from the child text
+          // tokens drops nested inline markup (em/strong/code/strikethrough)
+          // so the click would silently fail to resolve. See issue #156.
+          const span = findInlineLinkSpan(blockSource, cursor);
+          if (!span) continue;
+          const from = blockStart + span.from;
+          const to = blockStart + span.to;
           if (pos >= from && pos <= to) {
             return { href, from, to };
           }
-          cursor = urlEnd + 1;
+          cursor = span.to;
         }
       } else if (
         c.type === "text" &&
@@ -107,18 +105,6 @@ export function resolveLinkAt(source: string, pos: number): ResolvedLink | null 
     }
   }
   return null;
-}
-
-function collectTextUntilClose(
-  children: Array<{ type: string; content: string }>,
-  start: number,
-): string {
-  let out = "";
-  for (let i = start; i < children.length; i++) {
-    if (children[i].type === "link_close") break;
-    if (children[i].type === "text") out += children[i].content;
-  }
-  return out;
 }
 
 /** GitHub-style heading slugifier — what the eventual HTML export and most
