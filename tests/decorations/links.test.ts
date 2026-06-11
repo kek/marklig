@@ -41,4 +41,38 @@ describe("linksProducer", () => {
       expect.objectContaining({ class: "cm-md-link-text", from: 15, to: 21 }),
     );
   });
+
+  it("decorates a link whose text contains emphasis", () => {
+    const src = "see [a _b_ c](https://example.com) here\n";
+    const r = ranges(src);
+    // text mark spans `[a _b_ c]` (offsets 4..13), url mark spans `(...)`.
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-text", from: 4, to: 13 }),
+    );
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-url", from: 13, to: 34 }),
+    );
+  });
+
+  it("decorates a link whose text contains bold", () => {
+    const src = "[a **b** c](https://example.com)\n";
+    const r = ranges(src);
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-text", from: 0, to: 11 }),
+    );
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-url", from: 11, to: 32 }),
+    );
+  });
+
+  it("decorates a link whose text contains inline code", () => {
+    const src = "[a `b` c](https://example.com)\n";
+    const r = ranges(src);
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-text", from: 0, to: 9 }),
+    );
+    expect(r).toContainEqual(
+      expect.objectContaining({ class: "cm-md-link-url", from: 9, to: 30 }),
+    );
+  });
 });

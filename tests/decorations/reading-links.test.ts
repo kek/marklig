@@ -61,6 +61,41 @@ describe("readingLinkWidgetsProducer", () => {
     expect(a.getAttribute("href")).toBe("https://example.com");
   });
 
+  it("replaces a link whose text contains nested emphasis, showing de-marked text", () => {
+    const src = "see [a _b_ c](https://example.com) here\n";
+    const w = linkWidgets(src);
+    expect(w).toHaveLength(1);
+    // Range covers the whole `[a _b_ c](https://example.com)` (offsets 4..34).
+    expect(w[0].from).toBe(4);
+    expect(w[0].to).toBe(34);
+    const a = w[0].widget.toDOM() as HTMLAnchorElement;
+    // Underscores are not shown in the rendered link label.
+    expect(a.textContent).toBe("a b c");
+    expect(a.getAttribute("href")).toBe("https://example.com");
+  });
+
+  it("replaces a link whose text contains bold", () => {
+    const src = "[a **b** c](https://example.com)\n";
+    const w = linkWidgets(src);
+    expect(w).toHaveLength(1);
+    expect(w[0].from).toBe(0);
+    expect(w[0].to).toBe(32);
+    const a = w[0].widget.toDOM() as HTMLAnchorElement;
+    expect(a.textContent).toBe("a b c");
+    expect(a.getAttribute("href")).toBe("https://example.com");
+  });
+
+  it("replaces a link whose text contains inline code", () => {
+    const src = "[a `b` c](https://example.com)\n";
+    const w = linkWidgets(src);
+    expect(w).toHaveLength(1);
+    expect(w[0].from).toBe(0);
+    expect(w[0].to).toBe(30);
+    const a = w[0].widget.toDOM() as HTMLAnchorElement;
+    expect(a.textContent).toBe("a b c");
+    expect(a.getAttribute("href")).toBe("https://example.com");
+  });
+
   it("renders a bare autolink URL as a LinkWidget", () => {
     const src = "see https://example.com here\n";
     const w = linkWidgets(src);
