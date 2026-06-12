@@ -12,7 +12,10 @@ export type { DocStats, ToolbarHandle, ToolbarOptions } from "./toolbar";
  *  tell windows apart when file names match (e.g. two `README.md` from
  *  different repos), so append the project folder name as
  *  `<file-name> — <project-folder-name>` when a folder is open (issue #98).
- *  Falls back to the file name alone (or "Viewer") when no folder is open.
+ *  When no document is open but a project folder is (a window showing only a
+ *  folder tree), fall back to the folder basename so Mission Control / the
+ *  dock window list can still tell windows apart (issue #159). Falls back to
+ *  the file name alone (or "Viewer" when neither file nor folder is open).
  *
  *  Exported for unit tests. */
 export function buildWindowTitle(
@@ -20,8 +23,15 @@ export function buildWindowTitle(
   dirty: boolean,
   projectFolder?: string | null,
 ): string {
-  const withProject = path ? formatDocName(path, projectFolder) : "Viewer";
-  return dirty ? `• ${withProject}` : withProject;
+  let base: string;
+  if (path) {
+    base = formatDocName(path, projectFolder);
+  } else if (projectFolder) {
+    base = basename(projectFolder);
+  } else {
+    base = "Viewer";
+  }
+  return dirty ? `• ${base}` : base;
 }
 
 /** Display name for an open file: `<file-name> — <project-folder-name>` when a

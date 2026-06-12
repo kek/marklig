@@ -137,9 +137,18 @@ describe("buildWindowTitle", () => {
     );
   });
 
-  it("falls back to 'Viewer' and never appends a project for a null path", () => {
-    expect(buildWindowTitle(null, false, "/repos/viewer")).toBe("Viewer");
-    expect(buildWindowTitle(null, true, "/repos/viewer")).toBe("• Viewer");
+  it("shows the folder basename when only a folder is open, no document (#159)", () => {
+    expect(buildWindowTitle(null, false, "/path/to/my-notes")).toBe("my-notes");
+    expect(buildWindowTitle(null, true, "/path/to/my-notes")).toBe(
+      "• my-notes",
+    );
+    expect(buildWindowTitle(null, false, "/repos/viewer")).toBe("viewer");
+  });
+
+  it("falls back to 'Viewer' when neither a file nor a folder is open", () => {
+    expect(buildWindowTitle(null, false, null)).toBe("Viewer");
+    expect(buildWindowTitle(null, true, null)).toBe("• Viewer");
+    expect(buildWindowTitle(null, false)).toBe("Viewer");
   });
 
   it("does not repeat the name when the file basename equals the project", () => {
