@@ -23,7 +23,10 @@ use tauri::RunEvent;
 // otherwise the imports would be flagged unused.
 #[cfg(target_os = "macos")]
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+// Desktop pulls `Manager` in for the setup closure (`try_state`, `path`) and
+// the quit-flush (`webview_windows`); apple/android pull it in for the
+// RunEvent::Opened window handling.
+#[cfg(any(desktop, target_os = "ios", target_os = "android"))]
 use tauri::Manager;
 #[cfg(desktop)]
 use tauri::{Emitter, Listener};
