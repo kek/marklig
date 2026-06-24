@@ -60,6 +60,58 @@ describe("readingWidgetsProducer", () => {
     expect(dom!.getAttribute("aria-label")).toBe("Remote image: A bird");
   });
 
+  it("does not assign a raw relative path to a local image's <img src>", () => {
+    // Regression: ImageWidget used to set `img.src = "docs/x.png"` verbatim,
+    // which resolves against the tauri://localhost origin and 404s. Local
+    // images must instead route through the disk-reading object-URL cache.
+    const src = "![Diagram](docs/future-architecture.png)\n";
+    const tokens = parseMarkdown(src);
+    const set = readingWidgetsProducer({ source: src, tokens });
+    let dom: HTMLElement | null = null;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as {
+        widget?: { constructor: { name: string }; toDOM: () => HTMLElement };
+      };
+      if (spec.widget?.constructor.name === "ImageWidget") {
+        dom = spec.widget.toDOM();
+        break;
+      }
+      cursor.next();
+    }
+    expect(dom).not.toBeNull();
+    const raw = "docs/future-architecture.png";
+    const img = dom!.tagName === "IMG"
+      ? (dom as HTMLImageElement)
+      : dom!.querySelector("img");
+    // Either no <img> is emitted yet (loading placeholder) or, if one is, it
+    // must not carry the unresolved raw relative path.
+    if (img) {
+      expect(img.getAttribute("src") ?? "").not.toContain(raw);
+    }
+  });
+
+  it("renders a loading placeholder for a not-yet-loaded local image", () => {
+    const src = "![Diagram](docs/future-architecture.png)\n";
+    const tokens = parseMarkdown(src);
+    const set = readingWidgetsProducer({ source: src, tokens });
+    let dom: HTMLElement | null = null;
+    const cursor = set.iter();
+    while (cursor.value) {
+      const spec = cursor.value.spec as {
+        widget?: { constructor: { name: string }; toDOM: () => HTMLElement };
+      };
+      if (spec.widget?.constructor.name === "ImageWidget") {
+        dom = spec.widget.toDOM();
+        break;
+      }
+      cursor.next();
+    }
+    expect(dom).not.toBeNull();
+    expect(dom!.getAttribute("role")).toBe("img");
+    expect(dom!.className).toContain("cm-md-reading-image-loading");
+  });
+
   it("hides link brackets and url, keeping inner text", () => {
     const r = specs("[t](u)\n");
     const hides = r.filter((x) => (x.spec as { class?: string }).class?.includes("cm-md-reading-elide"));

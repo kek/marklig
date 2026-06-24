@@ -26,6 +26,22 @@ pub fn read_text_file(path: String) -> Result<String, FileError> {
     String::from_utf8(bytes).map_err(|e| FileError::NotUtf8(e.to_string()))
 }
 
+/// Read a local image file and return its bytes base64-encoded. Used by the
+/// reading-mode image widget: relative/absolute image paths can't be assigned
+/// to `<img src>` directly (the webview origin is `tauri://localhost`), so the
+/// frontend reads them through here and wraps the bytes in an object URL.
+#[tauri::command]
+pub fn read_image_base64(path: String) -> Result<String, FileError> {
+    use base64::Engine;
+    let pb = PathBuf::from(&path);
+    let meta = std::fs::metadata(&pb).map_err(|e| FileError::Io(e.to_string()))?;
+    if meta.len() > MAX_BYTES {
+        return Err(FileError::TooLarge(meta.len()));
+    }
+    let bytes = std::fs::read(&pb).map_err(|e| FileError::Io(e.to_string()))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 #[tauri::command]
 pub fn write_text_file(path: String, contents: String) -> Result<(), FileError> {
     let pb = std::path::PathBuf::from(&path);
