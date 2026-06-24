@@ -70,7 +70,7 @@ import {
   clearRecovery,
   resolveRecoveryAction,
 } from "./shell/recovery";
-import { getFilePosition, setFilePosition, canonicalizePath } from "./shell/file-positions";
+import { getFilePosition, setFilePosition, canonicalizePath, planPositionRestore } from "./shell/file-positions";
 import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, emit, emitTo } from "@tauri-apps/api/event";
@@ -435,7 +435,10 @@ async function bootstrap(): Promise<void> {
   //    until either the user interacts (any wheel/keydown/pointerdown) or
   //    a short watchdog window elapses — without that, a cold-cache
   //    Shiki render lands AFTER our restore and pushes content down.
-  function restorePosition(target: { scrollTop: number; line: number; col: number }): void {
+  function restorePosition(
+    target: { scrollTop: number; line: number; col: number },
+    opts: { restoreCursor: boolean } = { restoreCursor: true },
+  ): void {
     suppressPositionSave(2500);
     let userInteracted = false;
     const markInteraction = (): void => { userInteracted = true; };
@@ -450,15 +453,20 @@ async function bootstrap(): Promise<void> {
     };
 
     // Best-effort cursor restore. Clamp to the current document size so a
-    // remembered line past EOF doesn't blow up.
-    try {
-      const docLines = view.state.doc.lines;
-      const targetLine = Math.max(1, Math.min(target.line || 1, docLines));
-      const lineObj = view.state.doc.line(targetLine);
-      const offset = Math.min(lineObj.from + Math.max(0, target.col), lineObj.to);
-      view.dispatch({ selection: { anchor: offset, head: offset } });
-    } catch {
-      // Out-of-range or empty doc — skip cursor restore, scroll-only is fine.
+    // remembered line past EOF doesn't blow up. Skipped for link-initiated
+    // opens (restoreCursor=false), which must land at the top with NO visible
+    // cursor/selection so following an internal link doesn't highlight a
+    // section (issue #161).
+    if (opts.restoreCursor) {
+      try {
+        const docLines = view.state.doc.lines;
+        const targetLine = Math.max(1, Math.min(target.line || 1, docLines));
+        const lineObj = view.state.doc.line(targetLine);
+        const offset = Math.min(lineObj.from + Math.max(0, target.col), lineObj.to);
+        view.dispatch({ selection: { anchor: offset, head: offset } });
+      } catch {
+        // Out-of-range or empty doc — skip cursor restore, scroll-only is fine.
+      }
     }
 
     let attempt = 0;
@@ -476,21 +484,32 @@ async function bootstrap(): Promise<void> {
 
   /** Apply a saved position right after a doc-load, unless the URL has an
    * explicit `#anchor` fragment (which the user / external link explicitly
-   * asked us to honor). */
-  async function maybeRestorePositionFor(path: string | null): Promise<void> {
+   * asked us to honor).
+   *
+   * `fromLink` marks an open initiated by clicking an internal Markdown link:
+   * those always reset to the top with no restored cursor (issue #161). All
+   * other open paths (recents, session restore, reopen-last, folder-tree)
+   * restore the saved position. */
+  async function maybeRestorePositionFor(
+    path: string | null,
+    opts: { fromLink: boolean } = { fromLink: false },
+  ): Promise<void> {
     if (!path) return;
     if (window.location.hash && window.location.hash.length > 1) return;
     try {
       const key = await canonicalizePath(path);
       const saved = await getFilePosition(key);
       // A file with a saved position restores to it; one without (never
-      // scrolled, or first open) must reset to the top. Without the explicit
-      // reset, the previous doc's scrollTop bleeds through (issue #146).
-      // Routing the reset through restorePosition (rather than a bare
-      // `scrollTop = 0`) reuses the rAF watchdog so it survives late
-      // Shiki/Mermaid reflow, and arms suppressPositionSave so we don't
-      // persist a bogus position for the freshly-opened file.
-      restorePosition(saved ?? { scrollTop: 0, line: 1, col: 0 });
+      // scrolled, or first open) — and every link-initiated open — must reset
+      // to the top. Without the explicit reset, the previous doc's scrollTop
+      // bleeds through (issue #146). Routing the reset through restorePosition
+      // (rather than a bare `scrollTop = 0`) reuses the rAF watchdog so it
+      // survives late Shiki/Mermaid reflow, and arms suppressPositionSave so we
+      // don't immediately persist scrollTop=0 over a real saved position the
+      // user may want when they reach this file through a non-link path later
+      // (issue #161).
+      const plan = planPositionRestore(saved, opts);
+      restorePosition(plan.target, { restoreCursor: plan.restoreCursor });
     } catch {
       // best-effort
     }
@@ -1270,7 +1289,10 @@ async function bootstrap(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => stopCloseHandler());
 
-  async function loadAndApplyDoc(path: string): Promise<void> {
+  async function loadAndApplyDoc(
+    path: string,
+    opts: { fromLink: boolean } = { fromLink: false },
+  ): Promise<void> {
     // Capture the OUTGOING file's position before we replace the buffer so
     // tab-switching / Open-Recent doesn't lose where the user was.
     if (currentPath) {
@@ -1309,7 +1331,7 @@ async function bootstrap(): Promise<void> {
         await recordRecent(currentPath);
         await startWatching(currentPath);
       }
-      await maybeRestorePositionFor(currentPath);
+      await maybeRestorePositionFor(currentPath, { fromLink: opts.fromLink });
       await syncFolderToFile(currentPath);
       // Pair this file with the active project so a future switch back to
       // the project (or restore on relaunch) re-opens this file rather than
@@ -1336,7 +1358,10 @@ async function bootstrap(): Promise<void> {
 
   /** Prompt-on-dirty wrapper used by all out-of-band open paths
    * (drag-drop, OS file-association launches, "Open Recent", folder-tree click). */
-  async function openWithDirtyPrompt(path: string): Promise<void> {
+  async function openWithDirtyPrompt(
+    path: string,
+    opts: { fromLink: boolean } = { fromLink: false },
+  ): Promise<void> {
     if (dirtyTracker.isDirty()) {
       const proceed = await ask(
         t("dirty.body"),
@@ -1348,7 +1373,7 @@ async function bootstrap(): Promise<void> {
       );
       if (!proceed) return;
     }
-    await loadAndApplyDoc(path);
+    await loadAndApplyDoc(path, opts);
   }
   onFolderItemActivate = openWithDirtyPrompt;
 
@@ -1368,7 +1393,10 @@ async function bootstrap(): Promise<void> {
     },
     openLocalMarkdown: async (absPath) => {
       try {
-        await openWithDirtyPrompt(absPath);
+        // Following an internal Markdown link always opens the target at the
+        // top with no highlighted section, regardless of any saved position
+        // for that file (issue #161).
+        await openWithDirtyPrompt(absPath, { fromLink: true });
       } catch (err) {
         console.warn("openLocalMarkdown failed", err);
       }

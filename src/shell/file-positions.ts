@@ -33,6 +33,41 @@ export interface FilePosition {
 
 export type FilePositionsMap = Record<string, FilePosition>;
 
+/** What to do with the viewport right after a doc-load. `target` is fed to the
+ * rAF scroll-restore watchdog. `restoreCursor` decides whether a cursor/
+ * selection is placed: we suppress it for link-initiated opens so following an
+ * internal Markdown link lands at the very top with NO highlighted section
+ * (issue #161). */
+export interface RestorePlan {
+  target: { scrollTop: number; line: number; col: number };
+  restoreCursor: boolean;
+}
+
+/** Decide whether to restore a saved position or reset to the top when a
+ * document loads. Pure so it can be unit-tested without `main.ts`.
+ *
+ * - Link-initiated opens (`fromLink`) ALWAYS reset to the top with no cursor,
+ *   regardless of any saved position — following an internal link should open
+ *   the target at the very top with nothing highlighted (issue #161).
+ * - Every other open path (recents, session restore, reopen-last, folder-tree)
+ *   restores the saved position (cursor included) when one exists, and resets
+ *   to the top otherwise (issue #146). */
+export function planPositionRestore(
+  saved: FilePosition | null,
+  opts: { fromLink: boolean },
+): RestorePlan {
+  if (opts.fromLink) {
+    return { target: { scrollTop: 0, line: 1, col: 0 }, restoreCursor: false };
+  }
+  if (saved) {
+    return {
+      target: { scrollTop: saved.scrollTop, line: saved.line, col: saved.col },
+      restoreCursor: true,
+    };
+  }
+  return { target: { scrollTop: 0, line: 1, col: 0 }, restoreCursor: true };
+}
+
 const KEY = "filePositions";
 
 /** Hard cap on the number of remembered files. Oldest (smallest `ts`) entries

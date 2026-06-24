@@ -13,8 +13,10 @@ import {
   clearFilePosition,
   clearAllFilePositions,
   lruTrim,
+  planPositionRestore,
   FILE_POSITIONS_LIMIT,
   type FilePositionsMap,
+  type FilePosition,
 } from "../../src/shell/file-positions";
 
 beforeEach(() => {
@@ -113,5 +115,33 @@ describe("setFilePosition LRU enforcement", () => {
     expect(all["/new.md"]).toBeDefined();
     // The oldest seeded entry is evicted.
     expect(all["/seed-0.md"]).toBeUndefined();
+  });
+});
+
+describe("planPositionRestore", () => {
+  const saved: FilePosition = { scrollTop: 480, line: 12, col: 4, ts: 1 };
+
+  it("link-initiated open resets to the top with no cursor, ignoring saved position", () => {
+    const plan = planPositionRestore(saved, { fromLink: true });
+    expect(plan.target).toEqual({ scrollTop: 0, line: 1, col: 0 });
+    expect(plan.restoreCursor).toBe(false);
+  });
+
+  it("link-initiated open resets to the top when there is no saved position", () => {
+    const plan = planPositionRestore(null, { fromLink: true });
+    expect(plan.target).toEqual({ scrollTop: 0, line: 1, col: 0 });
+    expect(plan.restoreCursor).toBe(false);
+  });
+
+  it("non-link open restores the saved position and cursor", () => {
+    const plan = planPositionRestore(saved, { fromLink: false });
+    expect(plan.target).toEqual({ scrollTop: 480, line: 12, col: 4 });
+    expect(plan.restoreCursor).toBe(true);
+  });
+
+  it("non-link open with no saved position resets to the top but keeps a cursor", () => {
+    const plan = planPositionRestore(null, { fromLink: false });
+    expect(plan.target).toEqual({ scrollTop: 0, line: 1, col: 0 });
+    expect(plan.restoreCursor).toBe(true);
   });
 });
