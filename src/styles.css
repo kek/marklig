@@ -275,6 +275,7 @@ html.theme-dark[data-mode="edit"] .cm-editor {
   word-break: break-all;
 }
 .cm-md-reading-image-broken { border-style: solid; border-color: var(--accent); }
+.cm-md-reading-image-loading { color: var(--muted); opacity: 0.7; }
 
 /* Horizontal rule. Block-replace widget for `hr` tokens — the source line
    stays in edit mode (rendered as `---` / `***` / `___`); reading mode

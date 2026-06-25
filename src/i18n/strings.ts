@@ -192,6 +192,8 @@ export const EN = {
   "a11y.remoteImageWithAlt": "Remote image: {alt}",
   "a11y.brokenImage": "Broken image",
   "a11y.brokenImageWithAlt": "Broken image: {alt}",
+  "a11y.loadingImage": "Loading image",
+  "a11y.loadingImageWithAlt": "Loading image: {alt}",
   "a11y.link": "Link",
 
   // Mobile companion (v2.0). Library home + back navigation. Pairing copy

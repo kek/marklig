@@ -32,6 +32,7 @@ import { readingLinkWidgetsProducer } from "./editor/decorations/reading-links";
 import { mathProducer } from "./editor/decorations/math";
 import { mermaidProducer, mermaidCache, mermaidCacheEffect } from "./editor/decorations/mermaid";
 import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/decorations/graphviz";
+import { localImageCache, localImageCacheEffect } from "./editor/decorations/local-images";
 import { lineNamesProducer } from "./editor/decorations/line-names";
 import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
 import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
@@ -238,6 +239,16 @@ async function bootstrap(): Promise<void> {
     view.dispatch({ effects: graphvizCacheEffect.of() });
   });
   window.addEventListener("beforeunload", () => unsubscribeGraphviz());
+
+  // Local images are read off disk asynchronously (relative/absolute paths
+  // can't be assigned to <img src> from the tauri://localhost origin). Re-run
+  // decorations when a read lands, and let the cache resolve relative paths
+  // against — and revoke object URLs on a change of — the open document.
+  localImageCache.setDocPathGetter(() => currentPath);
+  const unsubscribeLocalImage = localImageCache.subscribe(() => {
+    view.dispatch({ effects: localImageCacheEffect.of() });
+  });
+  window.addEventListener("beforeunload", () => unsubscribeLocalImage());
 
   // Preview pane + splitter. Appended after the editor so they sit to the right.
   const previewPane: PreviewPaneHandle = mountPreviewPane({ parent: shell });
@@ -628,6 +639,14 @@ async function bootstrap(): Promise<void> {
   }
 
   let currentPath: string | null = initialDoc?.path ?? null;
+
+  // The initial document was loaded straight into the editor at view-creation
+  // time — before `currentPath` (and thus the image cache's doc-path getter)
+  // was known. Recompute decorations now so local images in the restored
+  // document resolve against the correct directory instead of hanging on the
+  // loading placeholder. (Subsequent opens go through loadAndApplyDoc, which
+  // sets currentPath before the buffer swap.)
+  if (currentPath) view.dispatch({ effects: refreshDecorationsEffect.of() });
 
   // Preview splitter — mounted to shell. The pane was appended earlier
   // (right after the editor), so we move the splitter into the right slot
@@ -1282,10 +1301,15 @@ async function bootstrap(): Promise<void> {
       }
     }
     const doc = await readDoc(path);
+    // Point the image cache at the new document and drop the previous
+    // document's decoded blobs *before* the buffer swap, so the decoration
+    // recompute triggered by this change resolves local images against the new
+    // document's directory on its first pass (no stale-path round-trip).
+    currentPath = doc.path;
+    localImageCache.releaseExcept(doc.path);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: doc.source },
     });
-    currentPath = doc.path;
     dirtyTracker.reset();
     diverged = false;
     await setWindowTitle(currentPath, false, currentFolder);
