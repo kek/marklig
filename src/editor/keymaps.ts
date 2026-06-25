@@ -1,6 +1,6 @@
 import { keymap, EditorView } from "@codemirror/view";
 import type { KeyBinding } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, selectAll } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
 
 let modeToggleHandler: () => void = () => {};
@@ -131,6 +131,14 @@ function scrollToBottom(view: EditorView): boolean {
 }
 
 const readingBindings: KeyBinding[] = [
+  // Select All. Reading mode disables drawSelection() and leans on the
+  // browser's native selection, but a native select-all can only reach the
+  // lines CM has actually rendered into the DOM — off-screen lines are
+  // viewport-virtualized, so it stops at the visible window (issue #165).
+  // CM's selectAll sets the selection on the document model instead, and the
+  // copy handler serializes from that model, so Copy yields the whole file.
+  // Edit mode already gets this for free via defaultKeymap's Mod-a binding.
+  { key: "Mod-a",         run: selectAll,                preventDefault: true },
   { key: " ",             run: (v) => pageScroll(v, 1),  preventDefault: true },
   { key: "Shift- ",       run: (v) => pageScroll(v, -1), preventDefault: true },
   { key: "PageDown",      run: (v) => pageScroll(v, 1),  preventDefault: true },
