@@ -8,9 +8,10 @@ import {
   buildAnchorIndex,
   linkClickExtension,
   type LinkClickHandlers,
+  linkHandlersFacet,
 } from "../../src/editor/link-clicks";
 import { createEditor, setMode } from "../../src/editor/editor";
-import { StateEffect } from "@codemirror/state";
+import { StateEffect, EditorState } from "@codemirror/state";
 
 describe("resolveLinkAt", () => {
   it("returns the href for a click inside an inline link's text", () => {
@@ -281,5 +282,26 @@ describe("linkClickExtension (integration)", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(spies.openExternal).not.toHaveBeenCalled();
     expect(spies.openLocalMarkdown).not.toHaveBeenCalled();
+  });
+});
+
+describe("linkHandlersFacet", () => {
+  it("linkClickExtension exposes its handlers through the facet", () => {
+    const handlers = {
+      openExternal: async () => {},
+      openLocalMarkdown: async () => {},
+      resolveRelativeMarkdown: async () => null,
+      scrollToAnchor: () => true,
+    };
+    const state = EditorState.create({
+      doc: "x",
+      extensions: [linkClickExtension(handlers)],
+    });
+    expect(state.facet(linkHandlersFacet)).toBe(handlers);
+  });
+
+  it("combines to null when no extension is installed", () => {
+    const state = EditorState.create({ doc: "x" });
+    expect(state.facet(linkHandlersFacet)).toBeNull();
   });
 });

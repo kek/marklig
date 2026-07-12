@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { parseMarkdown } from "../../src/editor/parser";
 import { readingWidgetsProducer } from "../../src/editor/decorations/reading-widgets";
@@ -375,5 +375,117 @@ describe("readingWidgetsProducer", () => {
     const tds = dom.querySelectorAll("td");
     expect(tds[0].querySelector("strong")?.textContent).toBe("A");
     expect(tds[1].querySelector("code")?.textContent).toBe("code");
+  });
+});
+
+describe("table cell links", () => {
+  const TABLE = "| Project |\n|---|\n| [unex](chronicle/unex.md) |\n";
+
+  function tableWidgetDom(
+    source: string,
+    facetValue: unknown = null,
+  ): HTMLElement {
+    const r = specs(source);
+    const entry = r.find(
+      (x) =>
+        (x.spec as { widget?: unknown }).widget !== undefined &&
+        (x.spec as { block?: boolean }).block === true,
+    );
+    expect(entry).toBeDefined();
+    const widget = (entry!.spec as {
+      widget: { toDOM(view: unknown): HTMLElement };
+    }).widget;
+    // TableWidget only touches the view inside its click listener, and only
+    // to read linkHandlersFacet — a state.facet stub is all it needs.
+    const fakeView = { state: { facet: () => facetValue } };
+    return widget.toDOM(fakeView);
+  }
+
+  it("renders [text](url) in a cell as a real anchor", () => {
+    const dom = tableWidgetDom(TABLE);
+    const a = dom.querySelector("td a");
+    expect(a).not.toBeNull();
+    expect(a!.getAttribute("href")).toBe("chronicle/unex.md");
+    expect(a!.textContent).toBe("unex");
+    expect(a!.className).toBe("cm-md-reading-link");
+  });
+
+  it("renders emphasis inside the link label but not inside the href", () => {
+    const dom = tableWidgetDom(
+      "| A |\n|---|\n| [see **bold**](some_file_name.md) |\n",
+    );
+    const a = dom.querySelector("td a")!;
+    expect(a.getAttribute("href")).toBe("some_file_name.md");
+    expect(a.querySelector("strong")?.textContent).toBe("bold");
+  });
+
+  it("drops a quoted title from the href", () => {
+    const dom = tableWidgetDom(
+      '| A |\n|---|\n| [t](other.md "the title") |\n',
+    );
+    const a = dom.querySelector("td a")!;
+    expect(a.getAttribute("href")).toBe("other.md");
+  });
+
+  it("neutralizes javascript: hrefs via the sanitizer", () => {
+    const dom = tableWidgetDom(
+      "| A |\n|---|\n| [x](javascript:alert(1)) |\n",
+    );
+    expect(dom.querySelector("td a[href]")).toBeNull();
+  });
+
+  it("leaves images in cells alone (lookbehind)", () => {
+    const dom = tableWidgetDom("| A |\n|---|\n| ![alt](pic.png) |\n");
+    expect(dom.querySelector("td a")).toBeNull();
+  });
+
+  it("routes a click on a relative .md link through the installed handlers", async () => {
+    const handlers = {
+      openExternal: vi.fn(async () => {}),
+      openLocalMarkdown: vi.fn(async () => {}),
+      resolveRelativeMarkdown: vi.fn(async (raw: string) => `/docs/${raw}`),
+      scrollToAnchor: vi.fn(() => true),
+    };
+    const dom = tableWidgetDom(TABLE, handlers);
+    const a = dom.querySelector("td a")!;
+    const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
+    a.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(handlers.resolveRelativeMarkdown).toHaveBeenCalledWith(
+      "chronicle/unex.md",
+    );
+    expect(handlers.openLocalMarkdown).toHaveBeenCalledWith(
+      "/docs/chronicle/unex.md",
+    );
+    expect(handlers.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("routes an external link click to openExternal", async () => {
+    const handlers = {
+      openExternal: vi.fn(async () => {}),
+      openLocalMarkdown: vi.fn(async () => {}),
+      resolveRelativeMarkdown: vi.fn(async () => null),
+      scrollToAnchor: vi.fn(() => true),
+    };
+    const dom = tableWidgetDom(
+      "| A |\n|---|\n| [docs](https://example.com) |\n",
+      handlers,
+    );
+    dom.querySelector("td a")!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(handlers.openExternal).toHaveBeenCalledWith("https://example.com");
+    expect(handlers.openLocalMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("a click with no handlers installed is inert but still consumed", () => {
+    const dom = tableWidgetDom(TABLE, null);
+    const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
+    dom.querySelector("td a")!.dispatchEvent(ev);
+    // preventDefault fires before the facet lookup so the webview never
+    // navigates, even when no handler set is installed.
+    expect(ev.defaultPrevented).toBe(true);
   });
 });

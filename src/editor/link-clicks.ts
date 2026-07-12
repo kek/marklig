@@ -18,6 +18,7 @@
 // `view.state.readOnly` and bails when the editor isn't in reading mode.
 
 import { EditorView } from "@codemirror/view";
+import { Facet } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 
 import { parseMarkdown } from "./parser";
@@ -163,40 +164,59 @@ export interface LinkClickHandlers {
   resolveRelativeMarkdown: (rawPath: string) => Promise<string | null>;
 }
 
+/** Exposes the installed LinkClickHandlers to decoration widgets whose links
+ *  live in widget DOM (e.g. table cells), where the position-based click
+ *  handler below can't see them. Widgets read this off `view.state` and route
+ *  through `dispatchLinkClick`, so every link — positional or widget-rendered —
+ *  shares one classification/dispatch path. Null when no handler set is
+ *  installed (edit-only contexts, tests). */
+export const linkHandlersFacet = Facet.define<
+  LinkClickHandlers,
+  LinkClickHandlers | null
+>({
+  combine: (values) => values[0] ?? null,
+});
+
 /** Install the reading-mode click handler. Gated on `view.state.readOnly`
  *  so edit mode keeps its native cursor-placement behavior. */
 export function linkClickExtension(handlers: LinkClickHandlers): Extension {
-  return EditorView.domEventHandlers({
-    click(event, view) {
-      if (!view.state.readOnly) return false;
-      if (event.button !== 0) return false;
-      if (event.defaultPrevented) return false;
-      // Cmd/Ctrl-click would normally let CM place a secondary cursor — we
-      // still want link behavior in reading mode (there's no cursor there
-      // anyway), so don't gate on modifiers. Shift-click is also fine.
-      const target = event.target as Node | null;
-      if (!target) return false;
-      let pos: number | null;
-      try {
-        pos = view.posAtDOM(target);
-      } catch {
-        return false;
-      }
-      if (pos == null) return false;
+  return [
+    linkHandlersFacet.of(handlers),
+    EditorView.domEventHandlers({
+      click(event, view) {
+        if (!view.state.readOnly) return false;
+        if (event.button !== 0) return false;
+        if (event.defaultPrevented) return false;
+        // Cmd/Ctrl-click would normally let CM place a secondary cursor — we
+        // still want link behavior in reading mode (there's no cursor there
+        // anyway), so don't gate on modifiers. Shift-click is also fine.
+        const target = event.target as Node | null;
+        if (!target) return false;
+        let pos: number | null;
+        try {
+          pos = view.posAtDOM(target);
+        } catch {
+          return false;
+        }
+        if (pos == null) return false;
 
-      const source = view.state.doc.toString();
-      const resolved = resolveLinkAt(source, pos);
-      if (!resolved) return false;
+        const source = view.state.doc.toString();
+        const resolved = resolveLinkAt(source, pos);
+        if (!resolved) return false;
 
-      event.preventDefault();
-      event.stopPropagation();
-      void dispatchClick(resolved.href, handlers);
-      return true;
-    },
-  });
+        event.preventDefault();
+        event.stopPropagation();
+        void dispatchLinkClick(resolved.href, handlers);
+        return true;
+      },
+    }),
+  ];
 }
 
-async function dispatchClick(
+/** Classify `href` and route it to the matching handler. Shared by the
+ *  position-based click handler above and widget-rendered links (table
+ *  cells) that reach handlers through `linkHandlersFacet`. */
+export async function dispatchLinkClick(
   href: string,
   handlers: LinkClickHandlers,
 ): Promise<void> {
