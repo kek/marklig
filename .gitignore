@@ -1,6 +1,10 @@
 # Brainstorming companion working files (not for version control)
 .superpowers/
 
+# Agent worktrees (the commission harness scaffolds throwaway worktrees here)
+.claude/worktrees/
+.worktrees/
+
 # Editor / OS
 .DS_Store
 .idea/
