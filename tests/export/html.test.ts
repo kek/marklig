@@ -9,7 +9,7 @@ const fakeKatexCss = ".katex { font-family: KaTeX_Main; }";
 // `katexCss` overrides the real stylesheet lookup.
 const fakeMermaid = async () => ({
   status: "ok" as const,
-  payload: `<svg class="mermaid-svg"><g class="node"></g></svg>`,
+  payload: `<svg class="mermaid-svg"><g class="node"><foreignObject><div class="nodeLabel">Start</div></foreignObject></g></svg>`,
 });
 
 describe("buildHtmlExport (async)", () => {
@@ -32,6 +32,10 @@ describe("buildHtmlExport (async)", () => {
     const out = await buildHtmlExport(src, { katexCss: fakeKatexCss, renderMermaid: fakeMermaid });
     expect(out).toContain("<svg");
     expect(out).toContain('class="mermaid-svg"');
+    // Injected raw (not sanitized): Mermaid's <foreignObject> HTML labels must
+    // survive verbatim — DOMPurify would strip them, dropping flowchart text.
+    expect(out).toContain("<foreignObject>");
+    expect(out).toContain('<div class="nodeLabel">Start</div>');
     // The diagram source must not survive as a code fence.
     expect(out).not.toContain("graph TD");
     expect(out).not.toContain('class="language-mermaid"');

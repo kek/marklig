@@ -2,7 +2,7 @@ import katex from "katex";
 import { renderHtml, parseMarkdown } from "../editor/parser";
 import { computeLineStarts } from "../editor/decorations/index";
 import { renderMermaid as renderMermaidSvg, type MermaidEntry } from "../editor/decorations/mermaid";
-import { sanitizeHtml, sanitizeSvg } from "./sanitize";
+import { sanitizeHtml } from "./sanitize";
 import { exportStylesheet } from "./styles";
 
 // Bundle KaTeX's stylesheet via Vite's `?inline` query when running in the
@@ -161,7 +161,13 @@ function renderBodyHtml(
     const block = mermaidBlocks[b];
     const entry = mermaidRenders.get(block.content);
     if (!entry || entry.status !== "ok") continue;
-    const html = `<div class="mermaid-diagram">${sanitizeSvg(entry.payload)}</div>`;
+    // Inject the raw Mermaid SVG, not sanitizeSvg(payload): this SVG is our own
+    // first-party Mermaid render of the user's diagram (mermaid runs with
+    // securityLevel: "strict" on the source), and the reading-view widget in
+    // src/editor/decorations/mermaid.ts injects the identical SVG raw for the
+    // same reason — DOMPurify strips Mermaid's <foreignObject> HTML labels, so
+    // sanitizing here would silently drop flowchart node/edge text.
+    const html = `<div class="mermaid-diagram">${entry.payload}</div>`;
     const ph = placeholderFor(i);
     blocks.push({ token: ph, html, display: true });
     i++;

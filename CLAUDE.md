@@ -78,7 +78,7 @@ Both libraries are async and big. Pattern: synchronous decoration producer reads
 **Sanitization is mandatory for every innerHTML path:**
 - markdown-it HTML (export, copy-as-HTML) → `sanitizeHtml` (DOMPurify, default html profile)
 - KaTeX HTML output → `sanitizeHtml`
-- Mermaid SVG → `sanitizeSvg` (DOMPurify with `USE_PROFILES: { svg: true, svgFilters: true, html: true }` — needed to keep `<foreignObject>` HTML labels)
+- Mermaid SVG → injected **raw** (NOT `sanitizeSvg`): it is our own first-party Mermaid render of the user's diagram (mermaid runs with `securityLevel: "strict"` on the source), so it's trusted. DOMPurify's `sanitizeSvg` **strips** Mermaid's `<foreignObject>` HTML labels, which would silently drop flowchart node/edge text — so both the reading-view widget (`src/editor/decorations/mermaid.ts`) and the export (`src/export/html.ts`) inject the raw SVG. `sanitizeSvg` remains for any untrusted SVG paths.
 
 The reading view itself doesn't innerHTML the document — it stays text + CM widgets — so the architectural guarantee from REQUIREMENTS §6 holds even before the sanitizer runs.
 
