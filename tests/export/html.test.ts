@@ -4,6 +4,14 @@ import { buildHtmlExport, buildHtmlExportSync } from "../../src/export/html";
 
 const fakeKatexCss = ".katex { font-family: KaTeX_Main; }";
 
+// A stand-in for the real (async, DOM-dependent) Mermaid renderer. jsdom can't
+// run Mermaid's layout engine, so tests inject a deterministic SVG the same way
+// `katexCss` overrides the real stylesheet lookup.
+const fakeMermaid = async () => ({
+  status: "ok" as const,
+  payload: `<svg class="mermaid-svg"><g class="node"></g></svg>`,
+});
+
 describe("buildHtmlExport (async)", () => {
   it("emits a complete HTML document with the given title", async () => {
     const out = await buildHtmlExport("# Hello\n\nworld\n", { title: "Doc", katexCss: fakeKatexCss });
@@ -17,6 +25,40 @@ describe("buildHtmlExport (async)", () => {
     const out = await buildHtmlExport("# H\n", { katexCss: fakeKatexCss });
     expect(out).toMatch(/<style>[^<]*--fg:/);
     expect(out).toContain(fakeKatexCss);
+  });
+
+  it("pre-renders a mermaid fence as inline SVG, not as source", async () => {
+    const src = "```mermaid\ngraph TD; A-->B;\n```\n";
+    const out = await buildHtmlExport(src, { katexCss: fakeKatexCss, renderMermaid: fakeMermaid });
+    expect(out).toContain("<svg");
+    expect(out).toContain('class="mermaid-svg"');
+    // The diagram source must not survive as a code fence.
+    expect(out).not.toContain("graph TD");
+    expect(out).not.toContain('class="language-mermaid"');
+  });
+
+  it("unwraps the block-level mermaid substitution from its <p> shell", async () => {
+    const src = "```mermaid\ngraph TD; A-->B;\n```\n";
+    const out = await buildHtmlExport(src, { katexCss: fakeKatexCss, renderMermaid: fakeMermaid });
+    expect(out).not.toMatch(/<p>\s*<div class="mermaid-diagram">/);
+  });
+
+  it("keeps surrounding markdown around a rendered diagram", async () => {
+    const src = "# Title\n\n```mermaid\ngraph TD; A-->B;\n```\n\nAfter\n";
+    const out = await buildHtmlExport(src, { katexCss: fakeKatexCss, renderMermaid: fakeMermaid });
+    expect(out).toContain("<h1>Title</h1>");
+    expect(out).toContain("<p>After</p>");
+    expect(out).toContain("<svg");
+  });
+
+  it("degrades a failed mermaid diagram to its source fence instead of breaking the export", async () => {
+    const failing = async () => ({ status: "error" as const, payload: "Parse error on line 1" });
+    const src = "```mermaid\nnot a diagram\n```\n";
+    const out = await buildHtmlExport(src, { katexCss: fakeKatexCss, renderMermaid: failing });
+    expect(out).not.toContain("<svg");
+    // Body still complete and the source is preserved as a code block.
+    expect(out).toMatch(/^<!DOCTYPE html>/);
+    expect(out).toContain("not a diagram");
   });
 });
 
@@ -65,6 +107,12 @@ describe("buildHtmlExportSync", () => {
     const out = buildHtmlExportSync("$a$ and $b$\n");
     const matches = out.match(/class="katex"/g);
     expect(matches?.length).toBe(2);
+  });
+
+  it("leaves mermaid fences as source (no async renderer available)", () => {
+    const out = buildHtmlExportSync("```mermaid\ngraph TD; A-->B;\n```\n");
+    expect(out).not.toContain("<svg");
+    expect(out).toContain("A--&gt;B");
   });
 
   it("does not tokenize math inside inline backtick code", () => {

@@ -56,11 +56,14 @@ tbody tr:nth-child(even) { background: rgba(0,0,0,0.025); }
 img { max-width: 100%; height: auto; }
 hr { border: none; border-top: 1px solid var(--rule); margin: 24px 0; }
 .katex-display { margin: 14px 0; text-align: center; overflow-x: auto; }
+.mermaid-diagram { margin: 14px 0; text-align: center; overflow-x: auto; }
+.mermaid-diagram svg { max-width: 100%; height: auto; }
 @media print {
   body { max-width: none; padding: 0; background: #fff; color: #000; }
   a { color: inherit; text-decoration: underline; }
   pre, code, blockquote { page-break-inside: avoid; }
   h1, h2, h3 { page-break-after: avoid; }
+  .mermaid-diagram { page-break-inside: avoid; }
 }
 `;
 }

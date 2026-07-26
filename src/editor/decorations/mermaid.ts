@@ -6,7 +6,7 @@ import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
 import { t } from "../../i18n/strings";
 
-interface MermaidEntry {
+export interface MermaidEntry {
   status: "ok" | "error";
   /** Rendered SVG markup, or the error message. */
   payload: string;
@@ -43,7 +43,15 @@ class MermaidCache {
 
 let idSeq = 0;
 
-async function renderMermaid(source: string): Promise<MermaidEntry> {
+/**
+ * Render a single Mermaid diagram source to an SVG. Shared by the live-preview
+ * cache and the synchronous-substitution export pipeline (`src/export/html.ts`),
+ * which pre-renders every diagram before building the HTML so both surfaces
+ * produce identical SVGs. A parse/render failure resolves to a
+ * `status: "error"` entry rather than throwing, so one bad diagram degrades
+ * gracefully instead of breaking the whole render.
+ */
+export async function renderMermaid(source: string): Promise<MermaidEntry> {
   try {
     const mod = await import("mermaid");
     const mermaid = mod.default;
