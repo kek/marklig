@@ -55,7 +55,7 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, saveMarkdownAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, savePdfExport, saveMarkdownAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
@@ -1533,6 +1533,11 @@ async function bootstrap(): Promise<void> {
       const defaultName = exportFileNameFromPath(currentPath, "html");
       await saveHtmlExport(html, defaultName);
     },
+    exportPdf: async () => {
+      const html = await buildCurrentHtml();
+      const defaultName = exportFileNameFromPath(currentPath, "pdf");
+      await savePdfExport(html, defaultName);
+    },
     printDocument: () => {
       void (async () => {
         const html = await buildCurrentHtml();
@@ -1680,6 +1685,7 @@ async function bootstrap(): Promise<void> {
       openRecent: (path) => dispatchToFocused({ type: "openRecent", path }),
       clearRecents: () => dispatchToFocused({ type: "clearRecents" }),
       exportHtml: () => dispatchToFocused({ type: "exportHtml" }),
+      exportPdf: () => dispatchToFocused({ type: "exportPdf" }),
       printDocument: () => { void dispatchToFocused({ type: "printDocument" }); },
       copyAsHtml: () => dispatchToFocused({ type: "copyAsHtml" }),
       openPreferences: () => dispatchToFocused({ type: "openPreferences" }),

@@ -78,6 +78,7 @@ export const EN = {
   "menu.file.saveAs": "Save As…",
   "menu.file.export": "Export",
   "menu.file.export.html": "HTML…",
+  "menu.file.export.pdf": "PDF…",
   "menu.file.print": "Print…",
   "menu.file.goToFile": "Go to File…",
   "menu.file.revealMac": "Reveal in Finder",

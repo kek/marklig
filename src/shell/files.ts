@@ -97,6 +97,23 @@ export async function saveHtmlExport(
   return dest;
 }
 
+/** Prompt for a PDF save destination, then render the export HTML to a PDF
+ * via the native webview-to-PDF command and write it there. Returns the
+ * destination path on success, null if the user cancels the dialog. */
+export async function savePdfExport(
+  html: string,
+  defaultName: string,
+): Promise<string | null> {
+  const dest = await save({
+    title: "Export as PDF",
+    defaultPath: defaultName,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (typeof dest !== "string") return null;
+  await invoke("export_pdf", { html, destPath: dest });
+  return dest;
+}
+
 /** Prompt for a save destination and write the Typst file contents. Returns
  * the chosen path on success, null on cancel. Used by File → New Typst File
  * to create the initial .typ file on disk. */

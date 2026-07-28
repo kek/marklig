@@ -30,6 +30,7 @@ export interface MenuHandlers {
   openRecent: (path: string) => Promise<void>;
   clearRecents: () => Promise<void>;
   exportHtml: () => Promise<void>;
+  exportPdf: () => Promise<void> | void;
   printDocument: () => void;
   copyAsHtml: () => Promise<void>;
   openPreferences: () => Promise<void>;
@@ -196,6 +197,11 @@ export async function buildAndAttachMenu(handlers: MenuHandlers): Promise<Menu> 
             id: "export-html",
             text: t("menu.file.export.html"),
             action: () => { void handlers.exportHtml(); },
+          }),
+          await MenuItem.new({
+            id: "export-pdf",
+            text: t("menu.file.export.pdf"),
+            action: () => { void handlers.exportPdf(); },
           }),
         ],
       }),

@@ -169,6 +169,7 @@ pub fn run() {
             commands::files::canonicalize_path,
             commands::files::reveal_in_file_manager,
             commands::recents_os::register_recent_document,
+            commands::export_pdf::export_pdf,
             commands::folder_watcher::folder_watcher_start,
             commands::folder_watcher::folder_watcher_stop,
             commands::cli_tool::install_cli_tool,

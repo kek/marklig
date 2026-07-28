@@ -59,6 +59,12 @@ tempfile = "3"
 [target.'cfg(target_os = "macos")'.dependencies]
 # OS-level recent-documents integration (NSDocumentController). Surfaces
 # opened files in macOS surfaces like the Dock icon's right-click menu.
+# Also drives WKWebView.createPDF for native "Export as PDF…" (issue #55) —
+# hence objc2-web-kit (WKWebView), objc2-core-foundation (CGRect), and block2
+# (the createPDF completion block).
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
+objc2-web-kit = "0.3"
+objc2-core-foundation = "0.3"
+block2 = "0.6"

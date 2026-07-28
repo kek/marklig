@@ -7,6 +7,8 @@
 #[cfg(desktop)]
 pub mod cli_tool;
 #[cfg(desktop)]
+pub mod export_pdf;
+#[cfg(desktop)]
 pub mod files;
 #[cfg(desktop)]
 pub mod folder_watcher;

@@ -28,6 +28,7 @@ export type MenuAction =
   | { type: "openRecent"; path: string }
   | { type: "clearRecents" }
   | { type: "exportHtml" }
+  | { type: "exportPdf" }
   | { type: "printDocument" }
   | { type: "copyAsHtml" }
   | { type: "openPreferences" }
@@ -56,6 +57,7 @@ export interface LocalMenuHandlers {
   openRecent: (path: string) => Promise<void>;
   clearRecents: () => Promise<void>;
   exportHtml: () => Promise<void>;
+  exportPdf: () => Promise<void>;
   printDocument: () => void;
   copyAsHtml: () => Promise<void>;
   openPreferences: () => Promise<void>;
@@ -100,6 +102,7 @@ export async function installMenuActionListener(
       case "openRecent": await handlers.openRecent(a.path); break;
       case "clearRecents": await handlers.clearRecents(); break;
       case "exportHtml": await handlers.exportHtml(); break;
+      case "exportPdf": await handlers.exportPdf(); break;
       case "printDocument": handlers.printDocument(); break;
       case "copyAsHtml": await handlers.copyAsHtml(); break;
       case "openPreferences": await handlers.openPreferences(); break;
