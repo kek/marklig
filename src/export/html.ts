@@ -65,34 +65,6 @@ ${body}
 `;
 }
 
-// Synchronous variant for callers that don't need KaTeX CSS inlined (e.g.
-// copy-as-HTML to clipboard — receivers typically have their own styling
-// or don't render math).
-export function buildHtmlExportSync(
-  source: string,
-  opts: BuildHtmlExportOptions = {},
-): string {
-  const title = escapeHtml(opts.title ?? "Markdown export");
-  // No async pass here, so Mermaid diagrams can't be pre-rendered — they fall
-  // through to their source fence (the map is empty).
-  const body = renderBodyHtml(source, new Map());
-  const css = `${exportStylesheet()}\n/* katex */\n${opts.katexCss ?? ""}`;
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title}</title>
-<style>${css}</style>
-</head>
-<body>
-${body}
-</body>
-</html>
-`;
-}
-
 // Pure-ASCII placeholder that markdown-it won't touch and that's improbable
 // to appear in user content. Avoids the leading/trailing whitespace problem:
 // markdown-it strips whitespace inside <p>, so a placeholder ` MATH0 ` ends
@@ -152,8 +124,8 @@ function renderBodyHtml(
   // Mermaid first: swap each successfully pre-rendered diagram for a block
   // placeholder (surrounded by blank lines so markdown-it gives it its own
   // <p>, which we later unwrap — the SVG is itself a block element). Blocks
-  // with no "ok" render (failed diagrams, or the sync path with no renderer)
-  // are left untouched and fall through to normal fenced-code rendering.
+  // with no "ok" render (a diagram Mermaid couldn't parse) are left untouched
+  // and fall through to normal fenced-code rendering.
   // Substitutions run back-to-front so earlier source offsets stay valid.
   const mermaidBlocks = collectMermaidBlocks(source);
   let pre = source;
