@@ -61,7 +61,7 @@ Shipped as a single iterative pass on top of Foundation rather than a fresh spec
 
 **Copy as HTML.** `Cmd/Ctrl + Shift + C` writes a `ClipboardItem` with both `text/html` and a `text/plain` fallback (the latter for terminal/plain-text receivers).
 
-**Mermaid in exports** is not in this slice — Mermaid is async per-instance and would block the synchronous export. Fenced `mermaid` blocks export as their source for now.
+**Mermaid in exports** (issue #56). Fenced `mermaid` blocks render as inline SVG in every export surface, not as their source. Mermaid is async per-instance, so — mirroring the math pipeline — `buildHtmlExport` pre-renders each distinct diagram up front (`prerenderMermaid`, deduped by source string) and the synchronous body pass substitutes the SVGs through the same placeholder mechanism math uses. The fences are located with the same token + line-start logic as the live-preview `mermaidProducer`, so the export renders exactly the blocks the reader sees. The SVG is injected raw rather than through `sanitizeSvg` — it is our own first-party render of the user's diagram (Mermaid runs `securityLevel: "strict"` on the source), and DOMPurify strips Mermaid's `<foreignObject>` HTML labels, which would silently drop flowchart node/edge text. A diagram that fails to parse degrades to its original fenced code block instead of breaking the export. The synchronous `buildHtmlExportSync` (copy-as-HTML) has no async pass and so still emits `mermaid` fences as source.
 
 ---
 
@@ -137,7 +137,7 @@ De-scoped from the v1 sub-specs because they can't be meaningfully built or veri
 - **macOS Quick Look extension.** Extension target (PR #10) is code-complete and renders Markdown via Quick Look, but the bundle has to be signed with a Developer ID Application cert and notarized before macOS will load it from an installed app. Blocked on paid Apple Developer membership + notarization pipeline; do **not** re-investigate the format / ExtensionKit angles.
 - **Auto-updater.** `tauri-plugin-updater` integration with stable / pre-release / off channels, consent-required apply. Blocked on signing keys (same Developer ID dependency as Quick Look on macOS) and an update-feed host. Pure infra blocker — the code shape is well-trodden.
 - **Native print-to-PDF on Windows/Linux.** The first-class "Export as PDF…" entry shipped for macOS (WKWebView.createPDF, issue #55; see sub-spec C). Windows (WebView2 `PrintToPdf`) and Linux (WebKitGTK print operation) still fall back to the OS print dialog's "Save as PDF" — wiring their native captures needs those dev environments.
-- **Mermaid in HTML exports.** Mermaid is async per-instance; rendering during a synchronous export pass would block. Either pre-render all diagrams ahead of `buildHtmlExport` or move the export pipeline to async. Fenced `mermaid` blocks currently export as source.
+
 When the infra/access blockers lift (Apple Developer cert + notarization pipeline; access to Windows + Linux dev environments), promote items back into a sub-spec.
 
 ---
