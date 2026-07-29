@@ -110,8 +110,22 @@ wild with a derived pair key, changing them invalidates every paired
 device. Bump the `-v1` suffix as a deliberate migration when changing.
 
 Tests live alongside the crate (`crates/marklig-sync-core/tests/`).
-The crate has no consumers in code yet — steps 5 (desktop pairing UX),
-6 (LAN transport), and 7 (phone pairing UI) wire it up.
+The crate is wired up on both sides: `pairing.rs` and `pairing_ws.rs`
+(desktop pairing + transport), `sync_log.rs` / `sync_watcher.rs` (op log
+and live push), and `commands/mobile_pairing.rs` / `commands/mobile_sync.rs`
+(phone side).
+
+**Pairing discovery** (`src-tauri/src/mdns.rs`) announces
+`_marklig-sync._tcp` — instance name, `WS_PORT`, TXT `proto=ws` — for as
+long as the pairing WS server is armed, and offers `mdns_browse_peers` /
+`mdns_resolve_instance` for finding a desktop by name. Keep the
+announcement's lifetime tied to the arm state: advertising a desktop that
+would refuse the handshake is worse than not advertising at all.
+`src-tauri/tests/mdns_discovery.rs` exercises it over real multicast and
+includes negative guards, so a resolve that quietly matches the wrong peer
+fails the suite rather than passing. The **phone** still dials the QR's
+`host` address (`src/shell/mobile-sync-client.ts`), so zero-config
+reconnect is not yet end-to-end.
 
 ### Mobile target (Android, v2 companion in progress)
 

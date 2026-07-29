@@ -54,10 +54,14 @@ impl PairId {
 /// What the desktop encodes into the QR. The phone scans this and gets
 /// everything it needs to drive a handshake:
 /// - `responder_static_pubkey`: authenticates the desktop;
-/// - `host`: the desktop's reachable LAN address (v2.0-alpha — once
-///   mDNS lands in v2.x, the host is resolved from `mdns_instance_name`
-///   instead and this field can be empty);
-/// - `mdns_instance_name`: forward-compat placeholder for v2.x;
+/// - `host`: the desktop's reachable LAN address. Still the address the
+///   Android client actually dials, and still the fallback for a peer that
+///   can't browse mDNS — so it stays populated, and goes stale on a DHCP
+///   change until the phone learns to prefer the name below;
+/// - `mdns_instance_name`: the name the desktop announces under
+///   `_marklig-sync._tcp` while its pairing server is armed. No longer a
+///   placeholder — the desktop half is live (`src-tauri/src/mdns.rs`), so a
+///   peer that resolves this gets a current address instead of a frozen one;
 /// - `expiry_unix`: a short window after which the QR is stale.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct QrPayload {

@@ -40,6 +40,14 @@ local-ip-address = "0.6"
 notify = "6"
 notify-debouncer-full = "0.3"
 ignore = "0.4"
+# Zero-config pairing discovery (`_marklig-sync._tcp`). Pure Rust — no
+# Bonjour/Avahi system daemon to link against, unlike `zeroconf`/
+# `astro-dnssd`, which matters for a self-contained Tauri bundle. Unlike
+# `libmdns` (responder only) it does both halves: register the desktop's
+# service and browse/resolve a peer's. `default-features = false` drops
+# the async (flume/async) and log shims; the daemon runs on its own
+# thread and we talk to it over blocking channels.
+mdns-sd = { version = "0.20", default-features = false }
 # Cross-platform "move to OS trash" with an unlink fallback in the command
 # wrapper. macOS NSFileManager, Windows IFileOperation, freedesktop on Linux.
 trash = "5"

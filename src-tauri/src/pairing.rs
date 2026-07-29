@@ -74,6 +74,10 @@ pub struct PairingState {
     /// [`PairingState::ensure_keys`], persisted in the store.
     static_keypair: Mutex<Option<StaticKeypair>>,
     stage: Mutex<HandshakeStage>,
+    /// Owns the `_marklig-sync._tcp` announcement. Armed alongside the
+    /// pairing WS server and withdrawn alongside it, so the service is
+    /// only discoverable while a handshake would actually be accepted.
+    announcer: Mutex<crate::mdns::PairingAnnouncer>,
 }
 
 #[derive(Clone)]
@@ -87,6 +91,16 @@ impl PairingState {
         Self {
             static_keypair: Mutex::new(None),
             stage: Mutex::new(HandshakeStage::Idle),
+            announcer: Mutex::new(crate::mdns::PairingAnnouncer::new()),
+        }
+    }
+
+    /// Withdraw the `_marklig-sync._tcp` announcement, if one is up.
+    /// Best-effort — callers are on paths (pairing completed, pairing
+    /// cancelled) where there is nothing useful to do about a failure.
+    pub fn stop_announcing(&self) {
+        if let Ok(mut announcer) = self.announcer.lock() {
+            let _ = announcer.stop();
         }
     }
 }
@@ -259,6 +273,25 @@ pub fn pairing_start<R: Runtime>(
     crate::pairing_ws::arm(&app, kp.private)
         .map_err(|e| PairingError::State(format!("arm WS: {e}")))?;
 
+    // Announce `_marklig-sync._tcp` so a peer can find this desktop by the
+    // instance name in the QR instead of the `host` address beside it. The
+    // address is still sent, as the v2.0-alpha fallback for a phone that
+    // can't browse mDNS. A failure here is not fatal: the QR remains
+    // scannable and pairing still works via the address, so we log and
+    // carry on rather than aborting a pairing the user just started.
+    match state
+        .announcer
+        .lock()
+        .map_err(|e| PairingError::State(format!("announcer lock poisoned: {e}")))
+    {
+        Ok(mut announcer) => {
+            if let Err(e) = announcer.start(&instance, crate::pairing_ws::WS_PORT) {
+                eprintln!("mdns: announcing {instance} failed, address-only pairing: {e}");
+            }
+        }
+        Err(e) => eprintln!("mdns: {e}"),
+    }
+
     Ok(PairingStarted {
         qr_payload: qr,
         // Verification fingerprint is computed from the eventual pair
@@ -279,6 +312,9 @@ pub fn pairing_cancel<R: Runtime>(
     })?;
     *stage = HandshakeStage::Idle;
     let _ = crate::pairing_ws::disarm(&app);
+    // Withdraw the announcement in the same breath as disarming the server.
+    // Leaving it up would advertise a desktop that now refuses handshakes.
+    state.stop_announcing();
     Ok(())
 }
 
