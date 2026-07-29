@@ -7,9 +7,13 @@
 //! authoring.
 //!
 //! Trade-offs documented in CLAUDE.md and the issue:
-//! - Manual IP entry on the phone (no zero-config discovery).
 //! - WebSocket framing instead of raw TCP — slightly more overhead.
-//! - mDNS service announcement deferred to v2.x.
+//! - Manual IP entry on the phone. Half-resolved: the desktop now
+//!   announces `_marklig-sync._tcp` while armed (see [`crate::mdns`], which
+//!   `arm`/`disarm` keep in step with this server), so a peer *can* resolve
+//!   this port by instance name. The Android client still dials the address
+//!   from the QR payload, so the phone half of zero-config discovery is
+//!   outstanding.
 //!
 //! Security model unchanged: Noise XK still authenticates the desktop's
 //! static key via QR (visual out-of-band channel); the per-file envelope
@@ -186,6 +190,14 @@ async fn handle_pairing<R: Runtime>(
     let transport: TransportPair = responder.finish()?;
     let meta: PairingMeta = finalize_pairing(&app, transport, friendly_name)
         .map_err(|e: PairingError| e.to_string())?;
+
+    // The pending slot was taken at the top of this function, so the server
+    // is no longer armed — withdraw the mDNS announcement to match, or a
+    // desktop that has finished pairing keeps advertising a service that
+    // now rejects handshakes.
+    if let Some(pairing_state) = app.try_state::<crate::pairing::PairingState>() {
+        pairing_state.stop_announcing();
+    }
 
     // Tell the desktop frontend the modal can close + the registry
     // refreshed.

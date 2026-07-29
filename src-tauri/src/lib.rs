@@ -1,6 +1,11 @@
 mod commands;
 #[cfg(target_os = "macos")]
 mod mac_tao_patch;
+// `mdns` is public so the discovery integration test can drive the
+// announcer and the resolver directly, the way `typst` is exposed for
+// `typst_basic.rs`.
+#[cfg(desktop)]
+pub mod mdns;
 #[cfg(desktop)]
 mod pairing;
 #[cfg(desktop)]
@@ -179,6 +184,8 @@ pub fn run() {
             pairing::pairing_unpair,
             pairing::folder_sync_enable,
             pairing::folder_sync_disable,
+            self::mdns::mdns_browse_peers,
+            self::mdns::mdns_resolve_instance,
             self::typst::typst_open,
             self::typst::typst_compile,
             self::typst::typst_close,
