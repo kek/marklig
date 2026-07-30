@@ -8,12 +8,14 @@
 //!
 //! Trade-offs documented in CLAUDE.md and the issue:
 //! - WebSocket framing instead of raw TCP — slightly more overhead.
-//! - Manual IP entry on the phone. Half-resolved: the desktop now
-//!   announces `_marklig-sync._tcp` while armed (see [`crate::mdns`], which
-//!   `arm`/`disarm` keep in step with this server), so a peer *can* resolve
-//!   this port by instance name. The Android client still dials the address
-//!   from the QR payload, so the phone half of zero-config discovery is
-//!   outstanding.
+//! - Manual IP entry on the phone. Resolved: this server announces
+//!   `_marklig-sync._tcp` (see [`crate::mdns`]) from the moment its
+//!   listener binds until the app exits, and the Android client resolves
+//!   that name when its stored address stops answering. The announcement
+//!   is deliberately tied to *this* server's bind rather than to the
+//!   pairing modal, because a reconnecting phone is asking whether sync is
+//!   reachable — which the `subscribe` / `sync_request` paths below answer
+//!   without consulting the pairing arm state at all.
 //!
 //! Security model unchanged: Noise XK still authenticates the desktop's
 //! static key via QR (visual out-of-band channel); the per-file envelope
@@ -44,6 +46,11 @@ pub struct WsServerState {
     /// `pairing_cancel`. After a successful pairing, the field is
     /// auto-cleared.
     pub pending: Mutex<Option<PendingPairing>>,
+    /// Owns the `_marklig-sync._tcp` announcement. It lives here, not in
+    /// `PairingState`, because its lifetime is this server's listener: up
+    /// once the bind succeeds, down when the app drops this state. Nothing
+    /// during a session withdraws it.
+    announcer: Mutex<crate::mdns::SyncAnnouncer>,
 }
 
 pub struct PendingPairing {
@@ -54,6 +61,7 @@ impl WsServerState {
     pub fn new() -> Self {
         Self {
             pending: Mutex::new(None),
+            announcer: Mutex::new(crate::mdns::SyncAnnouncer::default()),
         }
     }
 }
@@ -65,9 +73,12 @@ impl Default for WsServerState {
 }
 
 /// Spin up the WS server in the background. Called once from `lib.rs`'s
-/// setup. The server runs for the app's lifetime — connections are
-/// rejected when no pairing is pending (or, in step-6/7-future-work,
-/// authenticated against the registry for sync sessions).
+/// setup. The server runs for the app's lifetime — pairing handshakes are
+/// rejected when no pairing is pending, while `sync_request` / `subscribe`
+/// from an already-paired phone are served for the whole session.
+///
+/// The bind is also what decides whether this desktop advertises itself:
+/// see [`announce_for_listener`].
 pub fn spawn_server<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let addr: SocketAddr = ([0, 0, 0, 0], WS_PORT).into();
@@ -75,10 +86,18 @@ pub fn spawn_server<R: Runtime>(app: AppHandle<R>) {
             Ok(l) => l,
             Err(e) => {
                 eprintln!("pairing-ws: failed to bind {addr}: {e}");
+                // Stay silent on mDNS. Advertising now would publish an
+                // address whose port refuses every connection, and a phone
+                // that resolved it would drop a stored address that still
+                // worked.
+                announce_for_listener(&app, None);
                 return;
             }
         };
         eprintln!("pairing-ws: listening on {addr}");
+        // Answerable from here on, so say so — for the rest of the session,
+        // not just while a pairing modal is open.
+        announce_for_listener(&app, Some(WS_PORT));
 
         loop {
             let (tcp, peer) = match listener.accept().await {
@@ -96,6 +115,37 @@ pub fn spawn_server<R: Runtime>(app: AppHandle<R>) {
             });
         }
     });
+}
+
+/// Publish or withhold the `_marklig-sync._tcp` announcement according to
+/// whether this server's listener is bound. `None` means the bind failed.
+///
+/// Best-effort: a desktop that cannot announce is still fully usable over
+/// the address in its QR, so a failure here is logged rather than fatal.
+fn announce_for_listener<R: Runtime>(app: &AppHandle<R>, listening: Option<u16>) {
+    // Clone the Arc out rather than holding the `State` borrow: the guard
+    // below outlives it otherwise.
+    let Some(state) = app
+        .try_state::<Arc<WsServerState>>()
+        .map(|s| s.inner().clone())
+    else {
+        eprintln!("mdns: WsServerState not mounted, not announcing");
+        return;
+    };
+    let instance = crate::mdns::instance_name();
+    // Bound, not matched in tail position: the guard's temporary would
+    // otherwise outlive `state` and fail to borrow-check.
+    let locked = state.announcer.lock();
+    match locked {
+        Ok(mut announcer) => {
+            match crate::mdns::announce_listening(&mut announcer, listening, &instance) {
+                Ok(Some(fullname)) => eprintln!("mdns: announcing {fullname}"),
+                Ok(None) => {}
+                Err(e) => eprintln!("mdns: announcing {instance} failed: {e}"),
+            }
+        }
+        Err(e) => eprintln!("mdns: announcer lock poisoned: {e}"),
+    }
 }
 
 async fn handle_connection<R: Runtime>(
@@ -191,13 +241,10 @@ async fn handle_pairing<R: Runtime>(
     let meta: PairingMeta = finalize_pairing(&app, transport, friendly_name)
         .map_err(|e: PairingError| e.to_string())?;
 
-    // The pending slot was taken at the top of this function, so the server
-    // is no longer armed — withdraw the mDNS announcement to match, or a
-    // desktop that has finished pairing keeps advertising a service that
-    // now rejects handshakes.
-    if let Some(pairing_state) = app.try_state::<crate::pairing::PairingState>() {
-        pairing_state.stop_announcing();
-    }
+    // The announcement stays up. The pending slot was taken at the top of
+    // this function, so no further handshake will be accepted — but this
+    // phone has just become one that reconnects for *sync*, and the whole
+    // point of the announcement is to still be there when it does.
 
     // Tell the desktop frontend the modal can close + the registry
     // refreshed.
