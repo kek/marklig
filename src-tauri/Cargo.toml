@@ -32,6 +32,20 @@ futures-util = "0.3"
 base64 = "0.22"
 local-ip-address = "0.6"
 
+# Zero-config pairing discovery (`_marklig-sync._tcp`). Pure Rust — no
+# Bonjour/Avahi system daemon to link against, unlike `zeroconf`/
+# `astro-dnssd`, which matters for a self-contained Tauri bundle. Unlike
+# `libmdns` (responder only) it does both halves: register the desktop's
+# service and browse/resolve a peer's. `default-features = false` drops
+# the async (flume/async) and log shims; the daemon runs on its own
+# thread and we talk to it over blocking channels.
+#
+# Not in the desktop-only block below: the desktop announces, but the *phone*
+# is what has to resolve — that is the whole point of announcing by name, and
+# a dependency the mobile target does not get would make the discovery
+# commands unregisterable there.
+mdns-sd = { version = "0.20", default-features = false }
+
 # Desktop-only filesystem watching + ignore-aware traversal. Android does
 # not have a stable cross-OEM fs watcher, and the standalone mobile shell
 # uses Storage Access Framework tree URIs rather than path walks. See the
@@ -40,14 +54,6 @@ local-ip-address = "0.6"
 notify = "6"
 notify-debouncer-full = "0.3"
 ignore = "0.4"
-# Zero-config pairing discovery (`_marklig-sync._tcp`). Pure Rust — no
-# Bonjour/Avahi system daemon to link against, unlike `zeroconf`/
-# `astro-dnssd`, which matters for a self-contained Tauri bundle. Unlike
-# `libmdns` (responder only) it does both halves: register the desktop's
-# service and browse/resolve a peer's. `default-features = false` drops
-# the async (flume/async) and log shims; the daemon runs on its own
-# thread and we talk to it over blocking channels.
-mdns-sd = { version = "0.20", default-features = false }
 # Cross-platform "move to OS trash" with an unlink fallback in the command
 # wrapper. macOS NSFileManager, Windows IFileOperation, freedesktop on Linux.
 trash = "5"

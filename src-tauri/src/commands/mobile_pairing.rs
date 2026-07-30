@@ -80,7 +80,10 @@ pub async fn mobile_pairing_start<R: Runtime>(
     let _ = tx.close().await;
 
     // Persist on the phone side so the library can show paired desktops
-    // and (step 6 sync work) the sync engine can address them.
+    // and (step 6 sync work) the sync engine can address them. The QR's
+    // instance name goes in beside the address: the address is what we just
+    // dialed, the name is how the sync client finds this desktop again once
+    // DHCP has moved it.
     persist_phone_pairing(
         &app,
         &pair_id_hex,
@@ -88,6 +91,7 @@ pub async fn mobile_pairing_start<R: Runtime>(
         &fingerprint,
         &transport.pair_key.0,
         &args.host,
+        &qr.mdns_instance_name,
     )?;
 
     Ok(MobilePairResult {
@@ -143,6 +147,7 @@ fn ensure_initiator_keypair<R: Runtime>(
     Ok(InitiatorKeypair { private, public })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn persist_phone_pairing<R: Runtime>(
     app: &AppHandle<R>,
     pair_id_hex: &str,
@@ -150,6 +155,7 @@ fn persist_phone_pairing<R: Runtime>(
     fingerprint: &str,
     pair_key: &[u8; 32],
     last_host: &str,
+    mdns_instance_name: &str,
 ) -> Result<(), String> {
     let store = tauri_plugin_store::StoreExt::store(app, "viewer.store.json")
         .map_err(|e| e.to_string())?;
@@ -157,18 +163,20 @@ fn persist_phone_pairing<R: Runtime>(
         .get("mobile.pairings")
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
-    let now = now_unix();
+    // The record's contents live in `mobile_pairing_record`, which — unlike
+    // this `#[cfg(mobile)]` module — is compiled and tested on the host.
     map.insert(
         pair_id_hex.to_string(),
-        serde_json::json!({
-            "pair_id_hex": pair_id_hex,
-            "friendly_name": friendly_name,
-            "verification_fingerprint": fingerprint,
-            "paired_at_unix": now,
-            "last_seen_at_unix": now,
-            "pair_key": hex_32(pair_key),
-            "last_host": last_host,
-        }),
+        crate::mobile_pairing_record::PhonePairing {
+            pair_id_hex,
+            friendly_name,
+            verification_fingerprint: fingerprint,
+            pair_key_hex: &hex_32(pair_key),
+            last_host,
+            mdns_instance_name,
+            now_unix: now_unix(),
+        }
+        .to_json(),
     );
     store.set("mobile.pairings", serde_json::Value::Object(map));
     store.save().map_err(|e| e.to_string())?;

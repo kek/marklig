@@ -13,7 +13,15 @@ export interface MobilePairing {
   verification_fingerprint: string;
   paired_at_unix: number;
   last_seen_at_unix: number;
+  /** The desktop's address as of the last successful contact. A starting
+   *  point, not the truth: DHCP moves it, and `SyncClient` rewrites this from
+   *  mDNS when it does. */
   last_host?: string;
+  /** The name the desktop announces itself under (`QrPayload`'s
+   *  `mdns_instance_name`), so a moved `last_host` can be resolved afresh.
+   *  Absent on pairings made before it was persisted — those have only the
+   *  stored address, and must never be resolved by guesswork. */
+  mdns_instance_name?: string;
 }
 
 export interface MobilePairingStartArgs {
