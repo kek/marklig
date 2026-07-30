@@ -3,9 +3,12 @@ mod commands;
 mod mac_tao_patch;
 // `mdns` is public so the discovery integration test can drive the
 // announcer and the resolver directly, the way `typst` is exposed for
-// `typst_basic.rs`.
-#[cfg(desktop)]
+// `typst_basic.rs`. Not gated to desktop: the announcer half is desktop-only
+// in practice, but `resolve_instance`/`browse_peers` are what the phone uses
+// to find a desktop whose address has moved, so the module has to exist in a
+// mobile build.
 pub mod mdns;
+pub mod mobile_pairing_record;
 #[cfg(desktop)]
 mod pairing;
 #[cfg(desktop)]
@@ -201,6 +204,13 @@ pub fn run() {
         commands::mobile_sync::mobile_read_synced_file,
         commands::mobile_sync::mobile_unpair,
         commands::mobile_sync::mobile_apply_sync_op,
+        // The phone's half of the DHCP fix: `resolve` is what the sync client
+        // calls when the desktop's stored address stops answering. `browse` has
+        // no caller on the phone yet — pairing takes its host from the QR — but
+        // the two are one API, and a mobile build that has only half of it
+        // would be a trap for the next person to reach for the other half.
+        self::mdns::mdns_browse_peers,
+        self::mdns::mdns_resolve_instance,
     ]);
 
     let app = builder

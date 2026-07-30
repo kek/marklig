@@ -14,6 +14,16 @@ vi.mock("../../src/shell/store", () => ({
   }),
 }));
 
+// Mock the mDNS wrapper so the resolve/fallback rule can be driven directly.
+// What a trustworthy reply looks like is covered by tests/shell/mdns.test.ts.
+const resolvePeerAddress = vi.fn<
+  (instanceName: string, timeoutMs?: number) => Promise<{ host: string; port: number } | null>
+>();
+vi.mock("../../src/shell/mdns", () => ({
+  resolvePeerAddress: (instanceName: string, timeoutMs?: number) =>
+    resolvePeerAddress(instanceName, timeoutMs),
+}));
+
 // Capture CustomEvents dispatched on window
 const dispatchedEvents: CustomEvent[] = [];
 const origDispatch = window.dispatchEvent.bind(window);
@@ -71,9 +81,11 @@ const PAIR: { pair_id_hex: string; friendly_name: string; verification_fingerpri
 };
 
 beforeEach(() => {
+  resolvePeerAddress.mockReset();
+  resolvePeerAddress.mockResolvedValue(null);
   lastWsInstance = null;
   dispatchedEvents.length = 0;
-  vi.clearAllMocks();
+  vi.mocked(invoke).mockClear();
   Object.keys(storeData).forEach((k) => delete storeData[k]);
 });
 
@@ -244,6 +256,187 @@ describe("reconnect on error", () => {
     // After initial backoff (2 s) a new WS is created
     await vi.advanceTimersByTimeAsync(2100);
     expect(lastWsInstance).not.toBe(firstWs);
+
+    client.stop();
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolve-then-dial. The stored address is tried until it lets us down; only
+// then is the instance name resolved, so a working reconnect costs no mDNS
+// round trip and a DHCP lease change stops being fatal.
+// ---------------------------------------------------------------------------
+
+const PAIR_MDNS = { ...PAIR, mdns_instance_name: "marklig-laptop" };
+
+/** The phone's stored pairing record, including the field the TS interface
+ *  does not name — a host rewrite must not drop the pair key. */
+function seedStoredPairing(instanceName?: string) {
+  storeData["mobile.pairings"] = {
+    [PAIR.pair_id_hex]: {
+      pair_id_hex: PAIR.pair_id_hex,
+      friendly_name: PAIR.friendly_name,
+      verification_fingerprint: PAIR.verification_fingerprint,
+      paired_at_unix: 0,
+      last_seen_at_unix: 0,
+      pair_key: "cc".repeat(32),
+      last_host: PAIR.last_host,
+      ...(instanceName === undefined ? {} : { mdns_instance_name: instanceName }),
+    },
+  };
+}
+
+function beVisible() {
+  Object.defineProperty(document, "visibilityState", {
+    value: "visible",
+    configurable: true,
+  });
+}
+
+describe("falling back when discovery cannot help", () => {
+  it("dials the stored host again when nothing is announcing the name", async () => {
+    // The guard that makes the positive case meaningful: a resolve that finds
+    // nothing must not leave the client with no address to try.
+    vi.useFakeTimers();
+    beVisible();
+    seedStoredPairing("marklig-laptop");
+    resolvePeerAddress.mockResolvedValue(null);
+
+    const client = new SyncClient({ ...PAIR_MDNS });
+    client.start();
+    await flushConnect();
+    const first = lastWsInstance!;
+    expect(first.url).toBe("ws://192.168.1.1:14200");
+
+    // Failed before ever opening — the stored address is now suspect.
+    first.simulateError();
+    await vi.advanceTimersByTimeAsync(2100);
+
+    expect(resolvePeerAddress).toHaveBeenCalledWith("marklig-laptop", undefined);
+    expect(lastWsInstance).not.toBe(first);
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.1:14200");
+
+    client.stop();
+    vi.useRealTimers();
+  });
+
+  it("never resolves for a pairing made before the QR carried a name", async () => {
+    // Resolving "" would ask "who is at no name?" and dial whichever desktop
+    // answered — someone else's. Such a pairing keeps the v2.0-alpha
+    // behaviour: the stored address, retried under backoff.
+    vi.useFakeTimers();
+    beVisible();
+    seedStoredPairing(undefined);
+
+    const client = new SyncClient({ ...PAIR });
+    client.start();
+    await flushConnect();
+    const first = lastWsInstance!;
+    first.simulateError();
+    await vi.advanceTimersByTimeAsync(2100);
+
+    expect(resolvePeerAddress).not.toHaveBeenCalled();
+    expect(lastWsInstance).not.toBe(first);
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.1:14200");
+
+    client.stop();
+    vi.useRealTimers();
+  });
+});
+
+describe("resolving after the stored host fails", () => {
+  it("dials the resolved address and remembers it", async () => {
+    vi.useFakeTimers();
+    beVisible();
+    seedStoredPairing("marklig-laptop");
+    resolvePeerAddress.mockResolvedValue({ host: "192.168.1.77", port: 14_200 });
+
+    const client = new SyncClient({ ...PAIR_MDNS });
+    client.start();
+    await flushConnect();
+    const first = lastWsInstance!;
+    expect(first.url).toBe("ws://192.168.1.1:14200");
+
+    first.simulateError();
+    await vi.advanceTimersByTimeAsync(2100);
+
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.77:14200");
+
+    // Written back, so the next connect takes the fast path straight to the
+    // address that worked — and the pair key survives the rewrite.
+    const stored = (storeData["mobile.pairings"] as Record<string, Record<string, unknown>>)[
+      PAIR.pair_id_hex
+    ];
+    expect(stored.last_host).toBe("192.168.1.77");
+    expect(stored.pair_key).toBe("cc".repeat(32));
+
+    client.stop();
+    vi.useRealTimers();
+  });
+
+  it("dials the SRV port the peer announced, not a hardcoded one", async () => {
+    vi.useFakeTimers();
+    beVisible();
+    seedStoredPairing("marklig-laptop");
+    resolvePeerAddress.mockResolvedValue({ host: "192.168.1.77", port: 14_321 });
+
+    const client = new SyncClient({ ...PAIR_MDNS });
+    client.start();
+    await flushConnect();
+    lastWsInstance!.simulateError();
+    await vi.advanceTimersByTimeAsync(2100);
+
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.77:14321");
+
+    client.stop();
+    vi.useRealTimers();
+  });
+});
+
+describe("the fast path stays fast", () => {
+  it("does not resolve while the stored host connects", async () => {
+    beVisible();
+    seedStoredPairing("marklig-laptop");
+
+    const client = new SyncClient({ ...PAIR_MDNS });
+    client.start();
+    await flushConnect();
+    lastWsInstance!.simulateOpen();
+    await Promise.resolve();
+
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.1:14200");
+    expect(resolvePeerAddress).not.toHaveBeenCalled();
+
+    client.stop();
+  });
+
+  it("gives a host that had been working one more chance after a drop", async () => {
+    // A socket that opened and then closed says the desktop went away, not
+    // that its address moved. Re-resolving every drop would spend the resolve
+    // timeout on every transient blip; if the retry also fails to open, the
+    // attempt after that does resolve.
+    vi.useFakeTimers();
+    beVisible();
+    seedStoredPairing("marklig-laptop");
+    resolvePeerAddress.mockResolvedValue({ host: "192.168.1.77", port: 14_200 });
+
+    const client = new SyncClient({ ...PAIR_MDNS });
+    client.start();
+    await flushConnect();
+    lastWsInstance!.simulateOpen();
+    await Promise.resolve();
+    lastWsInstance!.simulateError();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(resolvePeerAddress).not.toHaveBeenCalled();
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.1:14200");
+
+    // That retry never opened, so the next one resolves.
+    lastWsInstance!.simulateError();
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(resolvePeerAddress).toHaveBeenCalledWith("marklig-laptop", undefined);
+    expect(lastWsInstance!.url).toBe("ws://192.168.1.77:14200");
 
     client.stop();
     vi.useRealTimers();
