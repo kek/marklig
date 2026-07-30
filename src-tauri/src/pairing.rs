@@ -223,9 +223,19 @@ pub fn pairing_start<R: Runtime>(
     state: State<'_, PairingState>,
 ) -> Result<PairingStarted, PairingError> {
     let kp = ensure_keypair(&app, state.inner())?;
-    // The same derivation `pairing_ws::spawn_server` announced under at
-    // startup — the QR must name the instance that is actually on the wire.
-    let instance = crate::mdns::instance_name();
+    // Read back from the announcer, never re-derived: the QR must name the
+    // instance that is actually on the wire. mdns-sd renames a colliding
+    // announcement under RFC 6762 §9 conflict resolution, so a second call to
+    // `mdns::instance_name()` here could print the *neighbour's* name — a
+    // phone would then dial the wrong desktop. See `crate::mdns`.
+    //
+    // Empty when nothing is announced (the sync listener never bound). That is
+    // deliberate rather than a fallback guess: the name we would guess is
+    // precisely the one another Märklig desktop is likely announcing, since
+    // the usual reason the bind failed is that a second instance holds
+    // WS_PORT. `MobilePairingRecord` omits an empty instance name and the
+    // phone falls back to `host`, which is the honest answer.
+    let instance = crate::pairing_ws::announced_instance_name(&app).unwrap_or_default();
     let host = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string());

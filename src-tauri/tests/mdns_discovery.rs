@@ -13,7 +13,9 @@
 
 use std::time::Duration;
 
-use marklig_lib::mdns::{self, announce_listening, SyncAnnouncer, SERVICE_TYPE};
+use marklig_lib::mdns::{
+    self, announce_listening, announce_this_desktop, SyncAnnouncer, SERVICE_TYPE,
+};
 
 /// Generous enough for probing (mdns-sd probes a fresh name for ~750ms before
 /// announcing) plus a query/response round trip, without being a "sleep until
@@ -256,18 +258,122 @@ fn losing_the_listener_withdraws_the_announcement() {
 }
 
 #[test]
-fn the_announced_name_is_the_one_the_qr_would_carry() {
-    // `pairing_ws::spawn_server` announces at startup and `pairing_start`
-    // builds the QR later; both call `mdns::instance_name()`. If they ever
-    // derived the name separately, the QR could name an instance nobody
-    // announces and every resolve would miss.
-    let instance = mdns::instance_name();
+fn the_name_the_qr_would_carry_is_the_one_on_the_wire() {
+    // `pairing_ws::spawn_server` announces this desktop at startup and
+    // `pairing_start` builds the QR much later. The QR does not re-derive the
+    // name: it reads `announced_instance_name()`, the value this asserts
+    // against reality by resolving it over real multicast.
+    //
+    // This runs the *real* derivation — whatever this machine is called,
+    // `gethostname(2)` and the sanitizer have to produce something
+    // announceable, which is the half that had never been exercised.
     let mut announcer = SyncAnnouncer::new();
 
-    let fullname = announce_listening(&mut announcer, Some(14_200), &instance)
-        .expect("the real instance name must be announceable")
+    announce_this_desktop(&mut announcer, Some(14_200))
+        .expect("this machine's own name must be announceable")
         .expect("a bound listener must be announced");
-    assert_eq!(fullname, format!("{instance}.{SERVICE_TYPE}"));
+
+    let for_the_qr = announcer
+        .announced_instance_name()
+        .expect("an active announcement must be able to name itself");
+    assert_eq!(
+        announcer.fullname().as_deref(),
+        Some(format!("{for_the_qr}.{SERVICE_TYPE}").as_str()),
+        "the name offered to the QR must be the instance half of the fullname on the wire"
+    );
+
+    // The assertion that would fail if the QR named something nobody
+    // announces: a fresh resolver daemon, an empty cache, and the only string
+    // `pairing_start` can reach.
+    let peer = mdns::resolve_instance(&for_the_qr, RESOLVE_TIMEOUT)
+        .expect("resolve does not error")
+        .expect("the name the QR would carry must resolve to this desktop");
+    assert_eq!(peer.instance_name, for_the_qr);
+    assert_eq!(peer.port, 14_200);
 
     announcer.stop().expect("announcement stops");
+    assert_eq!(
+        announcer.announced_instance_name(),
+        None,
+        "a withdrawn announcement must offer the QR no name at all"
+    );
+}
+
+#[test]
+fn a_conflict_rename_is_adopted_so_the_qr_follows_it() {
+    // Two desktops that want the same name — the steady state Karl hit once
+    // the announcement stopped being gated on the pairing modal. mdns-sd
+    // resolves it per RFC 6762 §9 by renaming the *second* announcement, and
+    // from that moment the name the second one proposed resolves to the
+    // *first* machine. The property under test is that the second desktop's
+    // `announced_instance_name()` — the only string its QR can carry — moves
+    // to the renamed one, so its QR keeps naming itself.
+    //
+    // Both announcers own independent `ServiceDaemon`s, so the conflict is
+    // detected over real multicast. The two announce different SRV ports
+    // because RFC 6762 §9 only calls it a conflict when the rdata *differs*:
+    // between two machines the differing A records do that, but inside one
+    // process every address is the same, so the port stands in for them.
+    let wanted = unique_instance("collide");
+    const FIRST_PORT: u16 = 14_200;
+    const SECOND_PORT: u16 = 14_201;
+
+    let mut first = SyncAnnouncer::new();
+    first.start(&wanted, FIRST_PORT).expect("first announcement");
+    // Let the first finish probing, so the second's probe is what conflicts.
+    assert!(
+        mdns::resolve_instance(&wanted, RESOLVE_TIMEOUT)
+            .expect("resolve does not error")
+            .is_some(),
+        "precondition: the first desktop holds the name"
+    );
+
+    let mut second = SyncAnnouncer::new();
+    second
+        .start(&wanted, SECOND_PORT)
+        .expect("second announcement");
+
+    // Conflict resolution runs while the second daemon probes; poll for the
+    // adoption rather than sleeping a fixed amount, and fail loudly with the
+    // name that would have gone into the QR if it never happens.
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let renamed = loop {
+        let name = second
+            .announced_instance_name()
+            .expect("an active announcement must be able to name itself");
+        if name != wanted {
+            break name;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the second desktop never adopted a rename; its QR still offers \
+             {name:?}, which resolves to the first desktop"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(
+        renamed.starts_with(&wanted),
+        "a rename must stay recognizably ours, got {renamed:?}"
+    );
+
+    // The point of the whole exercise: the name the second desktop's QR would
+    // carry resolves to the second desktop, not to the neighbour that won the
+    // name. The SRV port is what tells them apart.
+    let mine = mdns::resolve_instance(&renamed, RESOLVE_TIMEOUT)
+        .expect("resolve does not error")
+        .expect("the renamed announcement must be resolvable");
+    assert_eq!(
+        mine.port, SECOND_PORT,
+        "the name the QR would carry resolved to the wrong desktop: {mine:?}"
+    );
+
+    // Deliberately *not* asserted: that the contested name now resolves to
+    // the first desktop. It usually does, but the renamed daemon can keep
+    // answering the name it probed under until that record expires, and which
+    // of the two answers a query first is mdns-sd's conflict-resolution
+    // timing rather than anything this module guarantees. The invariant here
+    // is only that our QR names us.
+
+    second.stop().expect("second announcement stops");
+    first.stop().expect("first announcement stops");
 }

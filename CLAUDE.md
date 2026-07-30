@@ -117,15 +117,30 @@ and live push), and `commands/mobile_pairing.rs` / `commands/mobile_sync.rs`
 
 **Pairing discovery** (`src-tauri/src/mdns.rs`) announces
 `_marklig-sync._tcp` — instance name, `WS_PORT`, TXT `proto=ws` — for as
-long as the pairing WS server is armed, and offers `mdns_browse_peers` /
-`mdns_resolve_instance` for finding a desktop by name. Keep the
-announcement's lifetime tied to the arm state: advertising a desktop that
-would refuse the handshake is worse than not advertising at all.
-`src-tauri/tests/mdns_discovery.rs` exercises it over real multicast and
-includes negative guards, so a resolve that quietly matches the wrong peer
-fails the suite rather than passing. The **phone** still dials the QR's
-`host` address (`src/shell/mobile-sync-client.ts`), so zero-config
-reconnect is not yet end-to-end.
+long as the pairing WS server's listener is bound (not just while a pairing
+modal is open: a reconnecting phone asks whether *sync* is reachable), and
+offers `mdns_browse_peers` / `mdns_resolve_instance` for finding a desktop
+by name. Announce answerability, not liveness: a desktop whose bind failed
+must stay silent, or a phone resolves it and abandons a stored address that
+still worked.
+
+**The instance name is derived once and never twice.** `instance_name()` is
+private to `mdns.rs`, reads `gethostname(2)` (via the `hostname` crate —
+`$HOSTNAME` and `$HOST` are unset for an app launched from Finder or the
+Dock, which gave every desktop the same name), and is reachable only through
+`announce_this_desktop`. Anything that needs to *name* this desktop — the QR
+in `pairing_start` — reads `SyncAnnouncer::announced_instance_name()`, the
+name actually on the wire. Do not reintroduce a second derivation: mdns-sd
+renames a colliding announcement per RFC 6762 §9 (`<name> (2)`, adopted from
+`DaemonEvent::NameChange`), and a recomputed name would then be the
+*neighbour's*, so the QR would send a phone to the wrong desktop.
+
+`src-tauri/tests/mdns_discovery.rs` exercises all of this over real
+multicast, including negative guards and a genuine two-daemon name
+collision, so a resolve that quietly matches the wrong peer fails the suite
+rather than passing. The **phone** prefers its stored `host` and resolves
+the instance name only once a dial fails (`src/shell/mobile-sync-client.ts`,
+`dialTarget`).
 
 ### Mobile target (Android, v2 companion in progress)
 

@@ -132,20 +132,41 @@ fn announce_for_listener<R: Runtime>(app: &AppHandle<R>, listening: Option<u16>)
         eprintln!("mdns: WsServerState not mounted, not announcing");
         return;
     };
-    let instance = crate::mdns::instance_name();
     // Bound, not matched in tail position: the guard's temporary would
     // otherwise outlive `state` and fail to borrow-check.
     let locked = state.announcer.lock();
     match locked {
         Ok(mut announcer) => {
-            match crate::mdns::announce_listening(&mut announcer, listening, &instance) {
+            // `announce_this_desktop` derives the instance name itself, from
+            // `gethostname(2)`. That derivation is private to `mdns`, so this
+            // is the only place in the app where a name is computed — the QR
+            // in `pairing_start` reads back what ended up on the wire instead
+            // (see `announced_instance_name`).
+            match crate::mdns::announce_this_desktop(&mut announcer, listening) {
                 Ok(Some(fullname)) => eprintln!("mdns: announcing {fullname}"),
                 Ok(None) => {}
-                Err(e) => eprintln!("mdns: announcing {instance} failed: {e}"),
+                Err(e) => eprintln!("mdns: announcing this desktop failed: {e}"),
             }
         }
         Err(e) => eprintln!("mdns: announcer lock poisoned: {e}"),
     }
+}
+
+/// The instance name this desktop is currently announcing, or `None` when
+/// nothing is on the wire (the bind failed, or the announcement has not gone
+/// up yet).
+///
+/// Read back from the announcer that registered it — never re-derived. This
+/// is the only way a caller may learn the name to print in a QR: mdns-sd can
+/// rename a colliding announcement under RFC 6762 §9, and a second call to
+/// `mdns::instance_name()` would then name the desktop that won the name
+/// instead of this one. See `crate::mdns::AnnouncedInstance`.
+pub fn announced_instance_name<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let state = app
+        .try_state::<Arc<WsServerState>>()
+        .map(|s| s.inner().clone())?;
+    let announcer = state.announcer.lock().ok()?;
+    announcer.announced_instance_name()
 }
 
 async fn handle_connection<R: Runtime>(

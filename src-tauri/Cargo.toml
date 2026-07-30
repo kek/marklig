@@ -46,6 +46,14 @@ local-ip-address = "0.6"
 # commands unregisterable there.
 mdns-sd = { version = "0.20", default-features = false }
 
+# `gethostname(2)` (and `GetComputerNameExW` on Windows) behind one API, for
+# deriving the mDNS instance name. Deliberately not `std::env::var("HOSTNAME")`:
+# neither `HOSTNAME` nor `HOST` is exported to a macOS app launched from Finder
+# or the Dock, which is how this desktop is normally started, so the env route
+# silently gave every machine the same name. Chosen over calling `libc`
+# ourselves because `libc` has no `gethostname` on the Windows target.
+hostname = "0.4"
+
 # Desktop-only filesystem watching + ignore-aware traversal. Android does
 # not have a stable cross-OEM fs watcher, and the standalone mobile shell
 # uses Storage Access Framework tree URIs rather than path walks. See the
