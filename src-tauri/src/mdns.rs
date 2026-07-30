@@ -1,19 +1,22 @@
-//! Zero-config pairing discovery over mDNS/DNS-SD (`_marklig-sync._tcp`).
+//! Zero-config sync discovery over mDNS/DNS-SD (`_marklig-sync._tcp`).
 //!
 //! v2.0-alpha shipped the pairing transport as a WebSocket server on a
 //! fixed port with the desktop's LAN address frozen into the QR payload
 //! (`pairing_ws.rs`, `QrPayload::host`). That breaks on any DHCP change:
 //! the phone reconnects to an address the desktop no longer holds. This
-//! module is the v2.x fix — the desktop announces itself by *name* while
-//! the pairing server is armed, and a peer resolves that name to a
-//! current address instead of trusting a stored one.
+//! module is the v2.x fix — the desktop announces itself by *name*, and a
+//! peer resolves that name to a current address instead of trusting a
+//! stored one.
 //!
 //! Two halves, deliberately separate:
 //!
-//! - [`PairingAnnouncer`] owns the announcement. It is armed and disarmed
-//!   in lockstep with [`crate::pairing_ws::arm`] / `disarm`, so the
-//!   service is only visible while the desktop will actually accept a
-//!   handshake. An unanswerable announcement is worse than none.
+//! - [`SyncAnnouncer`] owns the announcement. Its lifetime is the sync
+//!   server's: [`announce_listening`] puts it on the wire once
+//!   [`crate::pairing_ws::spawn_server`] has bound its listener, and it
+//!   stays up for the rest of the app session — nothing during a session
+//!   takes it down. An unanswerable announcement is worse than none, so a
+//!   bind that *failed* announces nothing; see `announce_listening`, and
+//!   see `Drop` for why quit needs no explicit goodbye.
 //! - [`resolve_instance`] and [`browse_peers`] are the discovery side,
 //!   exposed to the frontend as commands. Each call runs on its own
 //!   short-lived [`ServiceDaemon`]: a fresh daemon has an empty record
@@ -21,10 +24,39 @@
 //!   "answered at some point this session". That property is what makes
 //!   the discovery tests meaningful.
 //!
-//! Scope note: only the desktop half lives here. The phone still dials
-//! `QrPayload::host` (`src/shell/mobile-sync-client.ts`); switching it to
-//! resolve the instance name needs the Android mDNS path and a device to
-//! prove it on.
+//! ## Why this is not gated on the pairing modal
+//!
+//! Until this change the announcement was armed and disarmed in lockstep
+//! with `pairing_start` / `pairing_cancel`, on the principle that a
+//! *pairing* service which answers while no pairing is possible is a lie.
+//! The principle is right; the fact it was applied to was the wrong one.
+//!
+//! What a peer resolves this name for is **reconnecting an existing
+//! pairing** — `mobile-sync-client.ts`'s `dialTarget()` resolves the
+//! `mdns_instance_name` stored in its pairing record after a dial to the
+//! stored address fails. It is not pairing; it is asking "where is the
+//! desktop I am already paired with?". The answer to that is yes whenever
+//! `pairing_ws`'s listener is bound, because the `subscribe` and
+//! `sync_request` frame paths do not consult the pairing arm state at all
+//! — only the Noise-handshake path does. Gating the announcement on the
+//! modal therefore withheld an answer the desktop could give, which is
+//! what left reconnect-after-DHCP-change broken.
+//!
+//! Pairing openness is deliberately **not** advertised here, by TXT flag
+//! or by a second service type:
+//!
+//! - Nothing needs it. A phone about to pair reads the host *and* the
+//!   instance name off the QR code, which is only on screen while pairing
+//!   is armed — an out-of-band channel that already carries the fact, and
+//!   the one the Noise XK authentication rests on. `browse_peers` has no
+//!   caller that offers a pairing target.
+//! - A flag that flipped would cost a re-registration on every
+//!   `pairing_start`, and mdns-sd re-probes a name it re-registers. The
+//!   name is not resolvable during that probe, so a changing flag would
+//!   punch holes in exactly the reconnect path this module exists to fix.
+//!
+//! So the record states a *capability* (`proto=ws`, `txtvers=2`) that is
+//! true for as long as it is on the wire, and says nothing about pairing.
 
 use std::time::{Duration, Instant};
 
@@ -64,6 +96,37 @@ impl serde::Serialize for MdnsError {
     }
 }
 
+/// The instance name this desktop announces itself under, and the same
+/// string `QrPayload::mdns_instance_name` carries to the phone.
+///
+/// Single source of truth on purpose: the announcement is started from
+/// `pairing_ws::spawn_server` at startup and the QR is built later in
+/// `pairing_start`, so two independent derivations of the name could
+/// disagree and print a QR naming something nobody announces.
+///
+/// KNOWN DEFECT (queued separately, do not fix here): neither `HOSTNAME`
+/// nor `HOST` is set for a macOS app launched from Finder or the Dock, so
+/// this falls back to `marklig-marklig` on the very launches Karl
+/// actually uses. Two Märklig desktops on one LAN then collide, mdns-sd
+/// re-probes and renames one, and the renamed instance no longer matches
+/// the name in its own QR.
+pub fn instance_name() -> String {
+    // Hostname-derived, sanitized to mDNS-safe ASCII.
+    let host = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "marklig".to_string());
+    let mut out = String::new();
+    for ch in host.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' {
+            out.push(ch);
+        }
+    }
+    if out.is_empty() {
+        out.push_str("marklig");
+    }
+    format!("marklig-{}", out)
+}
+
 /// One resolved `_marklig-sync._tcp` peer, flattened for the IPC boundary.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveredPeer {
@@ -84,15 +147,15 @@ pub struct DiscoveredPeer {
     pub proto: Option<String>,
 }
 
-/// Holds the announcement for as long as the pairing server is armed.
+/// Holds the announcement for as long as the sync server is listening.
 ///
-/// `start` is idempotent in the way the pairing UI needs: the frontend can
-/// call `pairing_start` twice without an intervening `pairing_cancel`, and
-/// the second call must not leave the first instance name resolvable.
-pub struct PairingAnnouncer {
-    /// `None` while disarmed. Each arm gets a fresh daemon so `stop` can
-    /// tear the responder down completely rather than leaving a daemon
-    /// holding stale records.
+/// `start` is idempotent in the way callers need: calling it twice without
+/// an intervening `stop` must not leave the first instance name
+/// resolvable.
+pub struct SyncAnnouncer {
+    /// `None` while nothing is announced. Each start gets a fresh daemon so
+    /// `stop` can tear the responder down completely rather than leaving a
+    /// daemon holding stale records.
     active: Option<Announcement>,
 }
 
@@ -101,7 +164,7 @@ struct Announcement {
     fullname: String,
 }
 
-impl PairingAnnouncer {
+impl SyncAnnouncer {
     pub fn new() -> Self {
         Self { active: None }
     }
@@ -162,7 +225,7 @@ impl PairingAnnouncer {
     /// Withdraw the announcement. Sends the DNS-SD goodbye and waits
     /// briefly for the daemon to confirm it went out, so a peer that
     /// resolves immediately afterwards sees us gone rather than racing a
-    /// still-queued packet. No-op when already disarmed.
+    /// still-queued packet. No-op when nothing is announced.
     pub fn stop(&mut self) -> Result<(), MdnsError> {
         let Some(active) = self.active.take() else {
             return Ok(());
@@ -179,17 +242,53 @@ impl PairingAnnouncer {
     }
 }
 
-impl Default for PairingAnnouncer {
+impl Default for SyncAnnouncer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Drop for PairingAnnouncer {
+impl Drop for SyncAnnouncer {
     fn drop(&mut self) {
         // Don't leave an announcement pointing at a process that is going
         // away — a peer would dial a port nobody is listening on.
+        //
+        // This covers the paths where the announcer is genuinely dropped.
+        // It does NOT cover app quit: Tauri's `app.exit` ends in
+        // `process::exit`, which runs no destructors, so a quitting desktop
+        // sends no DNS-SD goodbye. That is safe rather than merely
+        // tolerated — `collect_peers` gives every resolve a brand-new
+        // daemon with an empty cache, so a desktop that has exited cannot
+        // be resolved from a stale record; it just fails to answer.
         let _ = self.stop();
+    }
+}
+
+/// Bring the announcement in line with whether the sync server is actually
+/// listening.
+///
+/// `listening` is `Some(port)` once `pairing_ws`'s `TcpListener` is bound,
+/// and `None` when the bind failed. The `None` arm withdraws rather than
+/// announcing, and that is the whole point of routing through one
+/// function: the bind is the only thing that makes this desktop
+/// answerable, so a desktop whose bind lost the port (a second Märklig
+/// instance, or anything else already on `WS_PORT`) must stay silent. It
+/// would otherwise publish an address whose port refuses every connection,
+/// and a phone that resolved it would abandon a stored address that still
+/// worked.
+///
+/// Returns the announced fullname, or `None` when nothing is announced.
+pub fn announce_listening(
+    announcer: &mut SyncAnnouncer,
+    listening: Option<u16>,
+    instance: &str,
+) -> Result<Option<String>, MdnsError> {
+    match listening {
+        Some(port) => announcer.start(instance, port).map(Some),
+        None => {
+            announcer.stop()?;
+            Ok(None)
+        }
     }
 }
 
@@ -326,9 +425,11 @@ fn instance_name_of(fullname: &str) -> Option<String> {
 const DEFAULT_DISCOVERY_MS: u64 = 3_000;
 
 /// Find a desktop by the instance name from its QR payload. `None` means
-/// nothing is announcing that name on this LAN right now — which is also
-/// the answer when the desktop is running but its pairing server is not
-/// armed, since the announcement tracks the arm state.
+/// nothing is announcing that name on this LAN right now — which, since
+/// the announcement tracks the sync server's listener rather than the
+/// pairing modal, means the desktop is not running (or never got its
+/// port). A desktop that is merely idle, with no pairing modal open, does
+/// answer.
 #[tauri::command]
 pub fn mdns_resolve_instance(
     instance_name: String,
@@ -340,7 +441,7 @@ pub fn mdns_resolve_instance(
     )
 }
 
-/// List every desktop currently announcing itself for pairing.
+/// List every desktop currently announcing a reachable sync server.
 #[tauri::command]
 pub fn mdns_browse_peers(timeout_ms: Option<u64>) -> Result<Vec<DiscoveredPeer>, MdnsError> {
     browse_peers(Duration::from_millis(
@@ -370,11 +471,25 @@ mod tests {
     fn a_dotted_instance_name_is_refused() {
         // Silently accepting this would announce a different name than the
         // one the QR payload tells the phone to look for.
-        let mut announcer = PairingAnnouncer::new();
+        let mut announcer = SyncAnnouncer::new();
         assert!(matches!(
             announcer.start("marklig.laptop", 14_200),
             Err(MdnsError::BadInstanceName(_))
         ));
         assert!(!announcer.is_active());
+    }
+
+    #[test]
+    fn instance_name_is_a_usable_dns_sd_label() {
+        // Whatever the environment, the announced name has to survive
+        // `start`'s validation — otherwise the desktop silently never
+        // announces on exactly the launches where `$HOSTNAME` is unset.
+        let name = instance_name();
+        assert!(!name.is_empty());
+        assert!(!name.contains('.'), "{name} would reshape the fullname");
+        assert!(
+            name.starts_with("marklig-"),
+            "{name} must be recognizable as ours"
+        );
     }
 }

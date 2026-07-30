@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn an_empty_instance_name_is_left_out() {
-        // `PairingAnnouncer::start` refuses an empty name, so nothing can ever
+        // `SyncAnnouncer::start` refuses an empty name, so nothing can ever
         // answer for one. Storing `""` would have the phone spend a resolve
         // timeout on every reconnect for a name that cannot exist.
         let record = sample("").to_json();

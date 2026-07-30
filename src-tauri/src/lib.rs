@@ -105,8 +105,12 @@ pub fn run() {
         .manage(std::sync::Arc::new(sync_watcher::SyncWatcherState::new()))
         .manage(std::sync::Arc::new(sync_session::SyncSessionRegistry::new()))
         .setup(|app| {
-            // Spin up the pairing-WS server. Runs for the app's lifetime
-            // and only accepts handshakes when armed via pairing_start.
+            // Spin up the pairing-WS server. Runs for the app's lifetime;
+            // only accepts *handshakes* when armed via pairing_start, but
+            // serves sync to already-paired phones throughout — and
+            // announces `_marklig-sync._tcp` for as long as it is bound, so
+            // a phone can find this desktop again after a DHCP change
+            // without anyone opening the pairing modal.
             pairing_ws::spawn_server(app.handle().clone());
             // Reconcile sync logs: catch drift from while the app was closed.
             {
