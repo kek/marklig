@@ -10,29 +10,47 @@
 //! 4. Phone decrypts each blob via marklig-sync-core::envelope::open and
 //!    writes the plaintext under `<files_dir>/synced/<pair_id>/<folder_id>/<relpath>`.
 //! 5. Desktop ends with `{"type":"sync_done","files":N}`; phone closes.
+//!
+//! Everything here except `sync_compact` is `#[cfg(mobile)]`. The module is
+//! compiled on every target (see `commands/mod.rs`) because `sync_compact` is
+//! desktop-only maintenance, but the phone-side commands are wired into the
+//! `#[cfg(mobile)]` invoke handler alone — so on a desktop build they had no
+//! caller at all and accounted for 10 of the tree's dead-code warnings. The
+//! `cfg` is the honest statement of what was already true.
 
+#[cfg(mobile)]
 use std::path::PathBuf;
 
+#[cfg(mobile)]
 use base64::Engine as _;
+#[cfg(mobile)]
 use futures_util::{SinkExt, StreamExt};
+#[cfg(mobile)]
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
+#[cfg(mobile)]
+use tauri::Manager;
+#[cfg(mobile)]
 use tokio_tungstenite::tungstenite::Message;
 
+#[cfg(mobile)]
 const WS_PORT: u16 = 14_200;
 
+#[cfg(mobile)]
 #[derive(Serialize)]
 pub struct MobileSyncResult {
     pub files: u64,
     pub folders: Vec<String>,
 }
 
+#[cfg(mobile)]
 #[derive(Deserialize)]
 pub struct MobileSyncNowArgs {
     pub pair_id_hex: String,
     pub host: String,
 }
 
+#[cfg(mobile)]
 #[tauri::command]
 pub async fn mobile_sync_now<R: Runtime>(
     app: AppHandle<R>,
@@ -197,6 +215,7 @@ pub async fn mobile_sync_now<R: Runtime>(
     })
 }
 
+#[cfg(mobile)]
 fn hex_to_32(s: &str) -> Option<[u8; 32]> {
     if s.len() != 64 {
         return None;
@@ -208,6 +227,7 @@ fn hex_to_32(s: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
+#[cfg(mobile)]
 fn hex_to_16(s: &str) -> Option<[u8; 16]> {
     if s.len() != 32 {
         return None;
@@ -219,6 +239,7 @@ fn hex_to_16(s: &str) -> Option<[u8; 16]> {
     Some(out)
 }
 
+#[cfg(mobile)]
 fn now_unix() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -230,6 +251,7 @@ fn now_unix() -> u64 {
 /// Apply a single live-sync op from the desktop to phone-side storage.
 /// Called by the phone's `SyncClient` for each incoming `op_put` /
 /// `op_delete` frame.
+#[cfg(mobile)]
 #[tauri::command]
 pub async fn mobile_apply_sync_op<R: Runtime>(
     app: AppHandle<R>,
@@ -384,6 +406,7 @@ pub async fn sync_compact<R: Runtime>(
 /// read on the Rust side, where we control the path strictly: only files
 /// inside `<app_data_dir>/synced/<pair_id_hex>/<folder_id_hex>/...` are
 /// served, and any traversal-style relpath component (`..`) is refused.
+#[cfg(mobile)]
 #[tauri::command]
 pub async fn mobile_read_synced_file<R: Runtime>(
     app: AppHandle<R>,
@@ -445,6 +468,7 @@ pub async fn mobile_read_synced_file<R: Runtime>(
 ///   - `mobile.synced_files[pair_id_hex]`
 ///   - `mobile.synced_folder_labels[pair_id_hex]`
 ///   - `<app_data>/synced/<pair_id_hex>/` (cached plaintext)
+#[cfg(mobile)]
 #[tauri::command]
 pub async fn mobile_unpair<R: Runtime>(
     app: AppHandle<R>,

@@ -175,7 +175,8 @@ async fn handle_connection<R: Runtime>(
     peer: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws = tokio_tungstenite::accept_async(tcp).await?;
-    let (mut tx, mut rx) = ws.split();
+    // `tx` is moved into each handler below, which takes it `mut` itself.
+    let (tx, mut rx) = ws.split();
 
     // First-frame dispatch:
     //   - binary  → Noise XK pairing handshake (only valid when armed

@@ -240,7 +240,11 @@ fn _is_within_self_write_window(ts: Option<Instant>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Both are used only by the symlink regression test below, which is
+    // `#[cfg(unix)]`. The other tests in here drive `TargetMatcher` directly.
+    #[cfg(unix)]
     use std::io::Write;
+    #[cfg(unix)]
     use std::sync::mpsc::channel;
 
     /// End-to-end regression for issue #47: when a watched path traverses a
@@ -260,6 +264,13 @@ mod tests {
     ///     [["/tmp/marklig-watcher-test-14478/link/file.md"], [...]]
     /// The ignore is gone: a skipped test does not report a bug, and this one
     /// must fail on Linux until the watcher matches both spellings.
+    ///
+    /// Unix-only, because the fixture is a real symlink. This used to be an
+    /// in-body `#[cfg(not(unix))] { return; }`, which made every statement
+    /// after it unreachable on Windows — the tree's only `unreachable_code`
+    /// warning, and one that appeared on no other platform. Gating the test
+    /// says the same thing without compiling a body that cannot run.
+    #[cfg(unix)]
     #[test]
     fn touches_target_matches_canonical_event_paths_through_symlinks() {
         // Build: <tmpdir>/real/file.md, then <tmpdir>/link → real/.
@@ -276,15 +287,7 @@ mod tests {
 
         let link = root.join("link");
         let _ = std::fs::remove_file(&link);
-        #[cfg(unix)]
         std::os::unix::fs::symlink(&real, &link).expect("create symlink");
-        #[cfg(not(unix))]
-        {
-            // Symlink semantics differ on Windows; the bug is platform-relevant
-            // mainly on macOS/Linux, so skip elsewhere.
-            let _ = root;
-            return;
-        }
 
         let through_link = link.join("file.md");
         let matcher = TargetMatcher::new(&through_link);

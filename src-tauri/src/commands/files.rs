@@ -415,6 +415,85 @@ fn walk_for_documents(root: &std::path::Path) -> Vec<DocumentEntry> {
     out
 }
 
+/// Returns true when `path` would be surfaced by `list_documents` from
+/// the perspective of ignore filtering — i.e. it isn't in a hard-coded ignore
+/// directory and isn't excluded by `.gitignore`/`.git/info/exclude`/global
+/// excludes when `root` is inside a Git repo.
+///
+/// `folder_watcher.rs` calls this to drop fs events for paths the file picker
+/// and sidebar would never show, so e.g. a `cargo build` writing into
+/// `target/` doesn't churn the project tree.
+pub(crate) fn is_path_visible(root: &std::path::Path, path: &std::path::Path) -> bool {
+    let rel = match path.strip_prefix(root) {
+        Ok(r) => r,
+        Err(_) => return true, // outside root — don't claim authority
+    };
+    // Hardcoded list first: cheap and applies even outside Git repos.
+    for component in rel.components() {
+        if let std::path::Component::Normal(os) = component {
+            if let Some(s) = os.to_str() {
+                if is_ignored(s) {
+                    return false;
+                }
+            }
+        }
+    }
+    // Reject paths whose strict ancestor (above `path`, at-or-below `root`)
+    // is a nested git checkout. The root itself is allowed even if it is a
+    // checkout — that's the project the user opened. Walk top-down from
+    // `root` so we stat each intermediate directory at most once.
+    {
+        let mut cursor = root.to_path_buf();
+        for component in rel.components() {
+            if let std::path::Component::Normal(os) = component {
+                cursor.push(os);
+                // Stop before checking `path` itself — only intermediate
+                // ancestors disqualify it.
+                if cursor.as_path() == path {
+                    break;
+                }
+                if is_nested_checkout(&cursor) {
+                    return false;
+                }
+            }
+        }
+    }
+    // Then ask the same ignore stack `list_documents` uses.
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+    // Walk up from `root` looking for the enclosing .git so we know which
+    // .gitignore stack applies. ignore::Gitignore handles nested ignores
+    // automatically when fed each one.
+    let mut found_git = false;
+    let mut cursor = Some(root);
+    while let Some(dir) = cursor {
+        if dir.join(".git").exists() {
+            found_git = true;
+            break;
+        }
+        cursor = dir.parent();
+    }
+    if !found_git {
+        return true;
+    }
+    // Add .gitignore files along the relative path so nested ignores apply.
+    let mut walked = root.to_path_buf();
+    let _ = builder.add(walked.join(".gitignore"));
+    for component in rel.components() {
+        if let std::path::Component::Normal(os) = component {
+            walked.push(os);
+            if walked.is_dir() {
+                let _ = builder.add(walked.join(".gitignore"));
+            }
+        }
+    }
+    let gi = match builder.build() {
+        Ok(g) => g,
+        Err(_) => return true,
+    };
+    let is_dir = path.is_dir();
+    !gi.matched_path_or_any_parents(path, is_dir).is_ignore()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -816,83 +895,4 @@ mod tests {
 
         assert_eq!(got, want, "symlinked folder root should canonicalize to the real path");
     }
-}
-
-/// Returns true when `path` would be surfaced by `list_documents` from
-/// the perspective of ignore filtering — i.e. it isn't in a hard-coded ignore
-/// directory and isn't excluded by `.gitignore`/`.git/info/exclude`/global
-/// excludes when `root` is inside a Git repo.
-///
-/// `folder_watcher.rs` calls this to drop fs events for paths the file picker
-/// and sidebar would never show, so e.g. a `cargo build` writing into
-/// `target/` doesn't churn the project tree.
-pub(crate) fn is_path_visible(root: &std::path::Path, path: &std::path::Path) -> bool {
-    let rel = match path.strip_prefix(root) {
-        Ok(r) => r,
-        Err(_) => return true, // outside root — don't claim authority
-    };
-    // Hardcoded list first: cheap and applies even outside Git repos.
-    for component in rel.components() {
-        if let std::path::Component::Normal(os) = component {
-            if let Some(s) = os.to_str() {
-                if is_ignored(s) {
-                    return false;
-                }
-            }
-        }
-    }
-    // Reject paths whose strict ancestor (above `path`, at-or-below `root`)
-    // is a nested git checkout. The root itself is allowed even if it is a
-    // checkout — that's the project the user opened. Walk top-down from
-    // `root` so we stat each intermediate directory at most once.
-    {
-        let mut cursor = root.to_path_buf();
-        for component in rel.components() {
-            if let std::path::Component::Normal(os) = component {
-                cursor.push(os);
-                // Stop before checking `path` itself — only intermediate
-                // ancestors disqualify it.
-                if cursor.as_path() == path {
-                    break;
-                }
-                if is_nested_checkout(&cursor) {
-                    return false;
-                }
-            }
-        }
-    }
-    // Then ask the same ignore stack `list_documents` uses.
-    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
-    // Walk up from `root` looking for the enclosing .git so we know which
-    // .gitignore stack applies. ignore::Gitignore handles nested ignores
-    // automatically when fed each one.
-    let mut found_git = false;
-    let mut cursor = Some(root);
-    while let Some(dir) = cursor {
-        if dir.join(".git").exists() {
-            found_git = true;
-            break;
-        }
-        cursor = dir.parent();
-    }
-    if !found_git {
-        return true;
-    }
-    // Add .gitignore files along the relative path so nested ignores apply.
-    let mut walked = root.to_path_buf();
-    let _ = builder.add(walked.join(".gitignore"));
-    for component in rel.components() {
-        if let std::path::Component::Normal(os) = component {
-            walked.push(os);
-            if walked.is_dir() {
-                let _ = builder.add(walked.join(".gitignore"));
-            }
-        }
-    }
-    let gi = match builder.build() {
-        Ok(g) => g,
-        Err(_) => return true,
-    };
-    let is_dir = path.is_dir();
-    !gi.matched_path_or_any_parents(path, is_dir).is_ignore()
 }

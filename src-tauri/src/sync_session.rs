@@ -6,8 +6,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tokio::sync::mpsc;
 
+/// One registered session: its id (for `unregister`) and the channel the
+/// watcher fan-out pushes frames into.
+type Session = (usize, mpsc::Sender<serde_json::Value>);
+
 pub struct SyncSessionRegistry {
-    senders: Mutex<HashMap<String, Vec<(usize, mpsc::Sender<serde_json::Value>)>>>,
+    senders: Mutex<HashMap<String, Vec<Session>>>,
     next_id: Mutex<usize>,
 }
 

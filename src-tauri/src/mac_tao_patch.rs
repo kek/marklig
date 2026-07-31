@@ -22,7 +22,6 @@
 
 #![cfg(target_os = "macos")]
 
-use std::ffi::CStr;
 use std::sync::OnceLock;
 
 use objc2::rc::Retained;
@@ -57,8 +56,7 @@ pub fn install() {
     // lazily when tao first instantiates the event loop. Tauri builds the
     // event loop inside `Builder::build()`, so by the time we're called this
     // class exists. If a future tao renames it, we just no-op.
-    let class_name = CStr::from_bytes_with_nul(b"TaoAppDelegateParent\0").unwrap();
-    let Some(cls) = AnyClass::get(class_name) else {
+    let Some(cls) = AnyClass::get(c"TaoAppDelegateParent") else {
         return;
     };
     let Some(method) = cls.instance_method(sel!(application:openURLs:)) else {

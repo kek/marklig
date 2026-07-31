@@ -2,9 +2,10 @@
 //!
 //! v2.0 scope (this module):
 //! - Persistent registry of paired phones in `tauri-plugin-store`.
-//! - In-memory [`PairingMachine`] that drives a Noise XK handshake against
-//!   `marklig-sync-core`. Step 6 will replace the in-memory channel with a
-//!   real TCP socket from the LAN transport.
+//! - The desktop's long-term static keypair, in [`PairingState`]. The Noise
+//!   XK handshake itself runs in `pairing_ws` over the real WebSocket
+//!   connection — this module hands it the static private key and never sees
+//!   the handshake again.
 //! - Tauri commands (start / complete / list / unpair / folder sync
 //!   enable / disable) that the frontend uses.
 //!
@@ -22,9 +23,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 
-use marklig_sync_core::pair::{
-    HandshakeError, HandshakeInitiator, HandshakeResponder, PairKey, QrPayload, TransportPair,
-};
+use marklig_sync_core::pair::{HandshakeError, PairKey, QrPayload, TransportPair};
 
 /// Persisted metadata for one paired phone. Stored as
 /// `pairings.<pair_id_hex>` in `viewer.store.json`.
@@ -47,33 +46,20 @@ pub struct PairingStarted {
     pub verification_fingerprint: String,
 }
 
-/// In-progress handshake state held in [`PairingState`]. After
-/// `pairing_complete(confirm=true)` it becomes a registered pairing.
-enum HandshakeStage {
-    Idle,
-    Responding {
-        responder: Box<HandshakeResponder>,
-        mdns_instance_name: String,
-        qr_payload: String,
-    },
-    Verifying {
-        result: Box<TransportPair>,
-    },
-}
-
-impl HandshakeStage {
-    fn take(&mut self) -> HandshakeStage {
-        std::mem::replace(self, HandshakeStage::Idle)
-    }
-}
-
-/// Per-app singleton holding the current desktop static keypair + the
-/// in-progress handshake. Mounted on the Tauri builder via `.manage()`.
+/// Per-app singleton holding the desktop static keypair.
+/// Mounted on the Tauri builder via `.manage()`.
+///
+/// It used to hold the in-progress handshake too, in a `HandshakeStage`
+/// enum. That never survived contact with the real LAN transport: once
+/// `pairing_ws` landed, the responder and the resulting `TransportPair`
+/// live in `WsServerState`'s pending slot for the duration of a single WS
+/// connection, because that is the only scope in which they are meaningful.
+/// The enum stayed behind, permanently `Idle` — every variant but `Idle`
+/// unconstructed — until the warnings gate pointed at it.
 pub struct PairingState {
     /// The desktop's long-term static keypair. Generated on first call to
     /// [`PairingState::ensure_keys`], persisted in the store.
     static_keypair: Mutex<Option<StaticKeypair>>,
-    stage: Mutex<HandshakeStage>,
 }
 
 #[derive(Clone)]
@@ -86,7 +72,6 @@ impl PairingState {
     pub fn new() -> Self {
         Self {
             static_keypair: Mutex::new(None),
-            stage: Mutex::new(HandshakeStage::Idle),
         }
     }
 }
@@ -209,7 +194,7 @@ fn now_unix() -> u64 {
 /// "AB-CD-EF-12" — short enough for two humans to read aloud.
 fn verification_fingerprint(pair_key: &PairKey) -> String {
     use sha2::{Digest, Sha256};
-    let h = Sha256::digest(&pair_key.0);
+    let h = Sha256::digest(pair_key.0);
     format!("{:02X}-{:02X}-{:02X}-{:02X}", h[0], h[1], h[2], h[3])
 }
 
@@ -271,14 +256,9 @@ pub fn pairing_start<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn pairing_cancel<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, PairingState>,
-) -> Result<(), PairingError> {
-    let mut stage = state.stage.lock().map_err(|e| {
-        PairingError::State(format!("stage lock poisoned: {e}"))
-    })?;
-    *stage = HandshakeStage::Idle;
+pub fn pairing_cancel<R: Runtime>(app: AppHandle<R>) -> Result<(), PairingError> {
+    // Disarming the WS server *is* the cancel: the armed responder key and
+    // any half-finished handshake live there, not in `PairingState`.
     let _ = crate::pairing_ws::disarm(&app);
     // The mDNS announcement deliberately outlives the modal: it advertises a
     // reachable sync server, which this desktop still is. Only pairing was
@@ -304,7 +284,7 @@ pub fn pairing_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<PairingMeta>, P
             out.push(meta);
         }
     }
-    out.sort_by(|a, b| b.paired_at_unix.cmp(&a.paired_at_unix));
+    out.sort_by_key(|m| std::cmp::Reverse(m.paired_at_unix));
     Ok(out)
 }
 
@@ -549,37 +529,18 @@ pub fn load_pairing<R: Runtime>(
     Ok(Some(meta))
 }
 
-// Suppress unused-warning for the in-progress handshake fields that the
-// LAN transport (step 6) will start consuming.
-#[allow(dead_code)]
-impl PairingState {
-    pub(crate) fn stage_for_test(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, HandshakeStage>, PairingError> {
-        self.stage
-            .lock()
-            .map_err(|e| PairingError::State(format!("stage lock: {e}")))
-    }
-}
+// `stage_for_test` and `drive_initiator_against_responder` used to sit here
+// under bare `#[allow(dead_code)]`, waiting for "the LAN transport (step 6)"
+// to consume them. Step 6 landed as `pairing_ws`, and it drives the responder
+// itself; the three-message loopback is covered end-to-end by
+// `marklig-sync-core/tests/pair.rs`. Neither had a caller, so both are gone
+// rather than allow-listed for a future that already arrived.
 
-#[allow(dead_code)]
-fn drive_initiator_against_responder(
-    initiator: &mut HandshakeInitiator,
-    responder: &mut HandshakeResponder,
-) -> Result<(), HandshakeError> {
-    let mut buf = Vec::new();
-    initiator.write_message(&mut buf)?;
-    responder.read_message(&buf)?;
-    buf.clear();
-    responder.write_message(&mut buf)?;
-    initiator.read_message(&buf)?;
-    buf.clear();
-    initiator.write_message(&mut buf)?;
-    responder.read_message(&buf)?;
-    Ok(())
-}
-
-#[cfg(test)]
+// Every test in here builds its fixture with `std::os::unix::fs::symlink`, so
+// each already carried `#[cfg(unix)]` individually — which left the module's
+// import, counter and tempdir helper with no user at all on Windows. Gating
+// the module instead of each test is both shorter and the true statement.
+#[cfg(all(test, unix))]
 mod synced_folder_tests {
     use super::*;
     use std::path::PathBuf;
@@ -603,7 +564,6 @@ mod synced_folder_tests {
     // Builds its fixture with `std::os::unix::fs::symlink`, so the test
     // target did not compile at all on Windows until this guard. Same
     // convention as the other symlink tests in this tree.
-    #[cfg(unix)]
     #[test]
     fn add_synced_folder_stores_canonical_path_and_dedups() {
         let base = unique_tempdir("add");
@@ -629,7 +589,6 @@ mod synced_folder_tests {
     // Builds its fixture with `std::os::unix::fs::symlink`, so the test
     // target did not compile at all on Windows until this guard. Same
     // convention as the other symlink tests in this tree.
-    #[cfg(unix)]
     #[test]
     fn remove_synced_folder_matches_symlinked_spelling() {
         // The folder was enabled via its real path (canonical), then the UI

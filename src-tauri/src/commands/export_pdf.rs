@@ -22,6 +22,12 @@ pub enum PdfExportError {
     Unsupported,
     #[error("invalid destination path: {0}")]
     InvalidDest(String),
+    // The mirror image of `Unsupported`: only the macOS capture path can
+    // produce a render failure, because it is the only platform that renders.
+    // The variant stays on every platform regardless — this enum is serialized
+    // to the frontend, and a per-platform error shape would be a worse trade
+    // than a scoped allow.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     #[error("could not render the document to PDF: {0}")]
     Render(String),
     #[error("io error: {0}")]
@@ -114,11 +120,14 @@ mod macos {
         WKNavigation, WKNavigationDelegate, WKWebView, WKWebViewConfiguration,
     };
 
+    /// The PDF bytes, or the reason the capture failed.
+    type PdfResult = Result<Vec<u8>, String>;
+
     pub(super) struct Ivars {
         // Taken (Option::take) by whichever event fires first — a successful
         // load's PDF capture, or a navigation failure — so the result is sent
         // exactly once.
-        result_tx: RefCell<Option<Sender<Result<Vec<u8>, String>>>>,
+        result_tx: RefCell<Option<Sender<PdfResult>>>,
         webview: Retained<WKWebView>,
     }
 

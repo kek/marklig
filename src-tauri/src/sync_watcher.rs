@@ -13,7 +13,7 @@ use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebouncedEvent};
 use tauri::{AppHandle, Manager, Runtime};
 
-use marklig_sync_core::ops::{LamportClock, OpLog, SyncError};
+use marklig_sync_core::ops::{LamportClock, OpLog};
 
 struct FolderEntry {
     pair_ids: Vec<String>,

@@ -70,16 +70,22 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          # This action defaults to `rustflags: -D warnings`, which is why the
-          # first real run of this workflow died in `cargo check` on Linux and
-          # macOS with 16 "errors" that were all pre-existing dead-code and
-          # style warnings. Deny-by-default was never actually in force (the
-          # workflow had never run), so nothing regresses by clearing it — but
-          # leaving it would mean the Rust suite still could not run, which is
-          # the whole point of this job. Cleaning up the ~22 warnings and then
-          # restoring `-D warnings`, and adding clippy alongside it, is a
-          # separate change; it is a tree-wide edit and does not belong here.
-          rustflags: ''
+          components: clippy
+          # `-D warnings` — the action's own default, spelled out here so that
+          # it reads as a decision rather than as something inherited. It was
+          # briefly cleared: the first real run of this workflow died in
+          # `cargo check` on Linux and macOS with 16 "errors" that were all
+          # pre-existing dead-code and unused-import warnings, and unblocking
+          # the Rust suite mattered more than a tree-wide cleanup. The cleanup
+          # has since happened — the permanently-`Idle` `HandshakeStage`
+          # machine, the phone-only half of `commands::mobile_sync` compiling
+          # into desktop builds, an unused `SyncError` import — so the gate is
+          # back on and holds the line from here.
+          #
+          # In practice this denies warnings in first-party code only: cargo
+          # passes `--cap-lints allow` to registry dependencies, so a warning
+          # in a crate we do not own cannot fail this job.
+          rustflags: '-D warnings'
 
       # `cargo check` only proved the Rust compiled. Everything the Rust
       # actually promises lives in these tests, so these are the gate.
@@ -106,6 +112,32 @@ jobs:
       # in the repository. Established: it does.
       - name: Cargo test
         run: cargo test --workspace --no-fail-fast
+
+      # Deliberately a step of its own, and deliberately *after* the tests: the
+      # rustc gate above must have already returned its verdict before clippy
+      # gets an opinion, so that a clippy disagreement is legible as a clippy
+      # disagreement and never mistaken for the compiler rejecting the tree.
+      #
+      # `-D warnings` reaches clippy's own lints through RUSTFLAGS, but it is
+      # repeated after `--` so this step does not silently become advisory if
+      # the toolchain block above is ever edited.
+      #
+      # `--all-targets` on purpose: clippy's most useful findings in this tree
+      # were in test code.
+      # `if: always()` so a red `cargo test` does not skip this and hide the
+      # clippy verdict. The probe run lost the clippy result on both Linux and
+      # Windows exactly that way — a step that only reports when everything
+      # else already passed tells you least when you need it most.
+      #
+      # `toolchain: stable` floats, so a future clippy release can add a lint
+      # and redden a PR that changed nothing. That is the same exposure
+      # `-D warnings` already accepts for rustc above, and the same answer
+      # applies: fix it or justify an `#[allow]` with a reason. The alternative
+      # — advisory clippy — is what the rest of this file spent two commissions
+      # learning not to ship.
+      - name: Clippy
+        if: always()
+        run: cargo clippy --workspace --all-targets --no-deps -- -D warnings
 
   build:
     name: Tauri build (${{ matrix.os }})
@@ -137,9 +169,11 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          # Same reason as the `rust` job: the action's default `-D warnings`
-          # would fail this build on the tree's pre-existing warnings.
-          rustflags: ''
+          # Same as the `rust` job. Kept identical on purpose: the release-shaped
+          # build compiles code the `rust` job does not (the `marklig` binary
+          # target, and whatever a `cfg` only turns on under a bundle), so a
+          # warning can appear here and nowhere else.
+          rustflags: '-D warnings'
 
       - run: npm ci
 

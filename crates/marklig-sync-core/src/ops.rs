@@ -182,10 +182,7 @@ impl OpLog {
 
         let mut ref_bytes = [0u8; 16];
         getrandom::getrandom(&mut ref_bytes).map_err(|e| {
-            SyncError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("getrandom: {e}"),
-            ))
+            SyncError::Io(std::io::Error::other(format!("getrandom: {e}")))
         })?;
         let ref_hex = hex_encode(&ref_bytes);
 

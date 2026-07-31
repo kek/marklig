@@ -104,7 +104,7 @@ pub fn typst_compile(
         Ok(doc) => doc
             .pages
             .iter()
-            .map(|p| ::typst_svg::svg(p))
+            .map(::typst_svg::svg)
             .collect(),
         Err(errs) => {
             let mut errs_wire = to_wire(&errs, &main);
