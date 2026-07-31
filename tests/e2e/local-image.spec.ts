@@ -1,13 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
 
 // A real 160x100 solid-blue PNG, base64-encoded. Returned by the mocked
@@ -89,22 +81,6 @@ async function installTauriStub(page: Page, sample: string, png: string): Promis
     };
   }, [sample, png] as [string, string]);
 }
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  for (let i = 0; i < 60; i++) {
-    try { const r = await fetch(APP_URL); if (r.ok) break; } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) { try { process.kill(-viteProc.pid); } catch {} }
-});
 
 test("renders a relative-path local image as a blob in reading mode", async ({ page }) => {
   const sample = "# Future architecture\n\n![Future architecture diagram](docs/future-architecture.png)\n";

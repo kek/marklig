@@ -1,13 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
 
 /** Install a Tauri-internals stub so the app boots in a plain browser and
@@ -90,32 +82,6 @@ async function installTauriStub(page: Page, sample: string): Promise<void> {
     };
   }, sample);
 }
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  // Wait for vite to be reachable.
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try {
-      process.kill(-viteProc.pid);
-    } catch {
-      // ignore — vite may have already exited
-    }
-  }
-});
 
 test("renders headings and code from a sample doc", async ({ page }) => {
   const sample = `# Sample Document\n\nA paragraph with **bold**, *italic*, and \`code\`.\n\n## Lists\n\n- a\n- b\n\n## Code\n\n\`\`\`js\nconst x = 42;\n\`\`\`\n`;

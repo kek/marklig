@@ -1,5 +1,4 @@
 import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -8,30 +7,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
 const corpus = readFileSync(resolve(__dirname, "fixtures/visual-corpus.md"), "utf8");
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try { process.kill(-viteProc.pid); } catch { /* already exited */ }
-  }
-});
 
 async function setupMock(
   page: import("@playwright/test").Page,
@@ -157,6 +134,30 @@ async function setupMock(
 }
 
 test.describe("visual regression", () => {
+  // Pixel baselines are per-platform by construction: Playwright stores them as
+  // `<name>-<platform>.png` precisely because the same page rasterises
+  // differently on each OS's font stack. This repository carries darwin
+  // baselines only, so the first run this workflow ever produced failed all
+  // three of these on ubuntu with
+  //
+  //   Error: A snapshot doesn't exist at
+  //   tests/e2e/visual-regression.spec.ts-snapshots/reading-light-linux.png,
+  //   writing actual.
+  //
+  // and would fail the same way on windows. The fix is deliberately not to let
+  // `--update-snapshots` bless whatever the runners rendered: a baseline nobody
+  // has looked at is a check that passes without checking, and if a runner is
+  // missing a font then the tofu becomes the reference. Producing and reviewing
+  // linux/win32 baselines is its own piece of work.
+  //
+  // Note what this gate does not do: these tests still run in CI, on
+  // macos-latest, where the committed darwin baselines matched on the first
+  // attempt. Gated to one platform, not switched off.
+  test.skip(
+    process.platform !== "darwin",
+    "no reviewed pixel baseline for this platform; only *-darwin.png exist in tests/e2e/visual-regression.spec.ts-snapshots",
+  );
+
   test("reading mode, light theme", async ({ page }) => {
     await setupMock(page, "light", corpus);
     await page.goto(APP_URL);

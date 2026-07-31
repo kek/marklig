@@ -1,35 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch { /* still booting */ }
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try { process.kill(-viteProc.pid); } catch { /* already exited */ }
-  }
-});
 
 test("clicking an external link in reading mode invokes the OS opener", async ({ page }) => {
   await page.addInitScript(() => {
@@ -115,10 +86,20 @@ test("clicking an external link in reading mode invokes the OS opener", async ({
 
   await page.goto(APP_URL);
 
-  // Reading mode is the default; the link span should be present.
-  const linkText = page.locator(".cm-md-link-text").first();
-  await expect(linkText).toBeVisible();
-  await linkText.click();
+  // Reading mode is the default. `.cm-md-link-text` — what this test used to
+  // look for — is the *edit*-mode mark on the raw `[text](url)` source. Reading
+  // mode replaces that source span with a real semantic <a> widget
+  // (src/editor/decorations/reading-links.ts, the "Semantic <a> for
+  // reading-mode links" work), so the old selector cannot match here and had
+  // not matched since that landed: Playwright had never run in CI, so nothing
+  // said so. Assert against the anchor the reading view actually builds, and
+  // check its href while we are here — the widget carries the target, so this
+  // is a stricter precondition than the mark was.
+  const link = page.locator("a.cm-md-reading-link").first();
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", "https://example.com");
+  await expect(link).toHaveText("example");
+  await link.click();
 
   // The mocked opener should have received the URL.
   await expect.poll(async () =>

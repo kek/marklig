@@ -1,35 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try { process.kill(-viteProc.pid); } catch { /* already exited */ }
-  }
-});
 
 test("toggle to edit mode, type, save", async ({ page }) => {
   await page.addInitScript(() => {

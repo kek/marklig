@@ -1,35 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try { process.kill(-viteProc.pid); } catch { /* already exited */ }
-  }
-});
 
 test("create a new file from the folder sidebar header '+'", async ({ page }) => {
   await page.addInitScript(() => {
@@ -102,6 +73,13 @@ test("create a new file from the folder sidebar header '+'", async ({ page }) =>
       if (cmd === "resolve_folder_root") {
         return folderRoot;
       }
+      // setCurrentFolder() canonicalizes the root before its identity check
+      // (issue #99). The real backend answers with std::fs::canonicalize; a
+      // stub that fell through to the default `null` made currentFolder null,
+      // so `root === currentFolder` held and the sidebar silently never
+      // opened. Echo the path back, as the backend does for an already-
+      // absolute, symlink-free one.
+      if (cmd === "canonicalize_path") return args?.path as string;
       if (cmd === "is_directory") return false;
       if (cmd === "take_pending_open_paths") return [];
       if (cmd === "recents_os_get") return [];

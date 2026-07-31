@@ -3,37 +3,8 @@
 // and edit-and-save for the same harness.
 
 import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let viteProc: ChildProcess | undefined;
 const APP_URL = "http://localhost:1420";
-
-test.beforeAll(async () => {
-  viteProc = spawn("npm", ["run", "dev"], {
-    cwd: resolve(__dirname, "..", ".."),
-    stdio: "inherit",
-    detached: true,
-  });
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(APP_URL);
-      if (r.ok) break;
-    } catch {}
-    await sleep(500);
-  }
-});
-
-test.afterAll(async () => {
-  if (viteProc?.pid) {
-    try { process.kill(-viteProc.pid); } catch { /* ignore */ }
-  }
-});
 
 test("right-click opens the custom menu; mode toggle swaps the item set", async ({ page }) => {
   await page.addInitScript(() => {
@@ -126,21 +97,31 @@ test("right-click opens the custom menu; mode toggle swaps the item set", async 
   // Then verify the heading actually rendered with our content.
   await expect(page.locator(".cm-md-heading-1")).toBeVisible();
 
+  const menu = page.locator(".viewer-context-menu");
+
   // Right-click on the editor surface. Click on the heading line so we hit
   // an editor element rather than empty area outside .cm-content.
   // Use page.mouse: Playwright's .click({button: "right"}) doesn't reliably
   // fire contextmenu in webkit/chromium; mouse.click with right button does.
-  {
+  //
+  // Retried via toPass() because this is a one-shot *gesture*, not a matcher
+  // that polls: if it lands in the window between .cm-md-heading-1 painting and
+  // mountContextMenu() attaching its listener — which vite's dep-optimizer
+  // full-reload on the first page load of a cold run can widen — the event
+  // falls on the floor and no amount of waiting afterwards will produce a menu.
+  // That is exactly how this failed on the macos-latest runner (5s waiting for
+  // .viewer-context-menu, "element(s) not found") while passing on
+  // ubuntu-latest and locally. Retrying the gesture keeps the assertion
+  // intact — the menu still has to appear — and removes the race.
+  await expect(async () => {
     const handle = page.locator(".cm-line").first();
     const box = await handle.boundingBox();
     if (!box) throw new Error("could not measure cm-line bbox");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
-  }
-
-  const menu = page.locator(".viewer-context-menu");
-  await expect(menu).toBeVisible();
+    await expect(menu).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 
   // Reading-mode menu, no selection: Find, Reveal, Switch to Edit.
   await expect(menu.locator(".viewer-context-menu-item")).toContainText([
