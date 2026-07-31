@@ -49,16 +49,89 @@ impl WatcherState {
 
 const SELF_WRITE_WINDOW: Duration = Duration::from_millis(500);
 
-/// Pick the path we'll compare incoming watcher events against. `notify` v6
-/// canonicalizes the watch path before handing it to FSEvents, so the paths
-/// it reports back are canonical (symlinks resolved). Comparing the raw input
-/// path against those events silently drops every event for any file whose
-/// path traverses a symlink — including `/tmp` (→ `/private/tmp`) and any
-/// iCloud-Drive / network-mount layout. If canonicalization fails (e.g. the
-/// file doesn't exist yet) we fall back to the original — behaviorally
-/// unchanged from before this fix.
-fn canonical_match_path(target: &std::path::Path) -> PathBuf {
-    target.canonicalize().unwrap_or_else(|_| target.to_path_buf())
+/// The path spellings an incoming watcher event may use for our target.
+///
+/// `notify` does not normalise the paths it reports, and its two Unix backends
+/// disagree about which spelling they use for the same file:
+///
+/// * macOS FSEvents reports **canonical** paths, symlinks resolved. A file
+///   watched as `/tmp/x/file.md` comes back as `/private/tmp/x/file.md`.
+/// * Linux inotify reports the path **as it was watched**, joined with the
+///   changed directory entry's name. The same file comes back as
+///   `/tmp/x/file.md`.
+///
+/// So there is no single spelling to compare against, and picking either one
+/// drops every event on the other platform. Picking the canonical one is what
+/// issue #47 was: on Linux, an external edit to a file opened through a
+/// symlinked path never reached the frontend, so a clean buffer never
+/// auto-reloaded.
+///
+/// This holds **both** spellings, each computed once at watch time, and matches
+/// an event if it equals either. The alternatives and why they lose:
+///
+/// * *Canonicalize every event path instead.* One `stat`-chain syscall per
+///   event on the notify callback thread, and — the real defect —
+///   `canonicalize` fails on a path that no longer exists, which is precisely
+///   the case for `EventKind::Remove`. Removal is one of the two event kinds
+///   this watcher emits, so that trade buys symlink correctness by breaking
+///   deletion detection.
+/// * *Canonicalize only when the verbatim comparison fails.* This sounds like
+///   paying on the cold path, but the watch is `NonRecursive` on the target's
+///   **parent directory**, so every event for every sibling file arrives here
+///   and misses. While a file is being edited, misses dominate: editors emit
+///   events for `.file.md.swp`, `file.md~`, `.#file.md` and atomic-save temp
+///   files, most of which are already unlinked by the time we would look at
+///   them — a syscall per event, that also fails. The miss path *is* the hot
+///   path.
+///
+/// The cost here is one extra `PathBuf` per active watcher (one per window)
+/// and one extra `canonicalize` at watch time. Nothing per event.
+///
+/// Known limit, deliberately not addressed: if the symlink is retargeted while
+/// the watch is live, `canonical` goes stale. That cannot be fixed here,
+/// because the kernel watch is stale too — `inotify_add_watch` resolves the
+/// path to an inode once, and the watch follows that inode, not the name, so
+/// no events for the new target are ever delivered no matter what we compare
+/// against. Events keep arriving spelled as the watch path, `verbatim` keeps
+/// matching them, and we keep reporting changes to the old file: unchanged
+/// pre-existing behaviour, and no panic or dropped watch. Re-establishing the
+/// watch when a link's target moves is a separate change.
+struct TargetMatcher {
+    /// The path exactly as the frontend asked us to watch it.
+    verbatim: PathBuf,
+    /// The fully-resolved path, when it could be resolved and differs.
+    canonical: Option<PathBuf>,
+}
+
+impl TargetMatcher {
+    fn new(target: &std::path::Path) -> Self {
+        let verbatim = target.to_path_buf();
+        // Resolve the target itself when it exists. When it doesn't — a path
+        // the frontend has opened but that isn't on disk yet — resolve the
+        // *parent* (which does exist, since we're about to watch it) and
+        // re-join the file name, so we still know the spelling FSEvents will
+        // use once the file appears. Previously this case fell back to the
+        // verbatim path alone and so was broken on macOS.
+        let canonical = target.canonicalize().ok().or_else(|| {
+            let resolved_parent = target.parent()?.canonicalize().ok()?;
+            Some(resolved_parent.join(target.file_name()?))
+        });
+        let canonical = canonical.filter(|c| c != &verbatim);
+        Self {
+            verbatim,
+            canonical,
+        }
+    }
+
+    fn matches(&self, path: &std::path::Path) -> bool {
+        path == self.verbatim || self.canonical.as_deref() == Some(path)
+    }
+
+    /// A `notify` event carries one or more paths (two, for renames). It
+    /// concerns us if any of them is our target.
+    fn matches_any(&self, paths: &[PathBuf]) -> bool {
+        paths.iter().any(|p| self.matches(p))
+    }
 }
 
 #[tauri::command]
@@ -73,7 +146,7 @@ pub fn watcher_start(
         .parent()
         .ok_or_else(|| "no parent directory".to_string())?
         .to_path_buf();
-    let target_for_handler = canonical_match_path(&target);
+    let matcher = TargetMatcher::new(&target);
     // Path reported back to the frontend is the *original* (un-canonicalized)
     // path so it matches the value the frontend asked us to watch — callers
     // that compare against `currentPath` shouldn't suddenly see `/private/tmp`
@@ -92,7 +165,7 @@ pub fn watcher_start(
                 Err(_) => return,
             };
             for ev in events {
-                let touches_target = ev.paths.iter().any(|p| p == &target_for_handler);
+                let touches_target = matcher.matches_any(&ev.paths);
                 if !touches_target {
                     continue;
                 }
@@ -214,7 +287,7 @@ mod tests {
         }
 
         let through_link = link.join("file.md");
-        let target_for_handler = canonical_match_path(&through_link);
+        let matcher = TargetMatcher::new(&through_link);
 
         // Sanity-check the symlink fixture: the canonical form of the path
         // through the link must point at the real file. If not, the platform
@@ -232,14 +305,17 @@ mod tests {
         // path comparison.
         let parent = through_link.parent().unwrap().to_path_buf();
         let (tx, rx) = channel();
-        let matcher = target_for_handler.clone();
         let mut debouncer = new_debouncer(
             Duration::from_millis(100),
             None,
             move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
                 if let Ok(events) = result {
                     for ev in events {
-                        let matched = ev.paths.iter().any(|p| p == &matcher);
+                        // Deliberately the production predicate, not a copy of
+                        // it: a test that re-implements the comparison it is
+                        // meant to be pinning cannot fail when the real
+                        // comparison is wrong, which is how #47 survived.
+                        let matched = matcher.matches_any(&ev.paths);
                         let _ = tx.send((matched, ev.paths.clone()));
                     }
                 }
@@ -283,8 +359,80 @@ mod tests {
 
         assert!(
             matched_any,
-            "no event matched canonical target; saw events: {:?}",
+            "no event matched the watch target; saw events: {:?}",
             saw_events
         );
+    }
+
+    /// The two spellings, without touching a watcher. Runs everywhere,
+    /// including Windows, where the symlink test above bails out — before this
+    /// there was no coverage of the path comparison on that platform at all.
+    #[test]
+    fn matcher_accepts_both_the_watched_and_the_canonical_spelling() {
+        let root = std::env::temp_dir().join(format!(
+            "marklig-matcher-test-{}",
+            std::process::id()
+        ));
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).expect("create real dir");
+        let real_file = real.join("file.md");
+        std::fs::write(&real_file, "# initial\n").expect("seed file");
+
+        let canonical = real_file.canonicalize().expect("canonicalize");
+        let matcher = TargetMatcher::new(&real_file);
+
+        assert!(matcher.matches(&real_file), "must match the path as watched");
+        assert!(matcher.matches(&canonical), "must match the canonical path");
+        assert!(
+            !matcher.matches(&real.join("other.md")),
+            "must not match an unrelated sibling"
+        );
+        assert!(
+            matcher.matches_any(&[real.join("other.md"), real_file.clone()]),
+            "a multi-path event (e.g. a rename) matches if any path is ours"
+        );
+        assert!(!matcher.matches_any(&[]), "no paths cannot match");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A target that isn't on disk yet still gets a canonical spelling, via its
+    /// parent. `canonicalize` on the file itself fails here, and falling back to
+    /// the verbatim path alone — what the code did before — means macOS, which
+    /// only ever reports canonical paths, would miss the file's creation.
+    #[test]
+    fn matcher_resolves_a_target_that_does_not_exist_yet_via_its_parent() {
+        let root = std::env::temp_dir().join(format!(
+            "marklig-matcher-missing-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+
+        let absent = root.join("not-created-yet.md");
+        assert!(!absent.exists(), "fixture must not exist");
+
+        let matcher = TargetMatcher::new(&absent);
+        let expected = root.canonicalize().expect("canonicalize root").join("not-created-yet.md");
+
+        assert!(matcher.matches(&absent), "must match the path as watched");
+        assert!(
+            matcher.matches(&expected),
+            "must match the canonical spelling the file will have, got {:?}",
+            matcher.canonical
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Neither the parent nor the target resolves. The matcher must degrade to
+    /// comparing the verbatim path — not panic, and not stop matching.
+    #[test]
+    fn matcher_degrades_to_verbatim_when_nothing_resolves() {
+        let nowhere = std::path::Path::new("/marklig-no-such-root-9d3f/sub/file.md");
+        let matcher = TargetMatcher::new(nowhere);
+
+        assert_eq!(matcher.canonical, None);
+        assert!(matcher.matches(nowhere));
+        assert!(!matcher.matches(std::path::Path::new("/marklig-no-such-root-9d3f/sub/other.md")));
     }
 }
