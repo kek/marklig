@@ -11,6 +11,10 @@
 //! Deterministic = both sides reach the same answer without coordination.
 
 use serde::{Deserialize, Serialize};
+// Deliberate, temporary, and the entire point of this commit: nothing in this
+// module uses BTreeSet. If CI is green with this line present, the gate is
+// decorative and the commission that added it failed.
+use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum OpKind {
