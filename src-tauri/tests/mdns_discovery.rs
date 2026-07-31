@@ -11,7 +11,10 @@
 
 #![cfg(not(any(target_os = "android", target_os = "ios")))]
 
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
+
+use mdns_sd::{ServiceDaemon, ServiceInfo};
 
 use marklig_lib::mdns::{
     self, announce_listening, announce_this_desktop, SyncAnnouncer, SERVICE_TYPE,
@@ -312,8 +315,13 @@ fn a_conflict_rename_is_adopted_so_the_qr_follows_it() {
     // Both announcers own independent `ServiceDaemon`s, so the conflict is
     // detected over real multicast. The two announce different SRV ports
     // because RFC 6762 §9 only calls it a conflict when the rdata *differs*:
-    // between two machines the differing A records do that, but inside one
-    // process every address is the same, so the port stands in for them.
+    // between two machines the differing A records do that, but two
+    // `SyncAnnouncer`s announce the same addresses, so the port stands in for
+    // them. That makes this a test of a conflict on *SRV* rdata, which is why
+    // it stays even though
+    // `differing_addresses_from_two_hosts_rename_us_and_the_qr_follows` below
+    // now covers the address axis for real — a different record, and a rename
+    // that takes one probe round rather than two.
     let wanted = unique_instance("collide");
     const FIRST_PORT: u16 = 14_200;
     const SECOND_PORT: u16 = 14_201;
@@ -376,4 +384,244 @@ fn a_conflict_rename_is_adopted_so_the_qr_follows_it() {
 
     second.stop().expect("second announcement stops");
     first.stop().expect("first announcement stops");
+}
+
+// ---------------------------------------------------------------------------
+// The differing-A-records axis: two *hosts* claiming one name with different
+// addresses.
+//
+// `a_conflict_rename_is_adopted_so_the_qr_follows_it` above has to make its
+// conflict by differing the SRV *port*, because two announcements that
+// `SyncAnnouncer` builds inside one process carry identical rdata, and RFC 6762
+// §9 calls only *differing* rdata a conflict. The port therefore stands in for
+// what two real machines actually differ by — their A records — and that axis
+// was left to "check it on two Macs", which is a test nobody runs.
+//
+// It does not need two machines. Production never states an address (`()` plus
+// `enable_addr_auto`), but `ServiceInfo::new` takes one, so a *test* can
+// hand-build a neighbour that claims an address this machine does not hold and
+// get a real §9 conflict on differing A records from a single bench.
+//
+// Everything else about that neighbour matches what `SyncAnnouncer` puts on the
+// wire — same host label, same TXT, and deliberately the *same port* — so the
+// addresses are the only rdata that differs, and therefore the only thing that
+// can be causing the conflict.
+//
+// What mdns-sd then does is a two-step chain, which is why this reaches the
+// instance name at all: the differing A records collide on the *host* name and
+// rename it (`<name>.local.` -> `<name>-2.local.`), which rewrites the SRV
+// record's target and re-probes it, and *that* probe finds a differing SRV
+// rdata and renames the service instance. Only the second half is a
+// `NameChange` our `adopt_rename` accepts — it rejects host renames on purpose
+// — so the whole chain has to run for the QR to follow.
+// ---------------------------------------------------------------------------
+
+/// A stand-in for a second machine: an announcement of `instance` on `port`
+/// that claims `addresses` *explicitly*.
+///
+/// **TEST-ONLY. The explicit address must not be lifted into production.**
+/// `mdns::SyncAnnouncer::start` passes `()` with `.enable_addr_auto()` on
+/// purpose, so the daemon keeps the address list current by itself; pinning an
+/// address there would put back exactly the staleness `src-tauri/src/mdns.rs`
+/// exists to remove (the frozen `QrPayload::host` of v2.0-alpha — see that
+/// module's header). The fabrication below is legitimate only because its whole
+/// job is to be *wrong*: an address the announcing machine does not have, so
+/// that one process can put two differing A records for one name on the wire.
+struct FabricatedNeighbour {
+    daemon: ServiceDaemon,
+    /// The name as registered, for the reason `Announcement` documents in the
+    /// module under test: mdns-sd keys its service table by the name the caller
+    /// passed, so `unregister` has to name the original.
+    registered_fullname: String,
+}
+
+impl FabricatedNeighbour {
+    fn announce(instance: &str, port: u16, addresses: &str) -> Self {
+        let daemon = ServiceDaemon::new().expect("the neighbour's daemon starts");
+        let info = ServiceInfo::new(
+            SERVICE_TYPE,
+            instance,
+            &format!("{instance}.local."),
+            addresses,
+            port,
+            // The same TXT `SyncAnnouncer` announces. Differing TXT rdata would
+            // itself be a §9 conflict and would rename us for the wrong reason.
+            &[("txtvers", "2"), ("proto", "ws")][..],
+        )
+        .expect("the neighbour's ServiceInfo is well-formed");
+        let registered_fullname = info.get_fullname().to_string();
+        daemon
+            .register(info)
+            .expect("the neighbour's announcement registers");
+        Self {
+            daemon,
+            registered_fullname,
+        }
+    }
+
+    fn stop(self) {
+        if let Ok(rx) = self.daemon.unregister(&self.registered_fullname) {
+            let _ = rx.recv_timeout(Duration::from_secs(2));
+        }
+        if let Ok(rx) = self.daemon.shutdown() {
+            let _ = rx.recv_timeout(Duration::from_secs(2));
+        }
+    }
+}
+
+/// Every IPv4 address this machine holds.
+///
+/// Enumerated from the interfaces rather than learned off the wire, and that is
+/// not a stylistic choice: `resolve_instance` returns as soon as one answer
+/// arrives, so the address set it reports is whatever happened to be cached at
+/// that instant. A first version of this test derived the neighbour's addresses
+/// from a resolve of our own announcement and was flaky for exactly that
+/// reason — one run saw only `127.0.0.1`. The conflict has to differ from *all*
+/// of our addresses, so the set has to be complete.
+///
+/// IPv4 only: a link-local IPv6 address carries a scope id that makes "same
+/// subnet, different host" a much less crisp claim, and one differing A record
+/// is all §9 needs.
+fn this_machines_ipv4_addresses() -> Vec<Ipv4Addr> {
+    local_ip_address::list_afinet_netifas()
+        .expect("the interface list is readable on any host that can run this")
+        .into_iter()
+        .filter_map(|(_name, ip)| match ip {
+            IpAddr::V4(v4) => Some(v4),
+            IpAddr::V6(_) => None,
+        })
+        .collect()
+}
+
+/// IPv4 addresses on this machine's own subnets that are *not* this machine's —
+/// the rdata a second host would carry.
+///
+/// Derived rather than hardcoded, and that is the whole difficulty of doing this
+/// from one bench: mdns-sd only announces an address on an interface whose
+/// subnet contains it (`valid_ip_on_intf`), so an invented `10.99.99.99` is
+/// filtered off every interface, the neighbour announces no A record at all,
+/// and the test would pass while proving nothing. Each address here is one of
+/// ours with the last octet moved, which stays inside the same subnet for any
+/// realistic netmask while naming a host we are not. Nothing binds it — it is
+/// rdata in a record, not a socket, so it does not have to be assignable.
+fn addresses_this_machine_does_not_hold(ours: &[Ipv4Addr]) -> Vec<Ipv4Addr> {
+    let mut fabricated: Vec<Ipv4Addr> = Vec::new();
+    for real in ours {
+        let o = real.octets();
+        // Kept clear of 0 and 255 so the result reads as a host address rather
+        // than a network or broadcast one.
+        let last = if o[3] < 253 { o[3] + 1 } else { o[3] - 1 };
+        let candidate = Ipv4Addr::new(o[0], o[1], o[2], last);
+        // Never one of ours: identical rdata is not a conflict at all, which is
+        // the trap this whole test exists to get out of.
+        if !ours.contains(&candidate) && !fabricated.contains(&candidate) {
+            fabricated.push(candidate);
+        }
+    }
+    fabricated
+}
+
+#[test]
+fn differing_addresses_from_two_hosts_rename_us_and_the_qr_follows() {
+    // One port for both announcements, unlike the SRV-port test above: here
+    // nothing but the A records can be the conflicting rdata.
+    const SHARED_PORT: u16 = 14_200;
+
+    let ours = this_machines_ipv4_addresses();
+    let fabricated = addresses_this_machine_does_not_hold(&ours);
+    assert!(
+        !fabricated.is_empty(),
+        "this machine holds no IPv4 address ({ours:?}), so a neighbour address \
+         cannot be placed on a subnet mdns-sd would announce it on, and the \
+         differing-A-records axis is not reachable from this host"
+    );
+    let fabricated_strings: Vec<String> = fabricated.iter().map(Ipv4Addr::to_string).collect();
+
+    let wanted = unique_instance("addr-collide");
+
+    // The neighbour goes first, so it wins the name and *our* announcement is
+    // the one §9 renames — the adoption is what is under test.
+    let neighbour =
+        FabricatedNeighbour::announce(&wanted, SHARED_PORT, &fabricated_strings.join(","));
+
+    // Before anything is asserted about a conflict, prove the fabrication
+    // reached the wire. If mdns-sd declined an address, or filtered it off every
+    // interface, it shows here — and a conflict assertion that passed afterwards
+    // would be measuring nothing.
+    let theirs = mdns::resolve_instance(&wanted, RESOLVE_TIMEOUT)
+        .expect("resolve does not error")
+        .expect("the fabricated neighbour must hold the contested name");
+    assert_eq!(theirs.port, SHARED_PORT);
+    for addr in &theirs.addresses {
+        assert!(
+            fabricated_strings.contains(addr),
+            "the neighbour answered with {addr}, which is not one of the \
+             fabricated {fabricated_strings:?}; the explicit address did not \
+             reach the wire, so there are no differing A records to conflict"
+        );
+    }
+
+    // Now this desktop, under the name the neighbour already holds.
+    let mut announcer = SyncAnnouncer::new();
+    announcer
+        .start(&wanted, SHARED_PORT)
+        .expect("our announcement starts");
+
+    // Conflict resolution runs while our daemon probes, and here it takes two
+    // probe rounds (host, then the SRV whose target the host rename moved). Poll
+    // for the adoption rather than sleeping a fixed amount, and fail naming the
+    // string that would have gone into the QR.
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let renamed = loop {
+        let name = announcer
+            .announced_instance_name()
+            .expect("an active announcement must be able to name itself");
+        if name != wanted {
+            break name;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "two differing A records for {wanted:?} ({fabricated_strings:?} from \
+             the neighbour, {ours:?} from us) did not rename us: the QR still \
+             offers {name:?}, which resolves to the neighbour"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(
+        renamed.starts_with(&wanted),
+        "a rename must stay recognizably ours, got {renamed:?}"
+    );
+
+    // The property the port test proves, proved through the address path: the
+    // only name our QR can carry resolves to *us*. A fresh resolver daemon has
+    // an empty cache, so this answer was given now rather than remembered.
+    let mine = mdns::resolve_instance(&renamed, RESOLVE_TIMEOUT)
+        .expect("resolve does not error")
+        .expect("the renamed announcement must be resolvable");
+    assert_eq!(mine.instance_name, renamed);
+    assert_eq!(
+        mine.port, SHARED_PORT,
+        "both announcements carry this port, so it is not what tells them \
+         apart here: {mine:?}"
+    );
+    // With the port identical the addresses are the discriminator, and none of
+    // them may be the neighbour's. `collect_peers` discards a resolution that
+    // carries no address at all, so this cannot pass vacuously.
+    for addr in &mine.addresses {
+        assert!(
+            !fabricated_strings.contains(addr),
+            "the name our QR would carry resolved to the fabricated neighbour \
+             (address {addr}): {mine:?}"
+        );
+    }
+    // And these are two distinct announcements rather than one record seen
+    // twice: only ours was renamed, so only ours answers under a new host name.
+    assert_ne!(
+        mine.hostname, theirs.hostname,
+        "the renamed announcement answers under the neighbour's host name, so \
+         it is the neighbour: {mine:?}"
+    );
+
+    announcer.stop().expect("our announcement stops");
+    neighbour.stop();
 }
