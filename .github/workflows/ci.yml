@@ -1,14 +1,24 @@
 name: CI
 
+# `trunk`, not `main`: this repository has no `main` branch, so from the day
+# this workflow was added until the day that was noticed it matched no event
+# and produced zero runs — GitHub had not even registered it as a workflow.
+# Every gate below, not just the Rust one, was decorative until this line.
 on:
   push:
-    branches: [main]
+    branches: [trunk]
   pull_request:
-    branches: [main]
+    branches: [trunk]
 
 jobs:
+  # Frontend only. The Rust toolchain, the webkit build dependencies and the
+  # `cargo check` step used to live here; they are now the `rust` job below, so
+  # that a Rust regression is reported as a Rust failure and — the point — is
+  # not silently skipped when an unrelated frontend step fails first. On the
+  # very first run of this workflow that is exactly what happened: a Windows
+  # vitest failure skipped every Rust step under it.
   unit:
-    name: Unit tests (${{ matrix.os }})
+    name: Frontend (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -21,21 +31,6 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-
-      - name: Install Linux build dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
 
       - run: npm ci
 
@@ -45,19 +40,76 @@ jobs:
       - name: Vitest
         run: npm test
 
-      - name: Cargo check
-        working-directory: src-tauri
-        run: cargo check
-
       - name: Install Playwright Chromium
         run: npx playwright install chromium --with-deps
 
       - name: Playwright e2e
         run: npm run test:e2e
 
+  rust:
+    name: Rust suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          # This action defaults to `rustflags: -D warnings`, which is why the
+          # first real run of this workflow died in `cargo check` on Linux and
+          # macOS with 16 "errors" that were all pre-existing dead-code and
+          # style warnings. Deny-by-default was never actually in force (the
+          # workflow had never run), so nothing regresses by clearing it — but
+          # leaving it would mean the Rust suite still could not run, which is
+          # the whole point of this job. Cleaning up the ~22 warnings and then
+          # restoring `-D warnings`, and adding clippy alongside it, is a
+          # separate change; it is a tree-wide edit and does not belong here.
+          rustflags: ''
+
+      # `cargo check` only proved the Rust compiled. Everything the Rust
+      # actually promises lives in these tests, so these are the gate.
+      #
+      # `--workspace` deliberately: the old `cargo check` ran inside src-tauri
+      # and so only ever saw the `marklig` package, which left the 34 tests in
+      # `crates/marklig-sync-core` (envelope crypto, oplog, op resolution, the
+      # pairing handshake and the QR codec) ungated too.
+      #
+      # `--no-fail-fast` so every test binary reports. Without it cargo stops
+      # after the first failing target, which on the first Linux run meant one
+      # unit-test failure hid the entire mdns and sync-core suites — a gate
+      # that shows you one problem at a time is a gate you stop trusting.
+      #
+      # No separate `cargo check`: `cargo test` compiles the lib, the bins and
+      # the test targets, so it strictly subsumes it. It is also strictly
+      # stronger, and not theoretically: `cargo check` was green on Windows for
+      # months while the lib test target did not compile there at all, because
+      # `check` never builds test code.
+      #
+      # `tests/mdns_discovery.rs` binds real multicast sockets. It is run here
+      # unconditionally and on purpose: whether a GitHub runner permits that is
+      # a fact to be established, not guessed at, and those are the best tests
+      # in the repository. Established: it does.
+      - name: Cargo test
+        run: cargo test --workspace --no-fail-fast
+
   build:
     name: Tauri build (${{ matrix.os }})
-    needs: unit
+    needs: [unit, rust]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -85,6 +137,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+          # Same reason as the `rust` job: the action's default `-D warnings`
+          # would fail this build on the tree's pre-existing warnings.
+          rustflags: ''
 
       - run: npm ci
 

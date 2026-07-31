@@ -760,6 +760,10 @@ mod tests {
         assert!(v, "tracked file should be visible");
     }
 
+    // Builds its fixture with `std::os::unix::fs::symlink`, so the test
+    // target did not compile at all on Windows until this guard. Same
+    // convention as the other symlink tests in this tree.
+    #[cfg(unix)]
     #[test]
     fn canonicalize_path_str_resolves_symlinked_dir() {
         let base = unique_tempdir("canon-str");
@@ -786,6 +790,10 @@ mod tests {
         assert_eq!(canonicalize_path_str(p), p);
     }
 
+    // Builds its fixture with `std::os::unix::fs::symlink`, so the test
+    // target did not compile at all on Windows until this guard. Same
+    // convention as the other symlink tests in this tree.
+    #[cfg(unix)]
     #[test]
     fn resolve_folder_root_canonicalizes_symlinked_vcs_root() {
         // Opening a folder via a symlinked spelling (e.g. `~/proj` where

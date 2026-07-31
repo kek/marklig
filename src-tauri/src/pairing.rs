@@ -600,6 +600,10 @@ mod synced_folder_tests {
         path
     }
 
+    // Builds its fixture with `std::os::unix::fs::symlink`, so the test
+    // target did not compile at all on Windows until this guard. Same
+    // convention as the other symlink tests in this tree.
+    #[cfg(unix)]
     #[test]
     fn add_synced_folder_stores_canonical_path_and_dedups() {
         let base = unique_tempdir("add");
@@ -622,6 +626,10 @@ mod synced_folder_tests {
         assert_eq!(folders, vec![canonical]);
     }
 
+    // Builds its fixture with `std::os::unix::fs::symlink`, so the test
+    // target did not compile at all on Windows until this guard. Same
+    // convention as the other symlink tests in this tree.
+    #[cfg(unix)]
     #[test]
     fn remove_synced_folder_matches_symlinked_spelling() {
         // The folder was enabled via its real path (canonical), then the UI
