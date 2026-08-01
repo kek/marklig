@@ -25,8 +25,19 @@ npx playwright test tests/e2e/edit-and-save.spec.ts  # Single spec
 npx playwright test --update-snapshots               # Refresh visual-regression baselines
 
 npx tsc -b --noEmit         # Frontend type-check (CI runs this)
-cargo check                 # Rust check, run from src-tauri/
+cargo test --workspace --no-fail-fast                        # Rust suite (CI's gate)
+cargo clippy --workspace --all-targets --no-deps -- -D warnings   # CI's clippy gate
 ```
+
+Run the Rust commands **from the repo root**, and pass `--workspace`. `src-tauri`
+is one of two workspace members (`Cargo.toml`), so running them inside
+`src-tauri/` silently omits `crates/marklig-sync-core` — 68 tests instead of 102.
+For the same reason there is exactly **one lockfile, `Cargo.lock` at the root**,
+and it is the only place to read this repo's resolved Rust dependencies from. A
+second, stale `src-tauri/Cargo.lock` was tracked here until it was deleted; it
+had been frozen since before the workspace existed and answered dependency
+questions confidently and wrongly (it listed none of the 13 typst crates the
+real resolution pulls in).
 
 E2E runs `fullyParallel: false, workers: 1` (see `playwright.config.ts`) — they share window/file state and must run serially.
 
