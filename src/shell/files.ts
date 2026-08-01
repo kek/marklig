@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { supportedExtensions } from "../format";
+import {
+  markdownExtensions,
+  supportedExtensions,
+  typstExtensions,
+  type Format,
+} from "../format";
 
 export interface OpenedDoc {
   path: string;
@@ -124,27 +129,33 @@ export async function saveTypstAs(
   const dest = await save({
     title: "New Typst File",
     defaultPath: defaultName,
-    filters: [{ name: "Typst", extensions: ["typ"] }],
+    filters: [{ name: "Typst", extensions: typstExtensions() }],
   });
   if (typeof dest !== "string") return null;
   await invoke("write_text_file", { path: dest, contents });
   return dest;
 }
 
-/** Prompt for a save destination and write the markdown contents. Returns
- * the chosen path on success, null on cancel. Used by File -> Save As… to
- * rebind currentPath without losing edits. */
-export async function saveMarkdownAs(
+/** Prompt for a save destination and write the contents. Returns the chosen
+ * path on success, null on cancel. Used by File -> Save As… to rebind
+ * currentPath without losing edits.
+ *
+ * The dialog's filter and default name follow the *open document's* format.
+ * This used to be Markdown-only for every document, so Save As on an open
+ * `.typ` offered `document.md` and converted the file to Markdown identity —
+ * it then reopened as Markdown, with the Typst source rendered as prose. A
+ * document's format is a property of the document; Save As is a rename, not a
+ * conversion. */
+export async function saveDocumentAs(
+  format: Format,
   contents: string,
   defaultName: string,
 ): Promise<string | null> {
-  const dest = await save({
-    title: "Save As",
-    defaultPath: defaultName,
-    filters: [
-      { name: "Markdown", extensions: ["md", "markdown", "mdx", "mdown"] },
-    ],
-  });
+  const filters =
+    format === "typst"
+      ? [{ name: "Typst", extensions: typstExtensions() }]
+      : [{ name: "Markdown", extensions: markdownExtensions() }];
+  const dest = await save({ title: "Save As", defaultPath: defaultName, filters });
   if (typeof dest !== "string") return null;
   await invoke("write_text_file", { path: dest, contents });
   return dest;

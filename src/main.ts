@@ -55,10 +55,12 @@ import {
   loadStoredTheme,
   watchSystemTheme,
 } from "./editor/theme";
-import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, savePdfExport, saveMarkdownAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
+import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, savePdfExport, saveDocumentAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
 import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
+import { buildTypstHtmlExport } from "./export/typst-html";
+import { decideExportRoute, saveAsExtension, type TypstRenderState } from "./export/route";
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
 import { installWatcher, type WatcherHandle } from "./shell/watcher";
@@ -735,6 +737,12 @@ async function bootstrap(): Promise<void> {
   let typstCompileTimer: ReturnType<typeof setTimeout> | null = null;
   let typstCompileSeq = 0;
   const TYPST_COMPILE_DEBOUNCE_MS = 300;
+  // The pages the pane is currently showing, mirrored here so the file-out
+  // surfaces (Export → HTML/PDF, Print, Copy as HTML) can export the compiled
+  // document rather than re-deriving it. `stale` tracks the same condition as
+  // the pane's `.typst-pane-stale` dimming: the newest compile produced no
+  // pages, so these are a prior revision's.
+  let typstRender: TypstRenderState | null = null;
 
   async function openTypstSessionIfNeeded(): Promise<void> {
     if (detectFormat(currentPath) !== "typst") {
@@ -743,10 +751,14 @@ async function bootstrap(): Promise<void> {
         await typstDriver.close();
         typstDriver = null;
       }
+      typstRender = null;
       toolbar.setStatus(null);
       return;
     }
     if (!currentPath) return;
+    // A fresh entry file means the previous document's pages must not be
+    // exportable — drop them before the first compile of the new one lands.
+    typstRender = null;
     if (typstDriver) await typstDriver.close();
     typstDriver = createTypstDriver();
     try {
@@ -777,6 +789,10 @@ async function bootstrap(): Promise<void> {
       result = await typstDriver.compile(view.state.doc.toString());
     } catch (err) {
       console.warn("typst compile failed", err);
+      // Shell-level failure (session gone, IO). Whatever the pane still shows
+      // is no longer known to match the buffer, so it stops being exportable
+      // as a faithful render of it.
+      if (typstRender) typstRender = { ...typstRender, stale: true };
       toolbar.setStatus(null);
       return;
     }
@@ -787,9 +803,18 @@ async function bootstrap(): Promise<void> {
     if (result.pages.length > 0) {
       previewPane.setPages(result.pages);
       previewPane.body.classList.remove("typst-pane-stale");
-    } else if (result.diagnostics.some((d) => d.severity === "error")) {
-      // Failed compile with prior content — dim it instead of clearing.
-      previewPane.body.classList.add("typst-pane-stale");
+      typstRender = { pages: result.pages, stale: false };
+    } else {
+      // No pages for the current buffer, so whatever the pane still shows is a
+      // prior revision's and stops counting as an export of *this* one. Not
+      // conditional on an error diagnostic: the pane only dims for errors, but
+      // a zero-page compile with no errors would otherwise leave the old pages
+      // looking current to an export.
+      if (typstRender) typstRender = { ...typstRender, stale: true };
+      if (result.diagnostics.some((d) => d.severity === "error")) {
+        // Failed compile with prior content — dim it instead of clearing.
+        previewPane.body.classList.add("typst-pane-stale");
+      }
     }
     const errorCount = result.diagnostics.filter(
       (d) => d.severity === "error",
@@ -804,6 +829,19 @@ async function bootstrap(): Promise<void> {
       );
     }
     view.dispatch({ effects: setTypstDiagnostics.of(result.diagnostics) });
+  }
+
+  /** Run any pending debounced compile *now* and wait for it. Exports call this
+   * first: the pane can be up to `TYPST_COMPILE_DEBOUNCE_MS` behind the buffer,
+   * and an export that silently omits the last keystroke is the same class of
+   * quiet infidelity as exporting the wrong language. No-op for Markdown. */
+  async function flushTypstCompile(): Promise<void> {
+    if (!typstDriver) return;
+    if (typstCompileTimer) {
+      clearTimeout(typstCompileTimer);
+      typstCompileTimer = null;
+    }
+    await runTypstCompile();
   }
 
   setDocumentFormatAttr();
@@ -1468,10 +1506,43 @@ async function bootstrap(): Promise<void> {
   // install these as a listener in every window and have the menu dispatch
   // the action to the focused window via emitTo. Theme is broadcast to all
   // windows so light/dark stays in sync.
-  const buildCurrentHtml = () =>
-    buildHtmlExport(view.state.doc.toString(), {
-      title: documentTitleFromPath(currentPath),
+  /**
+   * Build the HTML that every file-out surface hands to its sink — Export →
+   * HTML, Export → PDF, Print, and Copy as HTML all go through here.
+   *
+   * This must branch on the document's format, and returns `null` when there is
+   * nothing faithful to hand over (having already told the user why). Until
+   * #57 it called `buildHtmlExport` unconditionally, which is the markdown-it
+   * pipeline: with a `.typ` open, all four surfaces ran the Typst *source*
+   * through a Markdown renderer — `= Heading` came out as a paragraph of prose,
+   * `#import` / `#set` / `#figure(…)` as more prose — and wrote that into a file
+   * the dialog had already named `document.pdf`, while the correctly compiled
+   * pages sat in the preview pane. `decideExportRoute` is the one place that
+   * decision now lives, and it is unit-tested (`tests/export/route.test.ts`).
+   */
+  const buildCurrentHtml = async (): Promise<string | null> => {
+    // Typst pages can be a debounce behind the buffer; catch up before deciding.
+    await flushTypstCompile();
+    const route = decideExportRoute({
+      format: detectFormat(currentPath),
+      typstRender,
     });
+    const title = documentTitleFromPath(currentPath);
+    switch (route.kind) {
+      case "markdown":
+        return await buildHtmlExport(view.state.doc.toString(), { title });
+      case "typst":
+        return buildTypstHtmlExport(route.pages, { title });
+      case "blocked":
+        await message(
+          route.reason === "typst-stale"
+            ? t("typst.export.stale")
+            : t("typst.export.not_compiled"),
+          { title: t("typst.export.title") },
+        );
+        return null;
+    }
+  };
   const localHandlers: LocalMenuHandlers = {
     openFile: async () => {
       const doc = await openFileViaDialog();
@@ -1486,8 +1557,20 @@ async function bootstrap(): Promise<void> {
     newWindow: async () => { await spawnNewWindow(); },
     saveFile: () => { void triggerSave(); },
     saveFileAs: async () => {
-      const defaultName = exportFileNameFromPath(currentPath, "md");
-      const dest = await saveMarkdownAs(view.state.doc.toString(), defaultName);
+      // Save As keeps the document's format. It used to default to `.md` with
+      // a Markdown-only filter for every document, so saving an open `.typ`
+      // under a new name converted it to Markdown identity and it reopened as
+      // Markdown next time.
+      const format = detectFormat(currentPath);
+      const defaultName = exportFileNameFromPath(
+        currentPath,
+        saveAsExtension(format),
+      );
+      const dest = await saveDocumentAs(
+        format,
+        view.state.doc.toString(),
+        defaultName,
+      );
       if (!dest) return;
       // Re-bind: dest becomes the new currentPath. Future Save writes here,
       // the watcher tracks the new file, and this open counts as recent.
@@ -1501,6 +1584,10 @@ async function bootstrap(): Promise<void> {
       await startWatching(dest);
       folder.setActiveFile(dest);
       await syncFolderToFile(dest);
+      // The Typst session's entry file is the *old* path, so relative
+      // `#import "./sibling.typ"` and image paths would keep resolving against
+      // the old directory. Re-open against dest.
+      if (format === "typst") await openTypstSessionIfNeeded();
     },
     revealInFileManager: async () => {
       if (!currentPath) {
@@ -1528,24 +1615,31 @@ async function bootstrap(): Promise<void> {
     openReplace: () => { openSearchPanel(view); },
     openRecent: async (path) => { await loadAndApplyDoc(path); },
     clearRecents: async () => { await clearRecents(); },
+    // All four file-out surfaces bail on a null build — `buildCurrentHtml` has
+    // already told the user why, and the alternative is naming a destination
+    // for a document that doesn't exist.
     exportHtml: async () => {
       const html = await buildCurrentHtml();
+      if (html === null) return;
       const defaultName = exportFileNameFromPath(currentPath, "html");
       await saveHtmlExport(html, defaultName);
     },
     exportPdf: async () => {
       const html = await buildCurrentHtml();
+      if (html === null) return;
       const defaultName = exportFileNameFromPath(currentPath, "pdf");
       await savePdfExport(html, defaultName);
     },
     printDocument: () => {
       void (async () => {
         const html = await buildCurrentHtml();
+        if (html === null) return;
         openPrintWindow(html);
       })();
     },
     copyAsHtml: async () => {
       const html = await buildCurrentHtml();
+      if (html === null) return;
       await writeClipboardHtml(html);
     },
     openPreferences: async () => {

@@ -22,7 +22,25 @@
 - **Typst as a Markdown export target.** Separate spec if/when we want it.
 - **Typst-flavored math inside `.md`.** KaTeX stays the math engine for Markdown.
 - **Inline Typst code blocks in Markdown.** Mermaid/code-fence-like rendering of Typst inside `.md` is not part of this.
-- **PDF export of `.typ` from inside the app.** Deferred; the OS print/save-PDF dialog still works on the preview pane content.
+- **A `typst-pdf` rendering backend.** Still deferred. Typst can emit PDF directly
+  (`typst-pdf`, same 0.14 family as the four crates we already build), and that
+  remains the highest-fidelity route — real PDF text, selectable and searchable,
+  with the document's own page boxes and no raster/SVG round trip. It is a new
+  dependency and new build time, and nothing here needs it yet.
+
+  **Amended 2026-08-01 (#57).** This non-goal was originally written as "PDF
+  export of `.typ` from inside the app", on the grounds that "the OS
+  print/save-PDF dialog still works on the preview pane content". That rationale
+  was not true, and had not been since before it was written: `openPrintWindow`
+  prints a hidden iframe, not the pane, so no in-app command has ever printed
+  the pane — and after #55 gave Export → PDF a native webview capture, both it
+  and Print took the Markdown export of the Typst *source*. What shipped was
+  therefore not a deferral but four enabled menu items that quietly produced the
+  wrong document. Export → HTML, Export → PDF, Print and Copy as HTML now route
+  at the compiled SVG pages the pane is already showing (`src/export/route.ts`,
+  `src/export/typst-html.ts`), which is the pane content the original rationale
+  assumed the user could reach. That uses `typst-svg`, which we already depend
+  on; it adds no backend and does not settle the question above.
 - **Watching sibling files** imported by an open `.typ`. Only the entry file is watched in v1; external edits to imported siblings won't refresh the preview until the entry file changes or the user re-saves.
 
 ## 2. Approaches considered
