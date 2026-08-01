@@ -215,6 +215,16 @@ export const EN = {
   "typst.compiled_in": "Compiled in {ms} ms",
   "typst.n_errors": "{n} errors",
   "typst.one_error": "1 error",
+
+  // Export / print / copy refusals for a .typ with no faithful render to hand
+  // over. Shown as a notice instead of writing a file: exporting the Typst
+  // *source* through the Markdown pipeline is the defect these replace, and
+  // writing a known-stale render is the same lie one step removed.
+  "typst.export.title": "Export",
+  "typst.export.not_compiled":
+    "This Typst document hasn't compiled yet, so there are no pages to export. Wait for the preview to appear, then try again.",
+  "typst.export.stale":
+    "This Typst document has errors, so the preview is out of date. Fix the errors and let it compile, then export.",
   "mobile.pair.title": "Pair with a desktop",
   "mobile.pair.qr_label": "Paste the QR URL shown on the desktop",
   "mobile.pair.qr_placeholder": "marklig-pair://v1/…",

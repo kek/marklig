@@ -1144,10 +1144,17 @@ body.preview-splitter-dragging .preview-splitter {
 }
 .typst-page svg {
   display: block;
-  /* typst-svg emits SVGs without explicit width/height attributes — the
-   * browser would default them to ~300×150px (SVG intrinsic dimensions
-   * fallback). `width: 100%` makes the SVG fill the page wrapper, and
-   * `height: auto` preserves the aspect ratio derived from the viewBox. */
+  /* typst-svg 0.14 emits an intrinsic size in points — `width="595.2755…pt"
+   * height="841.8897…pt"` for A4 — alongside the matching viewBox. At 96dpi
+   * that's ~794px, so left alone a page overflows a narrow pane; `width: 100%`
+   * fits it to the wrapper and `height: auto` re-derives the height from the
+   * viewBox aspect ratio.
+   *
+   * An earlier version of this comment said typst-svg emits *no* width/height
+   * and that the browser fell back to 300×150px. It emits both — verified
+   * against a real `typst_svg::svg` call. The rule is still needed, for the
+   * overflow reason above. `src/export/typst-html.ts` reads the same viewBox to
+   * size the export's `@page` box. */
   width: 100%;
   height: auto;
 }
