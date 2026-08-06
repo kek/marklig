@@ -96,7 +96,9 @@ const SELF_WRITE_WINDOW: Duration = Duration::from_millis(500);
 /// matching them, and we keep reporting changes to the old file: unchanged
 /// pre-existing behaviour, and no panic or dropped watch. Re-establishing the
 /// watch when a link's target moves is a separate change.
-struct TargetMatcher {
+/// Shared with `commands::typst_dep_watcher`, which watches many paths at once
+/// and needs the same two-spelling matching for every one of them.
+pub(crate) struct TargetMatcher {
     /// The path exactly as the frontend asked us to watch it.
     verbatim: PathBuf,
     /// The fully-resolved path, when it could be resolved and differs.
@@ -104,7 +106,7 @@ struct TargetMatcher {
 }
 
 impl TargetMatcher {
-    fn new(target: &std::path::Path) -> Self {
+    pub(crate) fn new(target: &std::path::Path) -> Self {
         let verbatim = target.to_path_buf();
         // Resolve the target itself when it exists. When it doesn't — a path
         // the frontend has opened but that isn't on disk yet — resolve the
@@ -129,7 +131,7 @@ impl TargetMatcher {
 
     /// A `notify` event carries one or more paths (two, for renames). It
     /// concerns us if any of them is our target.
-    fn matches_any(&self, paths: &[PathBuf]) -> bool {
+    pub(crate) fn matches_any(&self, paths: &[PathBuf]) -> bool {
         paths.iter().any(|p| self.matches(p))
     }
 }

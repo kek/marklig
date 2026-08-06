@@ -49,6 +49,11 @@ pub struct CompileResult {
     pub pages: Vec<String>,
     pub diagnostics: Vec<Diag>,
     pub elapsed_ms: u32,
+    /// Every local file this compile read: the entry file plus its imports,
+    /// transitively, plus any `read()` / `image()` asset. The frontend watches
+    /// these so that editing an import recompiles the preview. Package files
+    /// are excluded — they live in the immutable shared cache.
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Serialize, thiserror::Error, Debug)]
@@ -96,9 +101,18 @@ pub fn typst_compile(
     // sessions still compile in parallel.
     let _guard = session.compile_lock.lock();
     session.set_source(source);
+    // Under the compile lock, so the dependency set collected below belongs to
+    // exactly this compile and not to one racing alongside it.
+    session.world.begin_dependency_capture();
 
     let main = session.world.main_source_ref();
     let warned = ::typst::compile::<PagedDocument>(&session.world);
+    let dependencies: Vec<String> = session
+        .world
+        .finish_dependency_capture(warned.output.is_ok())
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
     let mut diagnostics = to_wire(&warned.warnings, &main);
     let pages: Vec<String> = match warned.output {
         Ok(doc) => doc
@@ -118,6 +132,7 @@ pub fn typst_compile(
         pages,
         diagnostics,
         elapsed_ms: start.elapsed().as_millis() as u32,
+        dependencies,
     })
 }
 

@@ -15,6 +15,8 @@ pub mod folder_watcher;
 #[cfg(desktop)]
 pub mod recents_os;
 #[cfg(desktop)]
+pub mod typst_dep_watcher;
+#[cfg(desktop)]
 pub mod watcher;
 
 // Mobile-only commands. v2.0 mobile companion: WebSocket-based pairing

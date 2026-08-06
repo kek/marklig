@@ -17,6 +17,12 @@ export interface CompileResult {
   pages: string[];
   diagnostics: Diagnostic[];
   elapsed_ms: number;
+  /** Absolute paths of every local file this compile read — the entry file
+   * plus its imports, transitively, plus `read()` / `image()` assets. Watch
+   * these to know when the render has gone stale. Package files are excluded.
+   * Collected from what the compiler actually resolved, not by parsing import
+   * statements, so a file the entry document never names is still in here. */
+  dependencies: string[];
 }
 
 export interface TypstDriver {

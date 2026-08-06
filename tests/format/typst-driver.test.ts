@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => {
         pages: [`<svg data-source="${String(args.source)}"></svg>`],
         diagnostics: [],
         elapsed_ms: 5,
+        dependencies: ["/tmp/x.typ"],
       } satisfies CompileResult;
     }
     if (cmd === "typst_close") return undefined;
