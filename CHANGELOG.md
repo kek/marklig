@@ -4,7 +4,7 @@
 
 ### Added
 
-- Startup, shutdown, and window-session state are now owned by Rust. `md <dir>`
+- **Startup, shutdown, and window-session state are now owned by Rust.** `md <dir>`
   and `md <file>` raise the window that already covers the target instead of
   opening a duplicate, cold start restores the previous session before applying
   launch arguments, and closing every window means the next launch shows a

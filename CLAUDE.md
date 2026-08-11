@@ -72,7 +72,7 @@ Both libraries are async and big. Pattern: synchronous decoration producer reads
 
 `commands/` exposes invoke handlers for file I/O (`read_text_file`, `write_text_file`, `list_markdown_files`, `is_directory`, `reveal_in_file_manager`), the recovery store (`write_recovery`, `read_all_recovery`, `clear_recovery`), the watcher (`watcher_start/stop/mark_self_write`, backed by `notify-debouncer-full` — **not** `notify-debouncer-mini`, which doesn't fire remove events), and macOS `recents_os` (NSDocumentController via `objc2`).
 
-`lib.rs` listens for `RunEvent::Opened` and forwards file-association launches to the frontend as a `file-open-request` event. Bootstrap (`src/main.ts`) waits up to 500ms for this on startup before falling back to last-opened / open dialog, so double-clicking a `.md` doesn't briefly show a redundant dialog.
+`lib.rs` listens for `RunEvent::Opened` for file-association launches; there is no frontend event for this any more. Before the session has restored, the paths are buffered into `PENDING_OPEN_PATHS`; `RunEvent::Ready` restores the session and then routes the buffer itself through `session::open_paths`. A warm launch (app already running) routes immediately instead of buffering. See "Session, launch, and open-routing" below.
 
 ### File lifecycle (`src/shell/`)
 
@@ -204,7 +204,10 @@ Desktop-only Rust code is gated behind `#[cfg(desktop)]`: the `watcher`,
 `folder_watcher`, `files`, `recents_os`, and `cli_tool` modules; the
 `.manage(WatcherState::new())` / `.manage(FolderWatcherState::new())`
 calls; and most of the `invoke_handler` chain. The mobile-only handler
-chain currently exposes just `take_pending_open_paths`. `pub fn run()`
+chain now also covers pairing and sync (`mobile_pairing_start`,
+`mobile_sync_now`, `mobile_read_synced_file`, `mobile_unpair`,
+`mobile_apply_sync_op`) and mDNS resolution (`mdns_browse_peers`,
+`mdns_resolve_instance`) alongside `take_pending_open_paths`. `pub fn run()`
 carries `#[cfg_attr(mobile, tauri::mobile_entry_point)]` so Tauri's
 Android JNI entry point is generated. When adding new commands, default
 to gating them desktop-only unless they're explicitly designed for both —

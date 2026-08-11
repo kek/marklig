@@ -96,15 +96,16 @@ unsafe extern "C" fn safe_open_urls(
         let url = urls_ref.objectAtIndex(i);
         if url.absoluteString().is_some() {
             // Safe to hand to tao. tao will fire `RunEvent::Opened` for
-            // these and our run-loop callback in lib.rs handles delivery
-            // (buffering during cold-launch, emit-to-main when the app
-            // is already running).
+            // these and our run-loop callback in lib.rs handles delivery:
+            // buffered into `PENDING_OPEN_PATHS` before the session has
+            // restored, routed straight through `session::open_paths`
+            // once it has. No frontend event either way.
             safe.push(url);
         } else if let Some(path) = url.path() {
             // tao would `.unwrap()` the nil absoluteString and panic. Drop
-            // the URL from tao's queue and stash its filesystem path
-            // ourselves so the frontend can pull it via the
-            // `take_pending_open_paths` command at bootstrap.
+            // the URL from tao's queue and stash its filesystem path in
+            // `PENDING_OPEN_PATHS` ourselves instead, so `RunEvent::Ready`
+            // drains it the same way it drains paths that arrived safely.
             dropped_paths.push(path.to_string());
         }
     }

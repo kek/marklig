@@ -46,7 +46,9 @@ function installFolder() {
       // canonicalize_path is the key file-positions uses; identity is fine here.
       if (cmd === "canonicalize_path") return args?.path as string;
       if (cmd === "plugin:cli|argv") return [];
-      // Bootstrap falls through to open dialog → load file A first.
+      // Not exercised by either test below — both navigate straight to
+      // `?file=`, per the Rust-owned launch routing. Kept as a harmless
+      // generic stub alongside the other unused mocks in this harness.
       if (cmd === "plugin:dialog|open") return "/virtual/notes/a.md";
       if (cmd === "plugin:dialog|ask") return false;
       if (cmd === "plugin:dialog|message") return null;
