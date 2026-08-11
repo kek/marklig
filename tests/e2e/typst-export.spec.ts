@@ -92,7 +92,7 @@ async function addStubs(page: Page, sample: string, initialPath: string, saveDes
 
     // The event bridge. Only `viewer:menu-action` is delivered; every other
     // emit stays swallowed exactly as in the sibling specs, so turning this on
-    // can't set off window-session broadcasts or project-switch routing.
+    // can't set off targeted opens or folder adoptions.
     const MENU_EVENT = "viewer:menu-action";
     const menuListeners: number[] = [];
 

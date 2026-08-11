@@ -271,6 +271,14 @@ pub fn session_open_paths(app: AppHandle, paths: Vec<String>, requesting: Option
     open_paths(&app, paths, requesting);
 }
 
+/// `File → New Window`: a blank window, unconditionally. Not a routing
+/// decision — the user asked for a new window, not for a document, and there
+/// is no path to route.
+#[tauri::command]
+pub fn session_new_window(app: AppHandle) {
+    apply_route(&app, Route::Spawn { folder: None, file: None });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

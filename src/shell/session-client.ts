@@ -96,12 +96,22 @@ export async function requestOpen(
   }
 }
 
+/** `File → New Window`: ask Rust for a blank window. Deliberately not a
+ *  routing call — there is no path to route, and the user asked for a window
+ *  rather than for a document. */
+export async function newWindow(): Promise<void> {
+  try {
+    await invoke("session_new_window");
+  } catch {
+    // ignore
+  }
+}
+
 // Set by close.ts while its close-requested handler is mid-flight, so the
 // `beforeunload` fired by the subsequent destroy() doesn't undo the forget.
-// This is the single source of truth for that flag — window-session.ts
-// (until Task 11 removes it) imports `isUserClosingThisWindow` from here
-// rather than keeping its own copy, so a window closed via close.ts is never
-// resurrected by window-session.ts's own beforeunload tick (issue #34).
+// This is the single source of truth for that flag, so a window closed via
+// close.ts is never resurrected by the reporter's own beforeunload tick
+// (issue #34).
 let userClosingThisWindow = false;
 export function markUserClosingThisWindow(): void {
   userClosingThisWindow = true;

@@ -225,6 +225,7 @@ pub fn run() {
             session::session_report,
             session::session_forget,
             session::session_open_paths,
+            session::session_new_window,
         ]);
 
     #[cfg(mobile)]

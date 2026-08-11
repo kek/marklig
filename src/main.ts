@@ -35,14 +35,12 @@ import { graphvizProducer, graphvizCache, graphvizCacheEffect } from "./editor/d
 import { localImageCache, localImageCacheEffect } from "./editor/decorations/local-images";
 import { lineNamesProducer } from "./editor/decorations/line-names";
 import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
-import { restoreWindowState, installWindowStatePersistence } from "./shell/window-state";
 import {
-  loadWindowSession,
-  clearWindowSession,
-  installWindowSessionPersistence,
-  type WindowSessionEntry,
+  installSessionReporting,
+  requestOpen,
+  newWindow as requestNewWindow,
   type WindowMode,
-} from "./shell/window-session";
+} from "./shell/session-client";
 import { openPreferences } from "./ui/preferences";
 import { openKeyboardShortcuts } from "./ui/shortcuts";
 import { openProjectPalette } from "./ui/project-palette";
@@ -57,7 +55,6 @@ import {
 } from "./editor/theme";
 import { readDoc, openFileViaDialog, saveDoc, saveHtmlExport, savePdfExport, saveDocumentAs, saveTypstAs, revealInFileManager as fsReveal, pickFolder, isDirectory, resolveFolderRoot, type OpenedDoc } from "./shell/files";
 import { message } from "@tauri-apps/plugin-dialog";
-import { getValue, setValue } from "./shell/store";
 import { buildHtmlExport } from "./export/html";
 import { buildTypstHtmlExport } from "./export/typst-html";
 import { decideExportRoute, saveAsExtension, type TypstRenderState } from "./export/route";
@@ -75,8 +72,7 @@ import {
 } from "./shell/recovery";
 import { getFilePosition, setFilePosition, canonicalizePath, planPositionRestore } from "./shell/file-positions";
 import { getCurrentWindow, Window } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { listen, emit, emitTo } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { buildAndAttachMenu } from "./shell/menus";
 import {
@@ -97,7 +93,6 @@ import {
   forgetFileInProject,
 } from "./shell/project-recents";
 import { resolveProjectFallbackFile } from "./shell/project-fallback";
-import { decideProjectRoute, dedupeSessionByFolder, deepestContainingFolder } from "./shell/project-routing";
 import { openSearchPanel } from "@codemirror/search";
 import { detectFormat } from "./format";
 import { mountPreviewPane, type PreviewPaneHandle } from "./ui/preview-pane";
@@ -120,10 +115,9 @@ async function bootstrap(): Promise<void> {
   applyTheme(loadStoredTheme());
   watchSystemTheme(() => applyTheme(loadStoredTheme()));
   await loadSettings();
-  // Restore size + position before any other work so the user doesn't see
-  // a default-sized window flash before the resize lands.
-  await restoreWindowState();
-  installWindowStatePersistence();
+  // Size and position are set by Rust when it creates the window (see
+  // `session::spawn_window`), so there is nothing to restore here — and no
+  // default-sized flash to hide.
 
   await primeHighlighter([
     "javascript", "typescript", "python", "go", "rust",
@@ -179,35 +173,11 @@ async function bootstrap(): Promise<void> {
   // store, and the first/main window owns the silent restore decision.
   if (isMainWindow()) await maybeRestoreFromRecovery();
 
-  // Multi-window restore: on the main window, read the persisted session,
-  // spawn one secondary window per non-main entry, then clear the session so
-  // a future single-window launch doesn't keep resurrecting old windows. The
-  // main window's own entry is consumed below to influence which file/scroll
-  // position/mode this window opens with.
-  const sessionEntryForThisWindow = await loadAndApplySession();
-
-  // Restored session entry for the main window only takes effect when the
-  // higher-priority sources (recovery, file-association launch, CLI arg)
-  // didn't yield a doc; otherwise those win. We also pass the persisted
-  // folder so the restore-time fallback chain (per-project last file →
-  // root README → welcome) can run when the file the project pointed at
-  // is gone or the entry is from a pre-#122 session where the recorded
-  // file belonged to a *different* project than the recorded folder.
-  const sessionFallbackPath =
-    isMainWindow() && sessionEntryForThisWindow?.path
-      ? sessionEntryForThisWindow.path
-      : null;
-  const sessionFallbackFolder =
-    isMainWindow() && sessionEntryForThisWindow?.folder
-      ? sessionEntryForThisWindow.folder
-      : null;
-  // Secondary windows that were spawned from a session entry receive their
-  // path via ?file=… (see resolveInitial) — same channel as multi-file
-  // drag-drop, so we don't need a separate code path.
-  const { doc: initialDoc, folder: initialFolder } = await resolveInitial(
-    sessionFallbackPath,
-    sessionFallbackFolder,
-  );
+  // Every window's initial state arrives as URL parameters that Rust set when
+  // it created the window. Session restore, launch arguments and project
+  // fallback ordering were all resolved in `src-tauri/src/session/launch.rs`
+  // before this window existed.
+  const { doc: initialDoc, folder: initialFolder } = await resolveInitial();
 
   const shell = document.createElement("div");
   shell.className = "viewer-app-shell";
@@ -533,22 +503,18 @@ async function bootstrap(): Promise<void> {
     edit:    { decorations: editingSet, keymap: editKeymap },
   };
 
-  // Restore mode + scroll position. Two sources, in priority order:
-  //   1. URL query params (?mode=, ?scrollTop=) — set by spawnRestoredWindow
-  //      for secondary windows. Per-window, doesn't depend on session lookup
-  //      from inside the secondary window.
-  //   2. Session entry for the current label — only relevant on the main
-  //      window, since secondary windows always go via the URL channel.
-  // If either is absent the defaults (reading mode, scrollTop 0) win.
+  // Restore mode + scroll position from the ?mode= / ?scrollTop= parameters
+  // Rust set on this window's URL. Every window — main included — is created
+  // by Rust, so this is the only channel; if either param is absent the
+  // defaults (reading mode, scrollTop 0) win.
   const urlRestore = restoreParamsFromUrl();
   // A cold launch via `md newfile.md` lands here with initialDoc.isNew true.
   // Force edit mode so the user can start typing immediately; otherwise the
   // window opens in reading mode showing a blank document.
   const restoredMode: Mode = initialDoc?.isNew
     ? "edit"
-    : (urlRestore.mode ?? sessionEntryForThisWindow?.mode ?? "reading");
-  const restoredScrollTop: number =
-    urlRestore.scrollTop ?? sessionEntryForThisWindow?.scrollTop ?? 0;
+    : (urlRestore.mode ?? "reading");
+  const restoredScrollTop: number = urlRestore.scrollTop ?? 0;
 
   let currentMode: Mode = restoredMode;
 
@@ -851,36 +817,19 @@ async function bootstrap(): Promise<void> {
     if (typstDriver) void typstDriver.close();
   });
 
-  // Per-window folder root, mirrored from the store so the periodic session
-  // tick can read it synchronously. setCurrentFolder() below is the only
-  // writer.
+  // Per-window folder root, held here so the session report tick can read it
+  // synchronously. setCurrentFolder() below is the only writer.
   let currentFolder: string | null = null;
   const selfLabel = getCurrentWindow().label;
-  // Map<window label, current folder root>. Populated from broadcasts so the
-  // main window can route Finder opens to a window already showing the same
-  // tree. Only the main window consults this map.
-  const folderByLabel = new Map<string, string | null>();
   let folderWatcherHandle: FolderWatcherHandle | null = null;
   // Skip recents for a brand-new (`md newfile.md`) buffer until first save —
   // otherwise the recents list points at a path that doesn't exist on disk.
   if (currentPath && !initialDoc?.isNew) await recordRecent(currentPath);
 
-  // Multi-window session restore: snapshot this window's state on a periodic
-  // tick + on close. Captures path/scrollTop/mode/folder/sidebar so the next
-  // launch can re-spawn the exact arrangement. Per-window — both main and
-  // secondary windows participate. Closing one window of several drops just
-  // that window from the next-launch set; Cmd-Q preserves all.
-  const stopWindowSession = installWindowSessionPersistence({
-    currentPath: () => currentPath,
-    scrollTop: () => view.scrollDOM.scrollTop,
-    mode: () => currentMode,
-    folder: () => currentFolder,
-    sidebarVisible: () => toc.isVisible(),
-  });
-  window.addEventListener("beforeunload", () => stopWindowSession());
-
-  /** Open `root` as the current folder: persist it, list .md files in the
-   * sidebar, ensure the sidebar is visible. Pass null to clear.
+  /** Open `root` as the current folder: list .md files in the sidebar and
+   * ensure the sidebar is visible. Pass null to clear. The value reaches
+   * Rust's window registry on the next session report tick — there is no
+   * separate store key for it any more.
    *
    * When `opts.replaceBuffer` is true (the project-switch path — user picked
    * a different project from the palette / menu), the active editor buffer
@@ -907,11 +856,9 @@ async function bootstrap(): Promise<void> {
       return;
     }
     currentFolder = root;
-    await setValue("currentFolder", root);
     await folder.setFolder(root);
-    // Announce so the main window's routing map stays in sync. Loopback to
-    // this window's own listener is harmless (same value).
-    void emit("viewer:window-folder", { label: selfLabel, folder: root });
+    // No announce: Rust's window registry learns this window's folder from the
+    // session report tick, and routing reads it from there.
     if (root) await recordRecentProject(root);
     // Swap the recursive folder watcher: stop the old one (if any) and start
     // a new one for the new root. The watcher fires "viewer://folder-changed"
@@ -954,71 +901,6 @@ async function bootstrap(): Promise<void> {
       // name actually appears (issue #98).
       toolbar.setPath(currentPath, currentFolder);
     }
-  }
-
-  /** Raise a window to the foreground: unminimize if needed, then focus.
-   * Implements issue #100's "always raise + focus" for a window that may be
-   * minimized, hidden, or on another Space. */
-  async function raiseWindow(label: string): Promise<void> {
-    const w = await WebviewWindow.getByLabel(label);
-    if (!w) return;
-    try {
-      if (await w.isMinimized()) await w.unminimize();
-    } catch {
-      // isMinimized/unminimize unsupported or window vanished — focus anyway.
-    }
-    await w.setFocus();
-  }
-
-  /** Route a "switch to folder" request (issue #100). The main window owns
-   * folderByLabel and is the sole decision-maker, mirroring file-open-request.
-   *   - target already shown by a live window → raise + focus it;
-   *   - requesting window is unclaimed        → adopt the folder in place;
-   *   - otherwise                              → spawn a new window for it. */
-  async function routeToFolder(
-    target: string,
-    requestingLabel: string,
-  ): Promise<void> {
-    target = await canonicalizePath(target);
-
-    // Prune stale labels (a closed window can lag the map by a frame) so a
-    // focus decision never targets a dead window. Same guard the
-    // file-open-request handler uses.
-    for (const [label, folder] of [...folderByLabel]) {
-      if (folder !== target) continue;
-      if (!(await WebviewWindow.getByLabel(label))) folderByLabel.delete(label);
-    }
-
-    const route = decideProjectRoute({
-      target,
-      requestingLabel,
-      requestingFolder: folderByLabel.get(requestingLabel) ?? null,
-      folderByLabel,
-    });
-
-    if (route.kind === "focus") {
-      // Always raise the owning window — including when it *is* the
-      // requesting window. For in-app project switches the requester is
-      // already frontmost so this is a harmless no-op, but for a
-      // `file-open-request` from `md .` the requester is always the main
-      // window, which may not be frontmost (another app or a secondary
-      // window was). Raising it here is what brings folder A's window
-      // forward; the Rust side deliberately no longer calls set_focus()
-      // so this routing decision is the sole source of focus (issue #137).
-      await raiseWindow(route.label);
-      return;
-    }
-    if (route.kind === "adopt") {
-      // Same Tauri-v2 caveat as viewer:open-file: emitTo doesn't scope a
-      // global listener, so address the blank window explicitly by label or
-      // every window would adopt the folder.
-      await emitTo(requestingLabel, "viewer:adopt-folder", {
-        label: requestingLabel,
-        folder: target,
-      });
-      return;
-    }
-    await spawnNewWindow({ folder: target });
   }
 
   /** Replace the active buffer with the project-fallback file (or the
@@ -1073,8 +955,8 @@ async function bootstrap(): Promise<void> {
     applyPreviewPaneLayout();
   }
 
-  // Every window listens for a targeted open request; main routes here when
-  // it has decided this window owns the file's folder. NOTE: a global
+  // Every window listens for a targeted open request; Rust's router emits
+  // one when it has decided this window owns the file's folder. NOTE: a global
   // `listen()` receives an event regardless of the `emitTo` target — in
   // Tauri v2 `emitTo(label, …)` does NOT restrict delivery to that window's
   // global listeners (verified: an emitTo to one label fired this handler in
@@ -1091,60 +973,6 @@ async function bootstrap(): Promise<void> {
     },
   );
   window.addEventListener("beforeunload", () => unsubTargetedOpen());
-
-  // Every window answers a re-announce request by re-broadcasting its current
-  // folder. This is the replay half of the handshake that fixes #140: on
-  // session restore, main and the restored secondaries bootstrap concurrently,
-  // and a secondary's one-shot `viewer:window-folder` announce (below) can fire
-  // before main has attached its listener — permanently dropping that window
-  // from folderByLabel. The fix is for main to ask everyone to re-announce once
-  // its listener is live; the answer here always carries *currentFolder* (not
-  // the bootstrap-time null) so the map converges to live state. Idempotent —
-  // every answer is just a Map.set keyed by label.
-  const unsubAnnounceRequest = await listen("viewer:request-folder-announce", () => {
-    void emit("viewer:window-folder", { label: selfLabel, folder: currentFolder });
-  });
-  window.addEventListener("beforeunload", () => unsubAnnounceRequest());
-
-  // Track other windows' folder roots (main only). Each window broadcasts on
-  // every setCurrentFolder; close announcements clear stale entries (best-
-  // effort — beforeunload may not always deliver, so we also verify the
-  // window still exists at route time).
-  if (isMainWindow()) {
-    const unsubFolderState = await listen<{ label: string; folder: string | null }>(
-      "viewer:window-folder",
-      (e) => { folderByLabel.set(e.payload.label, e.payload.folder); },
-    );
-    const unsubWindowClosed = await listen<{ label: string }>(
-      "viewer:window-closed",
-      (e) => { folderByLabel.delete(e.payload.label); },
-    );
-    window.addEventListener("beforeunload", () => {
-      unsubFolderState();
-      unsubWindowClosed();
-    });
-    // Now that main's listener is attached, ask every window to (re-)announce.
-    // We fire the request twice with a short gap to close the *remaining* race:
-    // a secondary may attach its own `request-folder-announce` listener (above)
-    // only after the first request has already been delivered, so it wouldn't
-    // hear it. The delayed second request catches such late-attaching windows.
-    // Convergence does not depend on a specific bootstrap order — every window
-    // both announces unprompted on startup AND replies to requests, and main
-    // both requests on attach AND keeps recording late replies via the
-    // listener above; the map only ever gains/refreshes entries via idempotent
-    // sets, so re-running the handshake can never make it less correct. The
-    // 250ms delay is a pragmatic upper bound on per-window bootstrap-to-listen
-    // latency; the unprompted startup announce is the primary path and this is
-    // belt-and-suspenders for the restore race.
-    void emit("viewer:request-folder-announce");
-    setTimeout(() => { void emit("viewer:request-folder-announce"); }, 250);
-  }
-  // Announce this window's initial state (null until syncFolderToFile runs)
-  // so the main window's map sees us even when we have no folder yet.
-  void emit("viewer:window-folder", { label: selfLabel, folder: null });
-  window.addEventListener("beforeunload", () => {
-    void emit("viewer:window-closed", { label: selfLabel });
-  });
 
   const unsubAdoptFolder = await listen<{ label: string; folder: string }>(
     "viewer:adopt-folder",
@@ -1171,47 +999,22 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Initial folder: prefer an explicit launch-time directory (e.g. `md <dir>`
-  // or Finder "Open With…" on a folder), then derive from the opened file if
-  // there is one; otherwise restore from the per-window session entry
-  // (preferred) or the legacy global `currentFolder` key (fallback for first-
-  // launch / new windows). The launch-time folder wins because the user just
-  // asked for it; we don't want a stale session folder to override it.
+  // Initial folder: the ?folder= parameter Rust set on this window's URL, or
+  // — when only a file was given — the file's own tree. A window that got
+  // neither stays folderless; there is no store key to fall back on any more,
+  // because "which folder does this window show" is now session state Rust
+  // hands us rather than a global the frontend re-derives.
   if (initialFolder) {
     void (async () => {
       try {
         await setCurrentFolder(initialFolder);
       } catch {
-        // Folder unreadable / disappeared between arg-parse and listing —
-        // leave the panel hidden; the file-open-request listener handles
-        // user-facing errors elsewhere.
+        // Folder unreadable / disappeared between the launch plan and this
+        // window booting — leave the panel hidden.
       }
     })();
   } else if (currentPath) {
     void syncFolderToFile(currentPath);
-  } else {
-    void (async () => {
-      let target: string | null | undefined = sessionEntryForThisWindow?.folder;
-      if (target === undefined) {
-        target = await getValue<string | null>("currentFolder");
-      }
-      if (typeof target === "string" && target.length > 0) {
-        try {
-          await setCurrentFolder(target);
-        } catch {
-          // Folder moved / deleted / permission-denied — clear the global
-          // key so we don’t keep retrying it, and leave the panel hidden.
-          await setValue("currentFolder", null);
-        }
-      }
-      // If the session entry explicitly stored `sidebarVisible: false`,
-      // honour that even when setCurrentFolder() would have opened the panel.
-      if (sessionEntryForThisWindow?.sidebarVisible === false) {
-        toc.setVisible(false);
-        recordExplicitToggle(false);
-        toolbar.setSidebarVisible(false);
-      }
-    })();
   }
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
@@ -1223,6 +1026,23 @@ async function bootstrap(): Promise<void> {
   if (recoveredDoc) {
     dirtyTracker.markDirtyAgainst(recoveredDoc.diskBaseline);
   }
+
+  // Report this window's state to Rust on a periodic tick. Rust owns the
+  // session: the registry it keeps is what routing consults while the app is
+  // running and what the next launch restores from. Closing one window of
+  // several drops just that window (close.ts calls `forgetWindow`); Cmd-Q
+  // preserves all, since the last tick is the state that survives. Installed
+  // here rather than earlier in bootstrap because the reporter reads
+  // `dirtyTracker` — which does not exist until the line above.
+  const stopSessionReporting = installSessionReporting({
+    currentPath: () => currentPath,
+    folder: () => currentFolder,
+    dirty: () => dirtyTracker.isDirty(),
+    scrollTop: () => view.scrollDOM.scrollTop,
+    mode: () => currentMode,
+    sidebarVisible: () => toc.isVisible(),
+  });
+  window.addEventListener("beforeunload", () => stopSessionReporting());
   // Auto-save debounce: each dirty notification resets a 1-second timer;
   // if it fires while still dirty (and a path is set), trigger a save.
   // Clearing/resaving is harmless when auto-save is off because the
@@ -1550,11 +1370,11 @@ async function bootstrap(): Promise<void> {
     },
     openFolder: async () => {
       const root = await pickFolder();
-      // Route through the same focus/adopt/spawn logic as Switch Project so
-      // Open Folder also honors the 1:1 folder↔window mapping (#100).
-      if (root) void emit("viewer:switch-project-request", { folder: root, fromLabel: selfLabel });
+      // Route through Rust's focus/adopt/spawn logic so Open Folder honors the
+      // 1:1 folder↔window mapping (#100).
+      if (root) await requestOpen([root], selfLabel);
     },
-    newWindow: async () => { await spawnNewWindow(); },
+    newWindow: async () => { await requestNewWindow(); },
     saveFile: () => { void triggerSave(); },
     saveFileAs: async () => {
       // Save As keeps the document's format. It used to default to `.md` with
@@ -1647,9 +1467,9 @@ async function bootstrap(): Promise<void> {
     },
     showKeyboardShortcuts: () => { void openKeyboardShortcuts(); },
     openProject: async (path) => {
-      // Don't switch in place — let the main window route to the right window
-      // (focus existing / adopt here / spawn new). See issue #100.
-      void emit("viewer:switch-project-request", { folder: path, fromLabel: selfLabel });
+      // Don't switch in place — let Rust route to the right window (focus
+      // existing / adopt here / spawn new). See issue #100.
+      await requestOpen([path], selfLabel);
     },
     clearRecentProjects: async () => { await clearRecentProjects(); },
     openProjectPalette: () => { void openProjectPalette(); },
@@ -1882,101 +1702,25 @@ async function bootstrap(): Promise<void> {
     const paths = event.payload.paths;
     if (paths.length === 0) return;
 
-    // Single-path drop: if it's a directory, open it as a folder. Otherwise
-    // fall through to the multi-file routing below (which handles single .md
-    // and multi-.md drops uniformly).
+    // Single-path drop of a directory: hand it to the router, same as Open
+    // Folder and Switch Project, so a folder already shown elsewhere raises
+    // that window instead of opening a second copy of it here.
     if (paths.length === 1 && (await isDirectory(paths[0]))) {
-      await setCurrentFolder(paths[0], { replaceBuffer: true });
+      await requestOpen(paths, selfLabel);
       return;
     }
 
     const docFiles = paths.filter((p) => isSupportedExtension(p));
     if (docFiles.length === 0) return;
 
-    // First doc goes to the current window. Any additional ones spawn new
-    // windows pre-loaded with their respective files — so dragging five
-    // doc files yields five windows, each on its own document.
-    await openWithDirtyPrompt(docFiles[0]);
-    for (let i = 1; i < docFiles.length; i++) {
-      await spawnNewWindow({ file: docFiles[i] });
-    }
+    // Hand the whole batch to Rust's router, which routes each path against
+    // the registry as updated by the previous one. Files sharing a folder land
+    // in one window rather than spawning a window each.
+    await requestOpen(docFiles, selfLabel);
   });
   window.addEventListener("beforeunload", () => unsubDrop());
 
   await setWindowTitle(initialDoc?.path ?? null, false, currentFolder);
-
-  // OS file-association launches (double-click a .md, "Open With…", drag-drop
-  // onto the dock/taskbar) deliver the path via Tauri's RunEvent::Opened.
-  // The Rust side forwards the paths as `file-open-request`; only the main
-  // window decides what to do (the emit broadcasts to every window, so without
-  // this gate each window would react independently). Routing:
-  //   1. Resolve the file's folder root.
-  //   2. If any existing window already shows that root, hand the file off
-  //      there via emitTo + focus.
-  //   3. Otherwise spawn a new window pre-loaded with the file.
-  // Cold-launch is unrelated: the very first window's bootstrap consumes the
-  // event via waitForFileOpenRequest and loads it into itself.
-  const unsubFileOpen = await listen<string[]>("file-open-request", async (e) => {
-    if (!isMainWindow()) return;
-    const paths = Array.isArray(e.payload) ? e.payload : [];
-    // `md <directory>` (and Finder "Open With…" on a folder) deliver a single
-    // directory path. Treat that the same as the drag-drop directory case:
-    // route to an existing window already showing it, or set folder root.
-    if (paths.length === 1 && (await isDirectory(paths[0]))) {
-      // Same routing as in-app Switch Project: focus existing window, adopt
-      // into the (blank) main window, or spawn. See issue #100.
-      await routeToFolder(paths[0], selfLabel);
-      return;
-    }
-    const doc = paths.find((p) => isSupportedExtension(p));
-    if (!doc) return;
-    // Route the file to the open window whose sidebar tree *contains* it
-    // (deepest/most-specific wins), not the one whose folder equals the file's
-    // computed VCS root (issue #142). Canonicalize the file the same way
-    // routeToFolder canonicalizes a target; the folder map values are already
-    // canonical (resolve_folder_root canonicalizes its result).
-    let fileCanonical = doc;
-    try { fileCanonical = await canonicalizePath(doc); } catch { /* use raw */ }
-
-    // Prune stale labels (a closed window can lag the map by a frame) so the
-    // containment search never names a dead window. Same guard routeToFolder
-    // uses; here we verify every live candidate rather than a single match.
-    for (const [label] of [...folderByLabel]) {
-      if (!(await WebviewWindow.getByLabel(label))) folderByLabel.delete(label);
-    }
-
-    const match = deepestContainingFolder({
-      file: fileCanonical,
-      folderByLabel,
-    });
-    if (match) {
-      await emitTo(match.label, "viewer:open-file", { label: match.label, path: doc });
-      // Raise the owning window — including when it is the main window
-      // itself. The Rust side no longer set_focus()es the frontmost
-      // window (issue #137), so without raising here a `md <file>` for a
-      // file in main's folder would foreground the app but leave main
-      // unraised if another window/app was frontmost. raiseWindow on the
-      // already-frontmost window is a harmless no-op.
-      await raiseWindow(match.label);
-    } else {
-      // No open window's tree contains the file: spawn a window rooted at the
-      // file's own directory tree (nearest VCS root, else its parent) with the
-      // file loaded — not a bare-file window with no sidebar (issue #142).
-      let folder: string | null = null;
-      try { folder = await resolveFolderRoot(doc); } catch { /* fall through */ }
-      await spawnNewWindow(folder ? { folder, file: doc } : { file: doc });
-    }
-  });
-  window.addEventListener("beforeunload", () => unsubFileOpen());
-
-  const unsubSwitchProject = await listen<{ folder: string; fromLabel: string }>(
-    "viewer:switch-project-request",
-    async (e) => {
-      if (!isMainWindow()) return;
-      await routeToFolder(e.payload.folder, e.payload.fromLabel);
-    },
-  );
-  window.addEventListener("beforeunload", () => unsubSwitchProject());
 
   // (The highlight / mermaid / graphviz cache subscriptions were moved up to
   // immediately after createEditor — see the note there — so the first
@@ -1996,284 +1740,49 @@ async function bootstrap(): Promise<void> {
 
 interface InitialResolution {
   doc: OpenedDoc | null;
-  /** Folder to open as sidebar root, e.g. when the user ran `md <dir>` or
-   * dropped a folder onto the app icon. Independent from `doc` — the user may
-   * launch with just a folder and no file. */
+  /** Folder to open as sidebar root — the window's `?folder=` parameter.
+   * Independent from `doc`: a window may be rooted at a project with no
+   * document to show. */
   folder: string | null;
 }
 
-async function resolveInitial(
-  sessionFallbackPath: string | null = null,
-  sessionFallbackFolder: string | null = null,
-): Promise<InitialResolution> {
-  // Secondary windows opened with ?file=… (drop-onto-window splits a multi-
-  // file drop across windows, and multi-window session restore reuses the
-  // same channel) load that file directly.
-  const urlFile = fileFromUrlQuery();
-  if (urlFile) {
-    // A file spawned with no open tree carries both ?file= and ?folder= so the
-    // new window loads the file *and* roots its sidebar at the file's directory
-    // tree (issue #142). Without ?folder= the window loads the bare file with
-    // no sidebar, as before. Keep the folder even if the file read fails so the
-    // sidebar still shows the tree.
-    const urlFolderForFile = folderFromUrlQuery();
-    try {
-      return { doc: await readDoc(urlFile), folder: urlFolderForFile };
-    } catch {
-      // Fall through if the path can't be read; window stays blank (or, if a
-      // folder was given, falls through to the folder-rooted branch below).
-    }
-  }
-
-  // A window spawned for a project (issue #100) carries its folder root as a
-  // query param. Run the per-project fallback chain (last-in-project → root
-  // README → welcome) so the new window opens the project's active file with
-  // the sidebar rooted at that folder — mirroring the session-restore branch
-  // below.
-  const urlFolder = folderFromUrlQuery();
-  if (urlFolder) {
-    const fallbackFile = await resolveProjectFallbackFile(urlFolder);
-    if (fallbackFile) {
-      try {
-        return { doc: await readDoc(fallbackFile), folder: urlFolder };
-      } catch {
-        // Listed but unreadable — fall through to the placeholder in-project.
-      }
-    }
-    return { doc: null, folder: urlFolder };
-  }
-
-  // Other secondary windows (plain File -> New Window) start blank — the user
-  // opens a file explicitly. Avoids two windows fighting over the same restore
-  // flow and avoids surprising side effects (re-opening last file in a brand-
-  // new window).
-  if (!isMainWindow()) return { doc: null, folder: null };
-
-  if (recoveredDoc) return { doc: recoveredDoc, folder: null };
-  const argPath = await firstMarkdownArg();
-  if (argPath) return { doc: await readDoc(argPath), folder: null };
-  // The Rust side buffers paths that the OS handed to us via
-  // RunEvent::Opened before the frontend was ready to receive events
-  // (and also paths from URLs that tao's broken application:openURLs:
-  // would have panicked on — see src-tauri/src/mac_tao_patch.rs).
-  // Pull them in before falling back to the listener-based wait.
-  const buffered = await takePendingOpenPaths();
-  const bufferedKind = await classifyOpenPaths(buffered);
-  if (bufferedKind?.kind === "file") {
-    return { doc: await readDoc(bufferedKind.path), folder: null };
-  }
-  if (bufferedKind?.kind === "directory") {
-    return { doc: null, folder: bufferedKind.path };
-  }
-  // macOS file-association launches deliver the path via RunEvent::Opened,
-  // which can fire after bootstrap starts. Wait briefly for it before
-  // falling back to last-opened or the open dialog — otherwise double-
-  // clicking a .md in Finder briefly shows a redundant open dialog before
-  // the doc loads. The payload can be a markdown file (open it) or a
-  // directory (open as sidebar root, see issue #48).
-  const launched = await waitForOpenRequest(500);
-  if (launched?.kind === "file") {
-    return { doc: await readDoc(launched.path), folder: null };
-  }
-  if (launched?.kind === "directory") {
-    return { doc: null, folder: launched.path };
-  }
-  // Window-session restore for the main window: the active *project* (folder)
-  // outranks the active *file*. If the session captured a folder, run the
-  // per-project fallback chain (last-in-project → root README → welcome)
-  // against it and return that. This is what #122 fixes: the file recorded
-  // alongside the folder may not even belong to it (the user could have
-  // switched projects after opening that file), so trusting the recorded
-  // file blindly is the bug. The chain resolves to the file the *project*
-  // says was active, not the file the *app* last touched globally.
-  //
-  // If the folder is missing on disk we drop it silently (per #122 ACs) and
-  // fall through to the recorded file / generic recents. No prompt.
-  if (sessionFallbackFolder) {
-    const folderExists = await pathExists(sessionFallbackFolder);
-    if (folderExists) {
-      const fallbackFile = await resolveProjectFallbackFile(
-        sessionFallbackFolder,
-      );
-      if (fallbackFile) {
-        try {
-          return {
-            doc: await readDoc(fallbackFile),
-            folder: sessionFallbackFolder,
-          };
-        } catch {
-          // Listed but unreadable — fall through to welcome buffer in this
-          // project rather than abandoning the project context entirely.
-        }
-      }
-      // No fallback file — show the welcome buffer *inside* the restored
-      // project (sidebar reflects the folder, editor is the placeholder).
-      return { doc: null, folder: sessionFallbackFolder };
-    }
-    // Folder gone — drop silently and continue with the other branches.
-  }
-  // Pre-#122 session entries (or session entries with no folder) still get
-  // the recorded file as a fallback path, mirroring the original behaviour.
-  if (sessionFallbackPath) {
-    try {
-      return { doc: await readDoc(sessionFallbackPath), folder: null };
-    } catch {
-      // file missing/moved — fall through to recents/dialog
-    }
-  }
-  // Re-open whatever was open last time the app closed (recents[0] is the
-  // most-recently-opened path, written on every successful open via
-  // recordRecent). Falls through to the dialog if the file is gone.
-  const lastOpened = await tryReopenLastFile();
-  if (lastOpened) return { doc: lastOpened, folder: null };
-  return { doc: await openFileViaDialog(), folder: null };
-}
-
 /**
- * On the main window only: read the persisted multi-window session, spawn
- * secondary windows for each non-main entry whose file still exists, then
- * clear the session list (so a future single-window launch doesn't keep
- * resurrecting old windows). Returns the session entry for the *current*
- * window so the caller can use it to influence file/scroll/mode restore.
- *
- * The set of entries on disk is implicitly the "alive set at last quit":
- * each individual close removes its own entry (window-session.ts close
- * handler), while Cmd-Q on macOS bypasses per-window close events entirely
- * — leaving the periodic-tick entries intact. So whatever's still in the
- * store when we boot up is exactly what to restore.
- *
- * Secondary windows: returns their own session entry if any (they may have
- * been re-spawned by main and want to honor scrollTop/mode from URL params,
- * but we still surface the entry for symmetry).
+ * Every window's initial state arrives as URL parameters set by Rust's
+ * `session::window_url`. The frontend decides nothing: recovery pairing,
+ * session restore, launch arguments and project fallback ordering are all
+ * resolved in `src-tauri/src/session/launch.rs` before this window exists.
  */
-async function loadAndApplySession(): Promise<WindowSessionEntry | null> {
-  const session = await loadWindowSession();
-  const myLabel = currentWindowLabel();
-  const myEntry = session.windows.find((w) => w.label === myLabel) ?? null;
+async function resolveInitial(): Promise<InitialResolution> {
+  const folder = folderFromUrlQuery();
+  const file = fileFromUrlQuery();
 
-  if (!isMainWindow()) return myEntry;
+  // Crash recovery is still resolved in the frontend (see
+  // `maybeRestoreFromRecovery`) and its buffer outranks whatever the window
+  // was planned to show, because it is the only copy of the user's unsaved
+  // edits. Rust already pairs a dump with the window that owns its file and
+  // forwards it as `?dump=`; consuming that parameter here is the next task.
+  if (recoveredDoc) return { doc: recoveredDoc, folder };
 
-  // Spawn secondary windows from the persisted session. If a previously-open
-  // file no longer exists, skip that window silently — we don't want a modal
-  // storm on launch.
-  for (const entry of dedupeSessionByFolder(session.windows)) {
-    if (entry.label === myLabel) continue;
-    if (entry.path && !(await pathExists(entry.path))) continue;
-    await spawnRestoredWindow(entry);
-  }
-
-  // One-shot: clear the session now so we don't restore the same set on the
-  // next launch (the windows we just spawned will write their own fresh
-  // entries on close). Crash recovery for unsaved buffers stays in its own
-  // store and is unaffected.
-  await clearWindowSession();
-  return myEntry;
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return await invoke<boolean>("path_exists", { path });
-  } catch {
-    return false;
-  }
-}
-
-async function tryReopenLastFile(): Promise<OpenedDoc | null> {
-  try {
-    const recents = await loadRecents();
-    if (recents.length === 0) return null;
-    return await readDoc(recents[0]);
-  } catch {
-    // File missing/moved/permission-denied — silently fall through to dialog.
-    return null;
-  }
-}
-
-/** Wait briefly for the OS to deliver an `Open With…` / `md <path>` request,
- *  classifying the payload as either a markdown file or a directory. Resolves
- *  to null on timeout. The same event is consumed by the post-bootstrap
- *  listener that handles subsequent opens (drag-onto-dock while running),
- *  but THAT listener is registered too late to receive the cold-launch event
- *  on macOS — RunEvent::Opened fires once during builder.run and isn't
- *  queued. Hence the early listener here. */
-async function waitForOpenRequest(
-  timeoutMs: number,
-): Promise<{ kind: "file" | "directory"; path: string } | null> {
-  return new Promise((resolve) => {
-    let unlisten: (() => void) | null = null;
-    const timer = setTimeout(() => {
-      unlisten?.();
-      resolve(null);
-    }, timeoutMs);
-    void listen<string[]>("file-open-request", async (e) => {
-      const paths = Array.isArray(e.payload) ? e.payload : [];
-      if (paths.length === 0) return;
-      // Prefer a markdown file when one is present; otherwise check whether
-      // the single argument is a directory. (We don't currently support
-      // launching with multiple folder args — `md a/ b/` would only open
-      // the first.)
-      const md = paths.find((p) => isSupportedExtension(p));
-      if (md) {
-        clearTimeout(timer);
-        unlisten?.();
-        resolve({ kind: "file", path: md });
-        return;
-      }
-      if (paths.length === 1) {
-        try {
-          if (await isDirectory(paths[0])) {
-            clearTimeout(timer);
-            unlisten?.();
-            resolve({ kind: "directory", path: paths[0] });
-            return;
-          }
-        } catch {
-          // ignore — fall through to timeout
-        }
-      }
-    }).then((u) => {
-      unlisten = u;
-    });
-  });
-}
-
-async function takePendingOpenPaths(): Promise<string[]> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return await invoke<string[]>("take_pending_open_paths");
-  } catch {
-    return [];
-  }
-}
-
-async function classifyOpenPaths(
-  paths: string[],
-): Promise<{ kind: "file" | "directory"; path: string } | null> {
-  if (paths.length === 0) return null;
-  const md = paths.find((p) => isSupportedExtension(p));
-  if (md) return { kind: "file", path: md };
-  if (paths.length === 1) {
+  if (file) {
     try {
-      if (await isDirectory(paths[0])) {
-        return { kind: "directory", path: paths[0] };
-      }
+      return { doc: await readDoc(file), folder };
     } catch {
-      // ignore
+      // Deleted between the launch plan and this window booting — fall through
+      // to the project fallback chain rather than showing an error.
     }
   }
-  return null;
-}
-
-async function firstMarkdownArg(): Promise<string | null> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const argv = await invoke<string[]>("plugin:cli|argv").catch(() => null);
-    if (!argv) return null;
-    return argv.find((a) => isSupportedExtension(a)) ?? null;
-  } catch {
-    return null;
+  if (folder) {
+    const fallback = await resolveProjectFallbackFile(folder);
+    if (fallback) {
+      try {
+        return { doc: await readDoc(fallback), folder };
+      } catch {
+        // Listed but unreadable — welcome buffer inside the project.
+      }
+    }
+    return { doc: null, folder };
   }
+  return { doc: null, folder: null };
 }
 
 function documentTitleFromPath(path: string | null): string {
@@ -2335,103 +1844,6 @@ function stripTags(html: string): string {
   return tmp.content.textContent ?? "";
 }
 
-let nextWindowSeq = 2;
-
-/** Open a new app window. Without options the new window starts as a blank
- * slate — the user opens a file via dialog or drag-drop. Pass `file` to
- * pre-load a document (`?file=…`), or `folder` to open with a sidebar root
- * pre-set (`?folder=…`). */
-async function spawnNewWindow(
-  opts: { file?: string; folder?: string } = {},
-): Promise<void> {
-  const label = await nextWindowLabel();
-  let url = "/";
-  // Both params can be present: a window spawned for a file with no open tree
-  // is rooted at the file's directory (folder) AND loads that specific file
-  // (file) — see resolveInitial (issue #142). When only one is given the
-  // single-param behaviour is unchanged.
-  const params = new URLSearchParams();
-  if (opts.folder) params.set("folder", opts.folder);
-  if (opts.file) params.set("file", opts.file);
-  const qs = params.toString();
-  if (qs) url = `/?${qs}`;
-  const win = new WebviewWindow(label, {
-    title: "Viewer",
-    width: 1000,
-    height: 760,
-    minWidth: 480,
-    minHeight: 320,
-    dragDropEnabled: true,
-    // macOS: hide native chrome so the custom titlebar can host the toggles
-    // and stats. Windows/Linux silently ignore these fields.
-    titleBarStyle: "overlay",
-    hiddenTitle: true,
-    url,
-  });
-  win.once("tauri://error", (e) => {
-    console.error("failed to create window", label, e);
-  });
-}
-
-/** Reopen a window from a persisted session entry. Honors the entry's label
- * (so the next session-record happens under the same name and overwrites
- * cleanly), restores logical size/position, and forwards file/scrollTop/mode
- * via URL params for the secondary window's bootstrap to apply. */
-async function spawnRestoredWindow(entry: WindowSessionEntry): Promise<void> {
-  // Don't collide with a window the user already opened in this session.
-  // (Shouldn't normally happen on launch — the main window is the only one
-  //  alive — but defensive in case the session contains a 'main' duplicate.)
-  if (await WebviewWindow.getByLabel(entry.label)) return;
-
-  const params = new URLSearchParams();
-  if (entry.path) params.set("file", entry.path);
-  params.set("scrollTop", String(Math.max(0, Math.round(entry.scrollTop))));
-  params.set("mode", entry.mode);
-  const url = `/?${params.toString()}`;
-
-  // Sanity-clamp obviously-broken sizes; let valid logical pixels through
-  // verbatim so multi-monitor positions reproduce.
-  const width = entry.width >= 320 ? entry.width : 1000;
-  const height = entry.height >= 240 ? entry.height : 760;
-
-  const win = new WebviewWindow(entry.label, {
-    title: "Viewer",
-    x: entry.x,
-    y: entry.y,
-    width,
-    height,
-    minWidth: 480,
-    minHeight: 320,
-    dragDropEnabled: true,
-    // Match the declarative window config so restored windows also get the
-    // custom titlebar treatment on macOS. Non-mac platforms ignore these.
-    titleBarStyle: "overlay",
-    hiddenTitle: true,
-    url,
-  });
-  win.once("tauri://error", (e) => {
-    console.error("failed to restore window", entry.label, e);
-  });
-  // Bump the seq so the next File -> New Window doesn't collide with a
-  // restored 'window-N'. nextWindowSeq is monotonic; treat any restored
-  // numeric label as a lower bound.
-  const m = /^window-(\d+)$/.exec(entry.label);
-  if (m) {
-    const n = Number(m[1]);
-    if (Number.isFinite(n) && n >= nextWindowSeq) nextWindowSeq = n + 1;
-  }
-}
-
-async function nextWindowLabel(): Promise<string> {
-  // Find the next free 'window-N' label. Existing windows may be labeled
-  // 'main', 'window-2', 'window-3', etc.; reuse-or-skip until we find a free one.
-  let label = `window-${nextWindowSeq++}`;
-  while (await WebviewWindow.getByLabel(label)) {
-    label = `window-${nextWindowSeq++}`;
-  }
-  return label;
-}
-
 function fileFromUrlQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -2452,9 +1864,9 @@ function folderFromUrlQuery(): string | null {
   }
 }
 
-/** Read optional ?mode= and ?scrollTop= URL params used by multi-window
- *  session restore to forward state into a freshly-spawned secondary window.
- *  Either may be absent; both are validated. */
+/** Read the optional ?mode= and ?scrollTop= URL params Rust sets when it
+ *  creates a window, so a restored window comes back in the mode and at the
+ *  position it was left. Either may be absent; both are validated. */
 function restoreParamsFromUrl(): { mode: WindowMode | null; scrollTop: number | null } {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -2477,14 +1889,6 @@ function isMainWindow(): boolean {
     return getCurrentWindow().label === "main";
   } catch {
     return true;
-  }
-}
-
-function currentWindowLabel(): string {
-  try {
-    return getCurrentWindow().label;
-  } catch {
-    return "main";
   }
 }
 
