@@ -1,14 +1,11 @@
 //! On-disk session format. Single writer: only `registry.rs` calls
 //! `write_session`, so there is no load-modify-save race to defend against.
 
-// Nothing outside this module calls into it yet — `registry.rs` (Task 3) is
-// the first consumer. Bare `#[allow(dead_code)]` on the module rather than
-// per-item, matching the precedent in `pairing.rs` for the same situation.
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+// No consumer yet: first read by registry.rs (Task 3).
+#[allow(dead_code)]
 pub const SESSION_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +17,8 @@ pub enum WindowMode {
 }
 
 impl WindowMode {
+    // No consumer yet: first called from window_url (Task 8).
+    #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
             WindowMode::Reading => "reading",
@@ -31,6 +30,8 @@ impl WindowMode {
 /// One window's state. This is both the persisted record and the live
 /// registry value — there is deliberately only one type, so the routing map
 /// and the session file can never disagree.
+// No consumer yet: first constructed by registry.rs (Task 3).
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowEntry {
@@ -57,6 +58,8 @@ pub struct WindowEntry {
     pub timestamp_ms: i64,
 }
 
+// No consumer yet: first constructed by registry.rs (Task 3).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionFile {
@@ -66,12 +69,16 @@ pub struct SessionFile {
     pub windows: Vec<WindowEntry>,
 }
 
+// No consumer yet: first called from lib.rs setup (Task 9).
+#[allow(dead_code)]
 pub fn session_path(app_data: &Path) -> PathBuf {
     app_data.join("session.json")
 }
 
 /// Read the session. Any failure — missing, unreadable, corrupt, wrong shape —
 /// yields an empty session. A launch must never be blocked by a bad file.
+// No consumer yet: first called from session/mod.rs run_launch (Task 8).
+#[allow(dead_code)]
 pub fn read_session(app_data: &Path) -> SessionFile {
     let bytes = match std::fs::read(session_path(app_data)) {
         Ok(b) => b,
@@ -83,6 +90,8 @@ pub fn read_session(app_data: &Path) -> SessionFile {
 /// Write the session atomically: serialize to a sibling temp file, then
 /// rename over the target. A crash mid-write leaves the previous file intact
 /// rather than a truncated one that would read as an empty session.
+// No consumer yet: first called from registry.rs (Task 3).
+#[allow(dead_code)]
 pub fn write_session(app_data: &Path, session: &SessionFile) -> std::io::Result<()> {
     std::fs::create_dir_all(app_data)?;
     let target = session_path(app_data);
