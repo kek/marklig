@@ -14,6 +14,8 @@ mod pairing;
 #[cfg(desktop)]
 mod pairing_ws;
 #[cfg(desktop)]
+mod session;
+#[cfg(desktop)]
 mod sync_log;
 #[cfg(desktop)]
 mod sync_watcher;
