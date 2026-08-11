@@ -46,9 +46,10 @@ export async function installCloseHandler(
     if (closing) return;
     closing = true;
     event.preventDefault();
-    // Tell window-session.ts that this window's `beforeunload` (which will
-    // fire during destroy() below) should NOT write a fresh session entry —
-    // we just removed it on purpose.
+    // Tell the session reporter (`session-client.ts`) that this window's
+    // `beforeunload` — which fires during the destroy() below — should NOT
+    // write a fresh session entry: we are about to remove it on purpose, and
+    // a backstop report would resurrect it on the next launch (issue #34).
     markUserClosingThisWindow();
     try {
       if (opts.isDirty()) {

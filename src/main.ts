@@ -36,6 +36,7 @@ import { localImageCache, localImageCacheEffect } from "./editor/decorations/loc
 import { lineNamesProducer } from "./editor/decorations/line-names";
 import { loadSettings, subscribeSettings, getAutoSave, getPreviewPaneWidth, setPreviewPaneWidth, getTypstZoom, adjustTypstZoom, resetTypstZoom } from "./shell/settings";
 import {
+  claimMenu,
   installSessionReporting,
   requestOpen,
   newWindow as requestNewWindow,
@@ -1006,13 +1007,24 @@ async function bootstrap(): Promise<void> {
   );
   window.addEventListener("beforeunload", () => unsubReveal());
 
-  const unsubAdoptFolder = await listen<{ label: string; folder: string }>(
-    "viewer:adopt-folder",
-    (e) => {
-      if (e.payload?.label !== selfLabel) return;
-      void setCurrentFolder(e.payload.folder, { replaceBuffer: true });
-    },
-  );
+  // Rust adopted this blank window into a project. One message, not two: when
+  // the adoption carries a document, `path` is set and the project-fallback
+  // buffer is skipped. Sent as two events (adopt, then open) the fallback
+  // would race the requested file through two unrelated async listeners and
+  // usually win — the user asked for notes.md and got README.md.
+  const unsubAdoptFolder = await listen<{
+    label: string;
+    folder: string;
+    path?: string | null;
+  }>("viewer:adopt-folder", (e) => {
+    const payload = e.payload;
+    if (payload?.label !== selfLabel) return;
+    void (async () => {
+      await setCurrentFolder(payload.folder, { replaceBuffer: !payload.path });
+      if (payload.path) await openWithDirtyPrompt(payload.path);
+      await getCurrentWindow().setFocus();
+    })();
+  });
   window.addEventListener("beforeunload", () => unsubAdoptFolder());
 
   /** Derive the folder sidebar root from a file path on cold-start — the file's
@@ -1036,18 +1048,32 @@ async function bootstrap(): Promise<void> {
   // neither stays folderless; there is no store key to fall back on any more,
   // because "which folder does this window show" is now session state Rust
   // hands us rather than a global the frontend re-derives.
-  if (initialFolder) {
-    void (async () => {
-      try {
-        await setCurrentFolder(initialFolder);
-      } catch {
-        // Folder unreadable / disappeared between the launch plan and this
-        // window booting — leave the panel hidden.
-      }
-    })();
-  } else if (currentPath) {
-    void syncFolderToFile(currentPath);
-  }
+  //
+  // Applying it is asynchronous (it canonicalizes over IPC), and until it
+  // finishes `currentFolder` is null even for a window Rust restored into a
+  // project. Reporting that would overwrite the registry entry Rust seeded
+  // synchronously with `folder: null` — and a window with no folder and no
+  // document reads as blank, which is precisely the state an external
+  // `md <other-dir>` is allowed to adopt. So gate the reporter on this
+  // finishing rather than letting it publish a state we haven't reached yet.
+  let sessionStateReady = false;
+  void (async () => {
+    try {
+      if (initialFolder) await setCurrentFolder(initialFolder);
+      else if (currentPath) await syncFolderToFile(currentPath);
+      // A directory Rust routed to this window at launch: expand it in the
+      // tree without moving the root. The warm equivalent is the
+      // `viewer:reveal-path` event; a window that doesn't exist yet can only
+      // be told through its URL.
+      const reveal = revealFromUrlQuery();
+      if (reveal) folder.revealDirectory(reveal);
+    } catch {
+      // Folder unreadable / disappeared between the launch plan and this
+      // window booting — leave the panel hidden.
+    } finally {
+      sessionStateReady = true;
+    }
+  })();
   let watcherHandle: WatcherHandle | null = null;
   let diverged = false;
   const dirtyTracker = createDirtyTracker(view);
@@ -1067,6 +1093,7 @@ async function bootstrap(): Promise<void> {
   // here rather than earlier in bootstrap because the reporter reads
   // `dirtyTracker` — which does not exist until the line above.
   const stopSessionReporting = installSessionReporting({
+    ready: () => sessionStateReady,
     currentPath: () => currentPath,
     folder: () => currentFolder,
     dirty: () => dirtyTracker.isDirty(),
@@ -1594,12 +1621,23 @@ async function bootstrap(): Promise<void> {
   });
 
 
-  // Only the main window owns the app menu. If every window installed it
-  // each one would clobber the previous handlers (last writer wins on
-  // macOS), which is exactly what produced the "Cmd-W closes the most
-  // recently opened window" bug. With one owner, routing via emitTo to
-  // the focused window is deterministic.
-  if (isMainWindow()) {
+  // Exactly one window owns the app menu. If every window installed it each
+  // one would clobber the previous handlers (last writer wins on macOS),
+  // which is exactly what produced the "Cmd-W closes the most recently
+  // opened window" bug. With one owner, routing via emitTo to the focused
+  // window is deterministic.
+  //
+  // The owner is *elected*, not named: windows are restored under their
+  // recorded labels, so a session may legitimately contain no window called
+  // `main` — close it with the red X and quit, and the next launch restores
+  // `{window-2}`. Gating on the label there meant the menu was never built
+  // for the whole session, with no recovery short of deleting session.json.
+  // Rust hands ownership to the first window that asks, and re-elects when
+  // the owner is deliberately closed.
+  let menuInstalled = false;
+  const installAppMenu = async (): Promise<void> => {
+    if (menuInstalled) return;
+    menuInstalled = true;
     await buildAndAttachMenu({
       openFile: () => dispatchToFocused({ type: "openFile" }),
       openFolder: () => dispatchToFocused({ type: "openFolder" }),
@@ -1656,7 +1694,17 @@ async function bootstrap(): Promise<void> {
         }
       },
     });
-  }
+  };
+
+  // Re-election: the previous owner was closed and Rust picked us. Arrives
+  // long after boot, so the listener goes in before the claim.
+  const unsubClaimMenu = await listen<{ label: string }>("viewer:claim-menu", (e) => {
+    if (e.payload?.label !== selfLabel) return;
+    void installAppMenu();
+  });
+  window.addEventListener("beforeunload", () => unsubClaimMenu());
+  if (await claimMenu(selfLabel)) await installAppMenu();
+
   window.addEventListener("beforeunload", () => {
     if (folderWatcherHandle) void folderWatcherHandle.stop();
   });
@@ -1898,6 +1946,19 @@ function folderFromUrlQuery(): string | null {
   }
 }
 
+/** A directory Rust wants expanded in this window's tree on boot, without
+ *  moving its root — the URL-borne form of `viewer:reveal-path`, used when
+ *  the routing decision was taken before this window existed. */
+function revealFromUrlQuery(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get("reveal");
+    return r && r.length > 0 ? r : null;
+  } catch {
+    return null;
+  }
+}
+
 function dumpFromUrlQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -1938,16 +1999,8 @@ function restoreParamsFromUrl(): {
   }
 }
 
-function isMainWindow(): boolean {
-  try {
-    return getCurrentWindow().label === "main";
-  } catch {
-    return true;
-  }
-}
-
 function defaultPlaceholder(): string {
-  return "# Welcome to Viewer\n\nNo document opened. Use **File → Open** in Plan 3 once the menu lands.\n";
+  return t("welcome.placeholder");
 }
 
 /** True when the element is a non-editor text input the user is plausibly

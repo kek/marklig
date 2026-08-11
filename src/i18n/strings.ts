@@ -305,6 +305,13 @@ export const EN = {
   "pairings.pane.unpair_confirm": "Unpair {name}? This stops any future syncs.",
   "pairings.pane.last_seen": "Last seen {ago}",
   "pairings.pane.paired": "Paired {when}",
+
+  // The buffer a window with no document shows. An empty session is now the
+  // real first-run screen, so this is Markdown meant to be read — and, being
+  // rendered by the app itself, it doubles as the first thing the reader
+  // sees the app do. Menu paths here must match `menu.file.*` above.
+  "welcome.placeholder":
+    "# Märklig\n\nNothing open yet.\n\n- **A document** — *File → Open…*, or drag a Markdown file onto this window.\n- **A project** — *File → Open Folder…*, and the sidebar lists every document under it.\n\nMärklig opens in reading mode. *View → Reading / Edit Mode* switches to editing, in the same place on the page.\n",
 } as const;
 
 export type StringKey = keyof typeof EN;

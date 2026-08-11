@@ -1071,9 +1071,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     // Expand every ancestor between the root and the target, inclusive, so
     // the target row exists in the DOM before we scroll to it.
     const relSegs = targetSegs.slice(rootSegs.length);
-    for (let i = 1; i <= relSegs.length; i++) {
-      expanded.add(relSegs.slice(0, i).join("/"));
-    }
+    expandAncestors(relSegs.join("/"));
     if (!sectionOpen) {
       sectionOpen = true;
       setFolderSectionOpen(true);
