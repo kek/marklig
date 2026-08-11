@@ -18,7 +18,8 @@ pub enum Target {
     File(String),
 }
 
-// No consumer yet: routing tables land in Tasks 5-6.
+// Variants are only matched (never constructed) outside tests until
+// route_file / the frontend call sites land (Task 6+).
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
@@ -28,8 +29,6 @@ pub enum Origin {
     InApp { requesting: String },
 }
 
-// No consumer yet: routing tables land in Tasks 5-6.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
     /// Raise `label`; optionally load a document into it and/or reveal a
@@ -43,7 +42,7 @@ pub enum Route {
 
 /// Classify a path. Directories win over the extension check so a directory
 /// literally named `notes.md` still opens as a project root.
-// No consumer yet: first called from route_directory / route_file (Tasks 5-6).
+// No consumer yet: first called from the `route` dispatcher (Task 6).
 #[allow(dead_code)]
 pub fn classify(path: &str) -> Option<Target> {
     if std::path::Path::new(path).is_dir() {
@@ -66,8 +65,6 @@ fn segments(p: &str) -> Vec<&str> {
 
 /// True when `folder` is an ancestor of, or equal to, `path` — compared on
 /// segment boundaries, so `/proj/docs` does not contain `/proj/docs-old/x.md`.
-// No consumer yet: first called from route_directory / route_file (Tasks 5-6).
-#[allow(dead_code)]
 pub fn contains(folder: &str, path: &str) -> bool {
     let f = segments(folder);
     let p = segments(path);
@@ -75,8 +72,6 @@ pub fn contains(folder: &str, path: &str) -> bool {
 }
 
 /// The live window whose folder most specifically contains `path`.
-// No consumer yet: first called from route_directory / route_file (Tasks 5-6).
-#[allow(dead_code)]
 pub fn deepest_containing<'a>(windows: &'a [WindowEntry], path: &str) -> Option<&'a WindowEntry> {
     windows
         .iter()
@@ -85,10 +80,50 @@ pub fn deepest_containing<'a>(windows: &'a [WindowEntry], path: &str) -> Option<
 }
 
 /// A window with no project, no document, and nothing unsaved — safe to adopt.
-// No consumer yet: first called from route_directory / route_file (Tasks 5-6).
-#[allow(dead_code)]
 pub fn is_blank(w: &WindowEntry) -> bool {
     w.folder.is_none() && w.path.is_none() && !w.dirty
+}
+
+// No consumer yet: first called from route (Task 6).
+#[allow(dead_code)]
+pub fn route_directory(dir: &str, origin: &Origin, windows: &[WindowEntry]) -> Route {
+    // 1. A window is already rooted exactly here.
+    if let Some(w) = windows.iter().find(|w| w.folder.as_deref() == Some(dir)) {
+        return Route::Focus { label: w.label.clone(), load: None, reveal: None };
+    }
+    // 2. A window's tree contains it — focus and reveal, but keep its root.
+    if let Some(w) = deepest_containing(windows, dir) {
+        return Route::Focus {
+            label: w.label.clone(),
+            load: None,
+            reveal: Some(dir.to_string()),
+        };
+    }
+    // 3/4. Take over a blank window: the one that asked, or the only one open.
+    if let Some(label) = adoptable(origin, windows) {
+        return Route::Adopt { label, folder: Some(dir.to_string()), load: None };
+    }
+    // 5. Nothing can serve it.
+    Route::Spawn { folder: Some(dir.to_string()), file: None }
+}
+
+/// The label of a window it is safe to take over, if any. An in-app request
+/// may adopt the window that made it; an external request may adopt only when
+/// there is exactly one window open — picking one blank window out of several
+/// would be arbitrary from the user's point of view.
+// No consumer yet: only called from route_directory, which is itself unused
+// until Task 6 wires up the dispatcher.
+#[allow(dead_code)]
+fn adoptable(origin: &Origin, windows: &[WindowEntry]) -> Option<String> {
+    if let Origin::InApp { requesting } = origin {
+        if let Some(w) = windows.iter().find(|w| &w.label == requesting && is_blank(w)) {
+            return Some(w.label.clone());
+        }
+    }
+    match windows {
+        [only] if is_blank(only) => Some(only.label.clone()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -197,5 +232,108 @@ mod tests {
         let mut dirty = win("main", None, None);
         dirty.dirty = true;
         assert!(!is_blank(&dirty), "a scratch buffer with unsaved work is not blank");
+    }
+
+    fn focus_label(r: &Route) -> &str {
+        match r {
+            Route::Focus { label, .. } => label,
+            other => panic!("expected Focus, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dir_rule1_focuses_the_window_already_rooted_there() {
+        let windows = vec![win("main", Some("/a"), None), win("window-2", Some("/proj"), None)];
+        let r = route_directory("/proj", &Origin::External, &windows);
+        assert_eq!(r, Route::Focus { label: "window-2".into(), load: None, reveal: None });
+    }
+
+    #[test]
+    fn dir_rule1_focuses_the_requesting_window_when_it_already_owns_the_target() {
+        let windows = vec![win("main", Some("/proj"), None)];
+        let r = route_directory("/proj", &Origin::InApp { requesting: "main".into() }, &windows);
+        assert_eq!(focus_label(&r), "main");
+    }
+
+    #[test]
+    fn dir_rule2_focuses_the_containing_window_and_reveals_without_re_rooting() {
+        let windows = vec![win("window-2", Some("/proj"), None)];
+        let r = route_directory("/proj/docs", &Origin::External, &windows);
+        assert_eq!(
+            r,
+            Route::Focus {
+                label: "window-2".into(),
+                load: None,
+                reveal: Some("/proj/docs".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn dir_rule2_picks_the_deepest_containing_window() {
+        let windows = vec![
+            win("main", Some("/proj"), None),
+            win("window-2", Some("/proj/docs"), None),
+        ];
+        let r = route_directory("/proj/docs/api", &Origin::External, &windows);
+        assert_eq!(focus_label(&r), "window-2");
+    }
+
+    #[test]
+    fn dir_rule3_adopts_the_requesting_window_when_it_is_blank() {
+        let windows = vec![win("main", None, None), win("window-2", Some("/other"), None)];
+        let r = route_directory("/proj", &Origin::InApp { requesting: "main".into() }, &windows);
+        assert_eq!(
+            r,
+            Route::Adopt { label: "main".into(), folder: Some("/proj".into()), load: None }
+        );
+    }
+
+    #[test]
+    fn dir_rule3_does_not_adopt_a_requesting_window_that_owns_another_folder() {
+        let windows = vec![win("main", Some("/other"), None)];
+        let r = route_directory("/proj", &Origin::InApp { requesting: "main".into() }, &windows);
+        assert_eq!(r, Route::Spawn { folder: Some("/proj".into()), file: None });
+    }
+
+    #[test]
+    fn dir_rule4_adopts_the_sole_blank_window_on_an_external_request() {
+        let windows = vec![win("main", None, None)];
+        let r = route_directory("/proj", &Origin::External, &windows);
+        assert_eq!(
+            r,
+            Route::Adopt { label: "main".into(), folder: Some("/proj".into()), load: None }
+        );
+    }
+
+    #[test]
+    fn dir_rule4_does_not_fire_when_more_than_one_window_is_open() {
+        // Picking one blank window out of several is arbitrary; spawn instead.
+        let windows = vec![win("main", None, None), win("window-2", None, None)];
+        let r = route_directory("/proj", &Origin::External, &windows);
+        assert_eq!(r, Route::Spawn { folder: Some("/proj".into()), file: None });
+    }
+
+    #[test]
+    fn dir_rule4_does_not_steal_a_window_with_unsaved_work() {
+        let mut only = win("main", None, None);
+        only.dirty = true;
+        let r = route_directory("/proj", &Origin::External, &[only]);
+        assert_eq!(r, Route::Spawn { folder: Some("/proj".into()), file: None });
+    }
+
+    #[test]
+    fn dir_rule5_spawns_when_no_window_is_open_at_all() {
+        let r = route_directory("/proj", &Origin::External, &[]);
+        assert_eq!(r, Route::Spawn { folder: Some("/proj".into()), file: None });
+    }
+
+    #[test]
+    fn dir_rule5_spawns_for_an_ancestor_of_an_open_root() {
+        // Accepted consequence in the spec: widening is not re-rooting, so
+        // `md /proj` next to a window rooted at /proj/docs gets its own window.
+        let windows = vec![win("window-2", Some("/proj/docs"), None)];
+        let r = route_directory("/proj", &Origin::External, &windows);
+        assert_eq!(r, Route::Spawn { folder: Some("/proj".into()), file: None });
     }
 }
