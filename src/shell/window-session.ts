@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { isUserClosingThisWindow } from "./session-client";
 import { deleteValue, getValue, listKeys, setValue } from "./store";
 
 /**
@@ -324,15 +325,9 @@ export function installWindowSessionPersistence(getters: {
   };
 }
 
-// Set by close.ts when its close-requested handler is mid-flight, so the
-// `beforeunload` tick triggered by the subsequent `destroy()` doesn't undo
-// the entry-remove. Module-level rather than a getter passed in, because
-// close.ts and window-session.ts are independent subscribers and we want
-// the signal global to this window's JS context.
-let userClosingThisWindow = false;
-export function markUserClosingThisWindow(): void {
-  userClosingThisWindow = true;
-}
-function isUserClosingThisWindow(): boolean {
-  return userClosingThisWindow;
-}
+// close.ts now points at session-client.ts, which owns the
+// userClosingThisWindow flag (single source of truth — see its module
+// comment). Re-export markUserClosingThisWindow so any remaining caller of
+// this module keeps working; isUserClosingThisWindow above is imported from
+// there too.
+export { markUserClosingThisWindow } from "./session-client";

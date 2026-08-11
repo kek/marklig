@@ -8,7 +8,7 @@ let closeCallback: ((e: { preventDefault: () => void }) => void | Promise<void>)
 let beforeQuitCallback: ((e: unknown) => void | Promise<void>) | null = null;
 const destroy = vi.fn().mockResolvedValue(undefined);
 const emit = vi.fn().mockResolvedValue(undefined);
-const removeWindowSessionEntry = vi.fn().mockResolvedValue(undefined);
+const forgetWindow = vi.fn().mockResolvedValue(undefined);
 const markUserClosingThisWindow = vi.fn();
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -36,8 +36,8 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit,
 }));
 
-vi.mock("../../src/shell/window-session", () => ({
-  removeWindowSessionEntry,
+vi.mock("../../src/shell/session-client", () => ({
+  forgetWindow,
   markUserClosingThisWindow,
 }));
 
@@ -66,7 +66,7 @@ describe("installCloseHandler", () => {
     expect(event.preventDefault).toHaveBeenCalled();
     expect(markUserClosingThisWindow).toHaveBeenCalled();
     expect(forceSave).toHaveBeenCalledTimes(1);
-    expect(removeWindowSessionEntry).toHaveBeenCalledWith("main");
+    expect(forgetWindow).toHaveBeenCalledWith("main");
     expect(destroy).toHaveBeenCalled();
     stop();
   });
@@ -83,7 +83,7 @@ describe("installCloseHandler", () => {
     await closeCallback!(event);
 
     expect(forceSave).not.toHaveBeenCalled();
-    expect(removeWindowSessionEntry).toHaveBeenCalledWith("main");
+    expect(forgetWindow).toHaveBeenCalledWith("main");
     expect(destroy).toHaveBeenCalled();
     stop();
   });
@@ -101,7 +101,7 @@ describe("installCloseHandler", () => {
 
     expect(forceSave).toHaveBeenCalled();
     // Failure must NOT block close — otherwise the user can't quit the app.
-    expect(removeWindowSessionEntry).toHaveBeenCalledWith("main");
+    expect(forgetWindow).toHaveBeenCalledWith("main");
     expect(destroy).toHaveBeenCalled();
     stop();
   });
@@ -120,7 +120,7 @@ describe("installCloseHandler", () => {
 
     // First invocation runs the flush; second sees closing=true and bails out.
     expect(forceSave).toHaveBeenCalledTimes(1);
-    expect(removeWindowSessionEntry).toHaveBeenCalledTimes(1);
+    expect(forgetWindow).toHaveBeenCalledTimes(1);
     stop();
   });
 
@@ -140,7 +140,7 @@ describe("installCloseHandler", () => {
     // App-quit must NOT call destroy or remove the session entry — Rust owns
     // the exit, and Cmd-Q preserves the session set for next-launch restore.
     expect(destroy).not.toHaveBeenCalled();
-    expect(removeWindowSessionEntry).not.toHaveBeenCalled();
+    expect(forgetWindow).not.toHaveBeenCalled();
     stop();
   });
 

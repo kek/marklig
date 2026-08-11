@@ -2,7 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { emit } from "@tauri-apps/api/event";
 
-import { markUserClosingThisWindow, removeWindowSessionEntry } from "./window-session";
+import { forgetWindow, markUserClosingThisWindow } from "./session-client";
 
 export interface CloseHandlerOptions {
   isDirty: () => boolean;
@@ -61,7 +61,7 @@ export async function installCloseHandler(
         }
       }
       try {
-        await removeWindowSessionEntry(win.label);
+        await forgetWindow(win.label);
       } catch {
         // ignore
       }
