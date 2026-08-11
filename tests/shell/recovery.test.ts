@@ -103,3 +103,24 @@ describe("recovery", () => {
     stop();
   });
 });
+
+describe("resolveRecoveryAction scoped to one dump", () => {
+  it("selects only the entry matching the requested path", async () => {
+    const entries = [
+      { originalPath: "/a/x.md", contents: "edited x", timestampMs: 1 },
+      { originalPath: "/b/y.md", contents: "edited y", timestampMs: 9 },
+    ];
+    const mine = entries.filter((e) => e.originalPath === "/a/x.md");
+    const action = await resolveRecoveryAction(mine, async () => "on disk x");
+    expect(action.kind).toBe("load");
+    if (action.kind === "load") {
+      expect(action.path).toBe("/a/x.md");
+      expect(action.source).toBe("edited x");
+    }
+  });
+
+  it("yields no action when the requested path has no dump", async () => {
+    const action = await resolveRecoveryAction([], async () => "on disk");
+    expect(action.kind).toBe("none");
+  });
+});

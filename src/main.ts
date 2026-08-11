@@ -130,6 +130,13 @@ async function bootstrap(): Promise<void> {
   root.innerHTML = "";
 
   async function maybeRestoreFromRecovery(): Promise<void> {
+    // Which dump belongs to this window was decided in
+    // `src-tauri/src/session/launch.rs`, which pairs each dump with the
+    // window that owns its file and gives an unclaimed dump a window of its
+    // own. We load exactly the one we were handed — no window scans the
+    // whole recovery store any more, which is what used to make a secondary
+    // window's dump land in `main` or vanish.
+    //
     // Silent recovery: with force-save-on-quit (#115) and silent window
     // restore (#116) shipped, a clean quit leaves no dump worth asking about,
     // and any dump that does survive is by definition from a crash. Asking
@@ -144,7 +151,10 @@ async function bootstrap(): Promise<void> {
     // Either way the dump is cleared after a single boot — if we hit a second
     // crash before the user saves, the 5 s recovery loop will write a fresh
     // dump from the now-restored buffer.
-    const entries = await readAllRecovery();
+    const wanted = dumpFromUrlQuery();
+    if (!wanted) return;
+    const entries = (await readAllRecovery()).filter((e) => e.originalPath === wanted);
+    if (entries.length === 0) return;
     const action = await resolveRecoveryAction(entries, async (path) => {
       try {
         const doc = await readDoc(path);
@@ -168,10 +178,9 @@ async function bootstrap(): Promise<void> {
     await clearRecovery(action.path);
   }
 
-  // Recovery runs in the main window only. Secondary windows (File ->
-  // New Window) are blank slates — they don't participate in the recovery
-  // store, and the first/main window owns the silent restore decision.
-  if (isMainWindow()) await maybeRestoreFromRecovery();
+  // Every window — main or secondary — may own a dump; Rust decided which
+  // one when it planned this window's launch and handed it over as `?dump=`.
+  await maybeRestoreFromRecovery();
 
   // Every window's initial state arrives as URL parameters that Rust set when
   // it created the window. Session restore, launch arguments and project
@@ -1782,8 +1791,10 @@ async function resolveInitial(): Promise<InitialResolution> {
   // Crash recovery is still resolved in the frontend (see
   // `maybeRestoreFromRecovery`) and its buffer outranks whatever the window
   // was planned to show, because it is the only copy of the user's unsaved
-  // edits. Rust already pairs a dump with the window that owns its file and
-  // forwards it as `?dump=`; consuming that parameter here is the next task.
+  // edits. Rust pairs a dump with the window that owns its file and forwards
+  // it as `?dump=`; `recoveredDoc` is only ever set from the dump this window
+  // was handed, so returning it here can't clobber the `?file=`/`?folder=`
+  // plan for some other window.
   if (recoveredDoc) return { doc: recoveredDoc, folder };
 
   if (file) {
@@ -1882,6 +1893,16 @@ function folderFromUrlQuery(): string | null {
     const params = new URLSearchParams(window.location.search);
     const f = params.get("folder");
     return f && f.length > 0 ? f : null;
+  } catch {
+    return null;
+  }
+}
+
+function dumpFromUrlQuery(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const d = params.get("dump");
+    return d && d.length > 0 ? d : null;
   } catch {
     return null;
   }
