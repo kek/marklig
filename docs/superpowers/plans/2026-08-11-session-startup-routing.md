@@ -52,6 +52,53 @@
 
 ---
 
+### Task 0: Point the e2e specs at an explicit `?file=`
+
+**Files:**
+- Modify: every `tests/e2e/*.spec.ts` containing a bare `page.goto(APP_URL)`
+- Test: `npm run test:e2e`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing. This task only changes tests.
+
+**Why this comes first.** The e2e suite does not launch Tauri — it runs the app in plain Chromium against the Vite dev server with a stubbed `__TAURI_INTERNALS__` (see the `installTauriStub` helper each spec defines). Roughly 18 `page.goto(APP_URL)` sites navigate with no query string and rely on `resolveInitial`'s fallback chain — `plugin:dialog|open` returning `/virtual/sample.md` — to get a document on screen. Task 11 deletes that chain, so those specs would boot into a blank welcome buffer. CI runs `npm run test:e2e` (`.github/workflows/ci.yml:47`).
+
+Doing this first keeps the suite green the whole way through: `resolveInitial` already honours `?file=` before any other branch (`src/main.ts:2012`), so the migrated specs pass identically on today's code and on the post-Task-11 code.
+
+- [ ] **Step 1: Confirm the suite is green before touching it**
+
+Run: `npm run test:e2e`
+Expected: PASS. If anything is already red, stop and report — this task must not be used to mask a pre-existing failure.
+
+- [ ] **Step 2: Migrate every bare navigation**
+
+For each `page.goto(APP_URL)` in `tests/e2e/*.spec.ts`, pass the same path the spec's stub already serves. The stub's `read_text_file` returns the spec's `sample` regardless of path, and `plugin:dialog|open` returns `/virtual/sample.md`, so that is the path to make explicit:
+
+```ts
+await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
+```
+
+`tests/e2e/cross-window-change.spec.ts:149` already does this with its own `file` variable — follow that shape. Where a spec uses a different virtual path in its stub (check each spec's `installTauriStub` call and its `plugin:dialog|open` return), use that spec's path, not `/virtual/sample.md` blindly.
+
+Do **not** change any spec's assertions, stub, or fixtures. This is a navigation change only.
+
+- [ ] **Step 3: Verify**
+
+Run: `npm run test:e2e`
+Expected: PASS, same test count as Step 1.
+
+If a spec fails because it asserted on the open-dialog path itself (i.e. it was testing the fallback chain rather than using it), report that spec by name instead of rewriting its intent — that behaviour is being deleted, and the plan should decide what replaces it rather than the implementer.
+
+- [ ] **Step 4: Commit**
+
+```bash
+jj desc -m "Navigate e2e specs to an explicit file parameter"
+jj new
+```
+
+---
+
 ### Task 1: Session file format and atomic persistence
 
 **Files:**
