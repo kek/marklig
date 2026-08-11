@@ -25,17 +25,6 @@ impl Registry {
         Self { windows: Mutex::new(BTreeMap::new()), next_seq: Mutex::new(2) }
     }
 
-    // No consumer yet: first called from lib.rs's `setup` closure to seed
-    // `SessionState` from the on-disk session (Task 9).
-    #[allow(dead_code)]
-    pub fn from_session(session: SessionFile) -> Self {
-        let reg = Self::new();
-        for entry in session.windows {
-            reg.upsert(entry);
-        }
-        reg
-    }
-
     pub fn upsert(&self, entry: WindowEntry) {
         if let Some(n) = entry.label.strip_prefix("window-").and_then(|s| s.parse::<u32>().ok()) {
             let mut seq = self.next_seq.lock();
@@ -48,18 +37,6 @@ impl Registry {
 
     pub fn forget(&self, label: &str) {
         self.windows.lock().remove(label);
-    }
-
-    // Exercised only by the tests below; not yet called from any live path.
-    #[allow(dead_code)]
-    pub fn get(&self, label: &str) -> Option<WindowEntry> {
-        self.windows.lock().get(label).cloned()
-    }
-
-    // Exercised only by the tests below; not yet called from any live path.
-    #[allow(dead_code)]
-    pub fn contains(&self, label: &str) -> bool {
-        self.windows.lock().contains_key(label)
     }
 
     /// Snapshot, in stable label order. Routing operates on this snapshot so
@@ -122,8 +99,9 @@ mod tests {
         let reg = Registry::new();
         reg.upsert(entry("main", Some("/a"), 1));
         reg.upsert(entry("main", Some("/b"), 2));
-        assert_eq!(reg.entries().len(), 1);
-        assert_eq!(reg.get("main").unwrap().folder.as_deref(), Some("/b"));
+        let entries = reg.entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].folder.as_deref(), Some("/b"));
     }
 
     #[test]
@@ -166,16 +144,6 @@ mod tests {
         reg.upsert(entry("window-2", None, 1));
         reg.forget("window-2");
         assert_eq!(reg.next_label(), "window-3");
-    }
-
-    #[test]
-    fn from_session_seeds_the_registry() {
-        let reg = Registry::from_session(SessionFile {
-            version: SESSION_VERSION,
-            windows: vec![entry("main", Some("/a"), 1)],
-        });
-        assert!(reg.contains("main"));
-        assert_eq!(reg.next_label(), "window-2");
     }
 
     #[test]

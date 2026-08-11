@@ -106,8 +106,6 @@ struct LegacyGeometry {
 /// `tauri-plugin-store` has resolved `viewer.store.json` under the app data
 /// dir in some versions and the app config dir in others; check both rather
 /// than pinning a version-specific location.
-// No consumer yet: first called from lib.rs setup (Task 9).
-#[allow(dead_code)]
 pub fn migrate_from_plugin_store(app_data: &Path, config_dir: &Path) -> Option<SessionFile> {
     let raw = [app_data, config_dir]
         .iter()

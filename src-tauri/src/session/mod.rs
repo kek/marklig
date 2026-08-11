@@ -23,9 +23,6 @@ use store::{read_session, WindowEntry, WindowMode};
 /// buffered — on macOS it fires before the event loop is ready.
 static LAUNCH_DONE: AtomicBool = AtomicBool::new(false);
 
-// No consumer yet: first called from lib.rs's `RunEvent::Opened` handler
-// (Task 9).
-#[allow(dead_code)]
 pub fn launch_done() -> bool {
     LAUNCH_DONE.load(Ordering::SeqCst)
 }
@@ -36,8 +33,6 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    // No consumer yet: first called from lib.rs's `setup` closure (Task 9).
-    #[allow(dead_code)]
     pub fn new(app_data: PathBuf) -> Self {
         Self { registry: Registry::new(), app_data }
     }
@@ -212,9 +207,6 @@ pub fn open_paths(app: &AppHandle, paths: Vec<String>, requesting: Option<String
 
 /// Restore the previous session, then hand over to the router. Called once,
 /// from `RunEvent::Ready` — after any launch-time `RunEvent::Opened`.
-// No consumer yet: first called from lib.rs's `RunEvent::Ready` handler
-// (Task 9).
-#[allow(dead_code)]
 pub fn run_launch(app: &AppHandle, pending: Vec<String>) {
     let Some(state) = app.try_state::<SessionState>() else { return };
     let session = read_session(&state.app_data);
@@ -232,8 +224,6 @@ pub fn run_launch(app: &AppHandle, pending: Vec<String>) {
     }
 }
 
-// No consumer yet: first registered in lib.rs's `invoke_handler` (Task 9).
-#[allow(dead_code)]
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn session_report(
@@ -270,16 +260,12 @@ pub fn session_report(
 /// Drop a window the user closed deliberately, so it is not restored next
 /// launch. App-quit deliberately does NOT call this — the entries left behind
 /// are exactly the set to bring back.
-// No consumer yet: first registered in lib.rs's `invoke_handler` (Task 9).
-#[allow(dead_code)]
 #[tauri::command]
 pub fn session_forget(state: tauri::State<'_, SessionState>, label: String) {
     state.registry.forget(&label);
     state.persist();
 }
 
-// No consumer yet: first registered in lib.rs's `invoke_handler` (Task 9).
-#[allow(dead_code)]
 #[tauri::command]
 pub fn session_open_paths(app: AppHandle, paths: Vec<String>, requesting: Option<String>) {
     open_paths(&app, paths, requesting);

@@ -10,18 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Märklig",
-        "width": 1000,
-        "height": 760,
-        "minWidth": 480,
-        "minHeight": 320,
-        "dragDropEnabled": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
-      }
-    ],
+    "windows": [],
     "security": { "csp": null }
   },
   "plugins": {
