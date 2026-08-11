@@ -1,9 +1,15 @@
-// All current command modules are desktop-only — they depend on the
-// `notify` filesystem watcher (no Android equivalent), macOS-only AppKit
-// integration, or path-based filesystem APIs that don't translate to
-// Android's Storage Access Framework. Step 2 of the mobile companion plan
-// introduces a parallel mobile file shell; until then, mobile builds expose
-// no commands beyond `take_pending_open_paths` (in `lib.rs`).
+// The file, watcher, and OS-integration command modules below are
+// desktop-only — they depend on the `notify` filesystem watcher (no Android
+// equivalent), macOS-only AppKit integration, or path-based filesystem APIs
+// that don't translate to Android's Storage Access Framework.
+//
+// Mobile builds expose their own, much smaller handler chain (see the
+// `#[cfg(mobile)]` `invoke_handler` in `lib.rs`): `take_pending_open_paths`,
+// the pairing/sync commands from `mobile_pairing` and `mobile_sync`
+// (`mobile_pairing_start`, `mobile_sync_now`, `mobile_read_synced_file`,
+// `mobile_unpair`, `mobile_apply_sync_op`), and the two mDNS discovery
+// commands. Default to `#[cfg(desktop)]` for anything new unless it is
+// explicitly designed for both.
 #[cfg(desktop)]
 pub mod cli_tool;
 #[cfg(desktop)]

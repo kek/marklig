@@ -226,6 +226,7 @@ pub fn run() {
             commands::mobile_sync::sync_compact,
             session::session_report,
             session::session_forget,
+            session::session_claim_menu,
             session::session_open_paths,
             session::session_new_window,
         ]);

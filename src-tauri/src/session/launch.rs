@@ -8,11 +8,20 @@ use crate::commands::files::RecoveryEntry;
 use crate::session::store::{SessionFile, WindowEntry};
 
 /// One window the launch should create, plus the crash dump it should load.
+///
+/// Everything a not-yet-created window must be told rides this struct and
+/// comes out the other side as URL parameters. A window that does not exist
+/// yet cannot be sent an event: `emit_to` resolves against the listener table
+/// the webview populates when its JS calls `listen()`, and a webview that has
+/// not loaded its page has no entry there — the event is dropped silently.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedWindow {
     pub entry: WindowEntry,
     /// `original_path` of the recovery dump this window owns, if any.
     pub dump: Option<String>,
+    /// A directory to expand in this window's tree on boot, without moving
+    /// its root. The folded form of `Route::Focus { reveal, .. }`.
+    pub reveal: Option<String>,
 }
 
 /// Decide what to create at launch.
@@ -30,8 +39,10 @@ pub fn restore_plan(
     entries.retain_mut(|e| reconcile_with_disk(e, exists));
 
     let mut used: HashSet<String> = entries.iter().map(|e| e.label.clone()).collect();
-    let mut plan: Vec<PlannedWindow> =
-        entries.into_iter().map(|entry| PlannedWindow { entry, dump: None }).collect();
+    let mut plan: Vec<PlannedWindow> = entries
+        .into_iter()
+        .map(|entry| PlannedWindow { entry, dump: None, reveal: None })
+        .collect();
 
     // Pair each dump with the window that owns its file; anything left over
     // is content with nowhere to land, so it gets a window of its own.
@@ -46,6 +57,7 @@ pub fn restore_plan(
                         ..blank_entry(label)
                     },
                     dump: Some(d.original_path),
+                    reveal: None,
                 });
             }
         }
@@ -53,7 +65,7 @@ pub fn restore_plan(
 
     if plan.is_empty() {
         let label = fresh_label(&mut used);
-        plan.push(PlannedWindow { entry: blank_entry(label), dump: None });
+        plan.push(PlannedWindow { entry: blank_entry(label), dump: None, reveal: None });
     }
     plan
 }
@@ -107,7 +119,10 @@ fn reconcile_with_disk(e: &mut WindowEntry, exists: &dyn Fn(&str) -> bool) -> bo
     !had_anchor || e.folder.is_some() || e.path.is_some()
 }
 
-fn blank_entry(label: String) -> WindowEntry {
+/// A window with nothing in it, at the "let the OS place it" sentinel
+/// position. Shared with the router's spawn path so a window created by a
+/// routing decision and one created by the restore are the same shape.
+pub fn blank_entry(label: String) -> WindowEntry {
     WindowEntry {
         label,
         folder: None,
