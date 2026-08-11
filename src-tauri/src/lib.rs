@@ -13,8 +13,10 @@ pub mod mobile_pairing_record;
 mod pairing;
 #[cfg(desktop)]
 mod pairing_ws;
+// Public so `tests/session_launch.rs` can drive the restore plan and the
+// router directly, the way `typst` is exposed for `typst_basic.rs`.
 #[cfg(desktop)]
-mod session;
+pub mod session;
 #[cfg(desktop)]
 mod sync_log;
 #[cfg(desktop)]

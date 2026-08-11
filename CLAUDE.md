@@ -78,9 +78,48 @@ Both libraries are async and big. Pattern: synchronous decoration producer reads
 
 - **Save** (`files.ts`) calls `watcherHandle.markSelfWrite()` *before* writing, so the watcher swallows the resulting fs event instead of treating it as an external change.
 - **Watcher reconciliation** (`watcher.ts` + `ui/reconcile.ts`): clean buffer + external change → silent reload preserving scrollTop; dirty buffer + external change → modal (reload / keep-mine / cancel); file removed externally → orphan notice and `currentPath = null`. A user's "keep mine" sets `diverged = true`, which then warns on next save. The listener first discards any event whose `path` isn't the one that watcher was installed for — `emit_to(label, …)` does **not** scope a global `listen()` (see #145), so every window receives every window's watcher events and would otherwise reconcile a file it doesn't have open. Windows that *do* have the file open all still reload: each has its own watcher, so each gets an event spelled the way it asked for the path.
-- **Crash recovery** (`recovery.ts`): every 5s while dirty, the buffer is dumped via `write_recovery`. On startup the *main* window only (`label === "main"`) prompts to restore. Save / explicit discard clears the dump.
+- **Crash recovery** (`recovery.ts`): every 5s while dirty, the buffer is dumped via `write_recovery`. At restore, each dump is paired with the window that owns its file (via `?dump=` — see "Session, launch, and open-routing" below); an unclaimed dump gets a window of its own. No window scans the whole recovery store. Save / explicit discard clears the dump.
 - **Auto-save** is debounced 1000 ms after the last edit; skipped while `diverged` so it doesn't pop the "save anyway?" modal mid-typing.
-- **Multi-window**: secondary windows (`?file=…` URL param or plain `New Window`) start blank — they don't run recovery and don't auto-restore last-opened. Only `main` does.
+- **Multi-window**: every window, including `main`, boots entirely from its URL query parameters — there is no first-window special case left in the frontend. See "Session, launch, and open-routing" below for who sets those parameters and when.
+
+### Session, launch, and open-routing (`src-tauri/src/session/`)
+
+There is **no privileged `main` window** and no window in `tauri.conf.json`.
+Rust creates every window at `RunEvent::Ready` and owns all routing:
+
+- `store.rs` — `<app_data>/session.json`, atomic writes, one-time migration
+  off the old `windowSession:*` plugin-store keys.
+- `registry.rs` — the live `label → WindowEntry` map. It is *also* what gets
+  serialized, so the routing map and the session file cannot drift apart.
+- `router.rs` — pure decision: `Focus | Adopt | Spawn`. No Tauri types, no I/O;
+  `resolve_folder_root` is injected, which is what makes the whole routing
+  table unit-testable.
+- `launch.rs` — the restore plan: dedupe by folder (newest wins), reconcile
+  against disk, pair crash dumps to the window owning each file. **It can
+  never return an empty plan** — with no declarative window, that guard is the
+  only thing standing between a corrupt `session.json` and a window-less app.
+
+`RunEvent::Opened` fires *before* `setup` on macOS cold launch, so the restore
+runs at `Ready`: buffer arguments, restore windows, then route the buffer.
+`spawn_window` seeds the registry **synchronously** from the entry it already
+holds rather than waiting for the webview to report — that wait was the race
+that made cold-start arguments behave differently from warm ones.
+
+The frontend decides nothing about startup. Every window reads `?folder=`,
+`?file=`, `?scrollTop=`, `?mode=`, `?dump=`, and `?sidebar=` and loads exactly
+that; `src/shell/session-client.ts` only reports state back. `?sidebar=` is
+three-state — `true` / `false` / absent — and absent means "no preference
+recorded, fall back to the default heuristic," not "hidden"; don't collapse
+it to a boolean. `emit_to` still does not scope a global `listen()` in Tauri
+v2, so `viewer:open-file`, `viewer:adopt-folder`, and `viewer:reveal-path` all
+carry their target label in the payload — do not "simplify" that away (see
+#145).
+
+Four commands drive this from the frontend: `session_report` (state changed),
+`session_forget` (window closed deliberately), `session_open_paths` (route an
+open request), and `session_new_window` — `File → New Window` deliberately
+does **not** go through the router; the user asked for a window, not a
+document, so it always spawns.
 
 ### Export & sanitization (`src/export/`)
 
