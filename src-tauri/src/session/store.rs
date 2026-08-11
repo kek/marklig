@@ -4,8 +4,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-// No consumer yet: first read by registry.rs (Task 3).
-#[allow(dead_code)]
 pub const SESSION_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,8 +28,6 @@ impl WindowMode {
 /// One window's state. This is both the persisted record and the live
 /// registry value — there is deliberately only one type, so the routing map
 /// and the session file can never disagree.
-// No consumer yet: first constructed by registry.rs (Task 3).
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowEntry {
@@ -58,8 +54,6 @@ pub struct WindowEntry {
     pub timestamp_ms: i64,
 }
 
-// No consumer yet: first constructed by registry.rs (Task 3).
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionFile {
@@ -90,8 +84,6 @@ pub fn read_session(app_data: &Path) -> SessionFile {
 /// Write the session atomically: serialize to a sibling temp file, then
 /// rename over the target. A crash mid-write leaves the previous file intact
 /// rather than a truncated one that would read as an empty session.
-// No consumer yet: first called from registry.rs (Task 3).
-#[allow(dead_code)]
 pub fn write_session(app_data: &Path, session: &SessionFile) -> std::io::Result<()> {
     std::fs::create_dir_all(app_data)?;
     let target = session_path(app_data);
