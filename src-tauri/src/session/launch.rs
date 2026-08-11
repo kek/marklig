@@ -8,8 +8,6 @@ use crate::commands::files::RecoveryEntry;
 use crate::session::store::{SessionFile, WindowEntry};
 
 /// One window the launch should create, plus the crash dump it should load.
-// No consumer yet: first called from session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedWindow {
     pub entry: WindowEntry,
@@ -23,8 +21,6 @@ pub struct PlannedWindow {
 /// unreadable app-data dir all end at one blank welcome window rather than a
 /// window-less app. Removing the declarative window from `tauri.conf.json`
 /// makes this the only guard.
-// No consumer yet: first called from session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 pub fn restore_plan(
     session: SessionFile,
     dumps: Vec<RecoveryEntry>,
@@ -65,9 +61,6 @@ pub fn restore_plan(
 /// Keep the newest entry per folder. Blank windows have no folder identity and
 /// are never deduped against each other. Live routing already guarantees one
 /// window per folder; this is the safety net for a stale or hand-edited file.
-// No consumer yet: called only from restore_plan, itself unwired until
-// session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 fn dedupe_by_folder(entries: Vec<WindowEntry>) -> Vec<WindowEntry> {
     let mut best: Vec<usize> = Vec::new();
     for (i, e) in entries.iter().enumerate() {
@@ -95,9 +88,6 @@ fn dedupe_by_folder(entries: Vec<WindowEntry>) -> Vec<WindowEntry> {
 /// Reconcile one entry against the filesystem. Returns false when the entry
 /// should be dropped entirely. No modal, no prompt — a launch must not stop to
 /// ask about a project that moved (see #122).
-// No consumer yet: called only from restore_plan, itself unwired until
-// session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 fn reconcile_with_disk(e: &mut WindowEntry, exists: &dyn Fn(&str) -> bool) -> bool {
     // Whether this window was anchored to anything at all when it was recorded.
     let had_anchor = e.folder.is_some() || e.path.is_some();
@@ -117,9 +107,6 @@ fn reconcile_with_disk(e: &mut WindowEntry, exists: &dyn Fn(&str) -> bool) -> bo
     !had_anchor || e.folder.is_some() || e.path.is_some()
 }
 
-// No consumer yet: called only from restore_plan, itself unwired until
-// session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 fn blank_entry(label: String) -> WindowEntry {
     WindowEntry {
         label,
@@ -137,9 +124,6 @@ fn blank_entry(label: String) -> WindowEntry {
     }
 }
 
-// No consumer yet: called only from restore_plan, itself unwired until
-// session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 fn fresh_label(used: &mut HashSet<String>) -> String {
     let mut n = 1;
     loop {

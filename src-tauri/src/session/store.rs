@@ -15,8 +15,6 @@ pub enum WindowMode {
 }
 
 impl WindowMode {
-    // No consumer yet: first called from window_url (Task 8).
-    #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
             WindowMode::Reading => "reading",
@@ -63,16 +61,12 @@ pub struct SessionFile {
     pub windows: Vec<WindowEntry>,
 }
 
-// No consumer yet: first called from lib.rs setup (Task 9).
-#[allow(dead_code)]
 pub fn session_path(app_data: &Path) -> PathBuf {
     app_data.join("session.json")
 }
 
 /// Read the session. Any failure — missing, unreadable, corrupt, wrong shape —
 /// yields an empty session. A launch must never be blocked by a bad file.
-// No consumer yet: first called from session/mod.rs run_launch (Task 8).
-#[allow(dead_code)]
 pub fn read_session(app_data: &Path) -> SessionFile {
     let bytes = match std::fs::read(session_path(app_data)) {
         Ok(b) => b,

@@ -12,9 +12,6 @@ use parking_lot::Mutex;
 
 use crate::session::store::{write_session, SessionFile, WindowEntry, SESSION_VERSION};
 
-// No consumer yet: first wired into Tauri managed state as `SessionState`
-// (Task 8).
-#[allow(dead_code)]
 pub struct Registry {
     windows: Mutex<BTreeMap<String, WindowEntry>>,
     /// Monotonic label counter. Never decremented on `forget`: reusing a
@@ -23,14 +20,14 @@ pub struct Registry {
     next_seq: Mutex<u32>,
 }
 
-// No consumer yet: first called from Tauri command handlers via
-// `SessionState` (Task 8).
-#[allow(dead_code)]
 impl Registry {
     pub fn new() -> Self {
         Self { windows: Mutex::new(BTreeMap::new()), next_seq: Mutex::new(2) }
     }
 
+    // No consumer yet: first called from lib.rs's `setup` closure to seed
+    // `SessionState` from the on-disk session (Task 9).
+    #[allow(dead_code)]
     pub fn from_session(session: SessionFile) -> Self {
         let reg = Self::new();
         for entry in session.windows {
@@ -53,10 +50,14 @@ impl Registry {
         self.windows.lock().remove(label);
     }
 
+    // Exercised only by the tests below; not yet called from any live path.
+    #[allow(dead_code)]
     pub fn get(&self, label: &str) -> Option<WindowEntry> {
         self.windows.lock().get(label).cloned()
     }
 
+    // Exercised only by the tests below; not yet called from any live path.
+    #[allow(dead_code)]
     pub fn contains(&self, label: &str) -> bool {
         self.windows.lock().contains_key(label)
     }

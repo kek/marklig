@@ -16,9 +16,6 @@ pub enum Target {
     File(String),
 }
 
-// Variants are only matched (never constructed) outside tests until a
-// frontend call site constructs one (Task 8).
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     /// CLI argument, Finder, drag-onto-dock — no window asked for this.
@@ -40,8 +37,6 @@ pub enum Route {
 
 /// Classify a path. Directories win over the extension check so a directory
 /// literally named `notes.md` still opens as a project root.
-// No consumer yet: first called from a frontend call site (Task 8).
-#[allow(dead_code)]
 pub fn classify(path: &str) -> Option<Target> {
     if std::path::Path::new(path).is_dir() {
         return Some(Target::Directory(path.to_string()));
@@ -120,9 +115,6 @@ fn adoptable(origin: &Origin, windows: &[WindowEntry]) -> Option<String> {
 }
 
 /// Route a document open request. See the spec's File table.
-// No consumer yet: called from the `route` dispatcher, wired to a frontend
-// call site in Task 8.
-#[allow(dead_code)]
 pub fn route_file(
     file: &str,
     origin: &Origin,
@@ -153,8 +145,6 @@ pub fn route_file(
 }
 
 /// The single entry point every open request goes through.
-// No consumer yet: wired to a frontend call site in Task 8.
-#[allow(dead_code)]
 pub fn route(
     target: &Target,
     origin: &Origin,
