@@ -103,6 +103,61 @@ pub fn write_session(app_data: &Path, session: &SessionFile) -> std::io::Result<
     Ok(())
 }
 
+/// Legacy geometry record, stored under `viewer.window.<label>`.
+#[derive(Deserialize)]
+struct LegacyGeometry {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+/// One-shot migration off the `tauri-plugin-store` keys written by the old
+/// TypeScript session code. Returns None when there is nothing to migrate —
+/// including a store that exists but holds no `windowSession:` keys, so a
+/// fresh install is never mistaken for "an empty session was migrated".
+///
+/// `tauri-plugin-store` has resolved `viewer.store.json` under the app data
+/// dir in some versions and the app config dir in others; check both rather
+/// than pinning a version-specific location.
+// No consumer yet: first called from lib.rs setup (Task 9).
+#[allow(dead_code)]
+pub fn migrate_from_plugin_store(app_data: &Path, config_dir: &Path) -> Option<SessionFile> {
+    let raw = [app_data, config_dir]
+        .iter()
+        .map(|d| d.join("viewer.store.json"))
+        .find_map(|p| std::fs::read(p).ok())?;
+    let map: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&raw).ok()?;
+
+    let mut windows: Vec<WindowEntry> = map
+        .iter()
+        .filter(|(k, _)| k.starts_with("windowSession:"))
+        .filter_map(|(_, v)| serde_json::from_value::<WindowEntry>(v.clone()).ok())
+        .collect();
+    if windows.is_empty() {
+        return None;
+    }
+
+    // The dedicated geometry key was authoritative; the session entry's copy
+    // could lag by one tick. Prefer it where present.
+    for w in &mut windows {
+        if let Some(g) = map
+            .get(&format!("viewer.window.{}", w.label))
+            .and_then(|v| serde_json::from_value::<LegacyGeometry>(v.clone()).ok())
+        {
+            w.x = g.x;
+            w.y = g.y;
+            w.width = g.width;
+            w.height = g.height;
+        }
+        // A migrated buffer is never assumed dirty: the crash-recovery store
+        // is what carries unsaved content across a restart.
+        w.dirty = false;
+    }
+    windows.sort_by(|a, b| a.label.cmp(&b.label));
+    Some(SessionFile { version: SESSION_VERSION, windows })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +235,97 @@ mod tests {
         let nested = dir.path().join("does/not/exist");
         write_session(&nested, &SessionFile::default()).unwrap();
         assert!(session_path(&nested).exists());
+    }
+
+    fn write_plugin_store(dir: &Path, json: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("viewer.store.json"), json).unwrap();
+    }
+
+    #[test]
+    fn migrates_per_window_keys_into_a_session_file() {
+        let data = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        write_plugin_store(
+            data.path(),
+            r#"{
+              "windowSession:main": {"label":"main","path":"/proj/a.md","folder":"/proj",
+                "x":1,"y":2,"width":900,"height":700,"scrollTop":40,"mode":"edit","timestampMs":7},
+              "windowSession:window-2": {"label":"window-2","path":null,"folder":null,
+                "x":3,"y":4,"width":800,"height":600,"scrollTop":0,"mode":"reading","timestampMs":9},
+              "recents": ["/proj/a.md"]
+            }"#,
+        );
+        let migrated = migrate_from_plugin_store(data.path(), config.path()).unwrap();
+        assert_eq!(migrated.version, SESSION_VERSION);
+        assert_eq!(migrated.windows.len(), 2);
+        let main = migrated.windows.iter().find(|w| w.label == "main").unwrap();
+        assert_eq!(main.folder.as_deref(), Some("/proj"));
+        assert_eq!(main.path.as_deref(), Some("/proj/a.md"));
+        assert_eq!(main.mode, WindowMode::Edit);
+        assert_eq!(main.scroll_top, 40.0);
+        assert!(!main.dirty, "a migrated entry is never assumed dirty");
+    }
+
+    #[test]
+    fn migration_prefers_geometry_from_the_legacy_window_key() {
+        // viewer.window.<label> was the authoritative geometry record; the
+        // session entry's copy could be up to one tick staler.
+        let data = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        write_plugin_store(
+            data.path(),
+            r#"{
+              "windowSession:main": {"label":"main","path":null,"folder":null,
+                "x":1,"y":1,"width":100,"height":100,"scrollTop":0,"mode":"reading","timestampMs":1},
+              "viewer.window.main": {"x":50,"y":60,"width":1200,"height":900}
+            }"#,
+        );
+        let m = migrate_from_plugin_store(data.path(), config.path()).unwrap();
+        let main = &m.windows[0];
+        assert_eq!((main.x, main.y, main.width, main.height), (50, 60, 1200, 900));
+    }
+
+    #[test]
+    fn migration_reads_the_config_dir_when_the_data_dir_has_no_store() {
+        let data = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        write_plugin_store(
+            config.path(),
+            r#"{"windowSession:main":{"label":"main","path":null,"folder":"/p",
+               "x":0,"y":0,"width":800,"height":600,"scrollTop":0,"mode":"reading","timestampMs":1}}"#,
+        );
+        let m = migrate_from_plugin_store(data.path(), config.path()).unwrap();
+        assert_eq!(m.windows[0].folder.as_deref(), Some("/p"));
+    }
+
+    #[test]
+    fn migration_returns_none_when_there_is_nothing_to_migrate() {
+        let data = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        assert!(migrate_from_plugin_store(data.path(), config.path()).is_none());
+
+        write_plugin_store(data.path(), r#"{"recents":["/a.md"]}"#);
+        assert!(
+            migrate_from_plugin_store(data.path(), config.path()).is_none(),
+            "a store with no windowSession keys must not migrate an empty session"
+        );
+    }
+
+    #[test]
+    fn migration_skips_malformed_entries_but_keeps_the_rest() {
+        let data = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        write_plugin_store(
+            data.path(),
+            r#"{
+              "windowSession:bad": 42,
+              "windowSession:main": {"label":"main","path":null,"folder":null,
+                "x":0,"y":0,"width":800,"height":600,"scrollTop":0,"mode":"reading","timestampMs":1}
+            }"#,
+        );
+        let m = migrate_from_plugin_store(data.path(), config.path()).unwrap();
+        assert_eq!(m.windows.len(), 1);
+        assert_eq!(m.windows[0].label, "main");
     }
 }
