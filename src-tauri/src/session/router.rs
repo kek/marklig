@@ -10,16 +10,14 @@ use crate::session::store::WindowEntry;
 /// `isSupportedExtension` and the `md` launcher script's case glob.
 const SUPPORTED_EXTS: &[&str] = &["md", "markdown", "mdx", "mdown", "typ"];
 
-// No consumer yet: routing tables land in Tasks 5-6.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Directory(String),
     File(String),
 }
 
-// Variants are only matched (never constructed) outside tests until
-// route_file / the frontend call sites land (Task 6+).
+// Variants are only matched (never constructed) outside tests until a
+// frontend call site constructs one (Task 8).
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
@@ -42,7 +40,7 @@ pub enum Route {
 
 /// Classify a path. Directories win over the extension check so a directory
 /// literally named `notes.md` still opens as a project root.
-// No consumer yet: first called from the `route` dispatcher (Task 6).
+// No consumer yet: first called from a frontend call site (Task 8).
 #[allow(dead_code)]
 pub fn classify(path: &str) -> Option<Target> {
     if std::path::Path::new(path).is_dir() {
@@ -84,8 +82,6 @@ pub fn is_blank(w: &WindowEntry) -> bool {
     w.folder.is_none() && w.path.is_none() && !w.dirty
 }
 
-// No consumer yet: first called from route (Task 6).
-#[allow(dead_code)]
 pub fn route_directory(dir: &str, origin: &Origin, windows: &[WindowEntry]) -> Route {
     // 1. A window is already rooted exactly here.
     if let Some(w) = windows.iter().find(|w| w.folder.as_deref() == Some(dir)) {
@@ -111,9 +107,6 @@ pub fn route_directory(dir: &str, origin: &Origin, windows: &[WindowEntry]) -> R
 /// may adopt the window that made it; an external request may adopt only when
 /// there is exactly one window open — picking one blank window out of several
 /// would be arbitrary from the user's point of view.
-// No consumer yet: only called from route_directory, which is itself unused
-// until Task 6 wires up the dispatcher.
-#[allow(dead_code)]
 fn adoptable(origin: &Origin, windows: &[WindowEntry]) -> Option<String> {
     if let Origin::InApp { requesting } = origin {
         if let Some(w) = windows.iter().find(|w| &w.label == requesting && is_blank(w)) {
@@ -123,6 +116,54 @@ fn adoptable(origin: &Origin, windows: &[WindowEntry]) -> Option<String> {
     match windows {
         [only] if is_blank(only) => Some(only.label.clone()),
         _ => None,
+    }
+}
+
+/// Route a document open request. See the spec's File table.
+// No consumer yet: called from the `route` dispatcher, wired to a frontend
+// call site in Task 8.
+#[allow(dead_code)]
+pub fn route_file(
+    file: &str,
+    origin: &Origin,
+    windows: &[WindowEntry],
+    folder_root_of: &dyn Fn(&str) -> String,
+) -> Route {
+    // 1. Some window already has this exact document open.
+    if let Some(w) = windows.iter().find(|w| w.path.as_deref() == Some(file)) {
+        return Route::Focus { label: w.label.clone(), load: None, reveal: None };
+    }
+    // 2. Some window's tree contains it — load it there.
+    if let Some(w) = deepest_containing(windows, file) {
+        return Route::Focus {
+            label: w.label.clone(),
+            load: Some(file.to_string()),
+            reveal: None,
+        };
+    }
+    // 3/4/5. Nothing covers it: root a window at the file's own tree. Cold
+    // start and warm launch take the same branch, which is what makes them
+    // produce identical windows.
+    let root = folder_root_of(file);
+    let folder = (!root.is_empty()).then_some(root);
+    if let Some(label) = adoptable(origin, windows) {
+        return Route::Adopt { label, folder, load: Some(file.to_string()) };
+    }
+    Route::Spawn { folder, file: Some(file.to_string()) }
+}
+
+/// The single entry point every open request goes through.
+// No consumer yet: wired to a frontend call site in Task 8.
+#[allow(dead_code)]
+pub fn route(
+    target: &Target,
+    origin: &Origin,
+    windows: &[WindowEntry],
+    folder_root_of: &dyn Fn(&str) -> String,
+) -> Route {
+    match target {
+        Target::Directory(d) => route_directory(d, origin, windows),
+        Target::File(f) => route_file(f, origin, windows, folder_root_of),
     }
 }
 
@@ -335,5 +376,134 @@ mod tests {
         let windows = vec![win("window-2", Some("/proj/docs"), None)];
         let r = route_directory("/proj", &Origin::External, &windows);
         assert_eq!(r, Route::Spawn { folder: Some("/proj".into()), file: None });
+    }
+
+    /// Stand-in for `resolve_folder_root`: the parent directory.
+    fn parent_of(p: &str) -> String {
+        match p.rfind('/') {
+            Some(0) | None => "/".to_string(),
+            Some(i) => p[..i].to_string(),
+        }
+    }
+
+    #[test]
+    fn file_rule1_focuses_a_window_that_already_has_the_file_open() {
+        let windows = vec![
+            win("main", Some("/proj"), Some("/proj/x.md")),
+            win("window-2", Some("/proj/docs"), None),
+        ];
+        let r = route_file("/proj/x.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(r, Route::Focus { label: "main".into(), load: None, reveal: None });
+    }
+
+    #[test]
+    fn file_rule2_loads_the_file_into_the_containing_window() {
+        let windows = vec![win("window-2", Some("/proj"), Some("/proj/other.md"))];
+        let r = route_file("/proj/docs/x.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(
+            r,
+            Route::Focus {
+                label: "window-2".into(),
+                load: Some("/proj/docs/x.md".into()),
+                reveal: None,
+            }
+        );
+    }
+
+    #[test]
+    fn file_rule2_picks_the_deepest_containing_window() {
+        let windows = vec![
+            win("main", Some("/proj"), None),
+            win("window-2", Some("/proj/docs"), None),
+        ];
+        let r = route_file("/proj/docs/x.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(focus_label(&r), "window-2");
+    }
+
+    #[test]
+    fn file_rule2_respects_segment_boundaries() {
+        let windows = vec![win("main", Some("/proj/docs"), None)];
+        let r = route_file("/proj/docs-old/x.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(
+            r,
+            Route::Spawn {
+                folder: Some("/proj/docs-old".into()),
+                file: Some("/proj/docs-old/x.md".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn file_rule4_adopts_the_sole_blank_window_and_roots_it_at_the_files_folder() {
+        // The cold-start case: `md notes.md` on an empty session must produce
+        // the same window the warm path would.
+        let windows = vec![win("main", None, None)];
+        let r = route_file("/proj/notes.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(
+            r,
+            Route::Adopt {
+                label: "main".into(),
+                folder: Some("/proj".into()),
+                load: Some("/proj/notes.md".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn file_rule3_adopts_the_requesting_blank_window() {
+        let windows = vec![win("main", None, None), win("window-2", Some("/other"), None)];
+        let r = route_file(
+            "/proj/notes.md",
+            &Origin::InApp { requesting: "main".into() },
+            &windows,
+            &parent_of,
+        );
+        assert_eq!(
+            r,
+            Route::Adopt {
+                label: "main".into(),
+                folder: Some("/proj".into()),
+                load: Some("/proj/notes.md".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn file_rule5_spawns_rooted_at_the_files_folder() {
+        let windows = vec![win("main", Some("/other"), None)];
+        let r = route_file("/proj/notes.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(
+            r,
+            Route::Spawn {
+                folder: Some("/proj".into()),
+                file: Some("/proj/notes.md".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn file_rule5_never_spawns_a_second_window_for_an_already_covered_file() {
+        // Regression guard for the duplicate-window symptom: a restored
+        // session window covering the file must absorb the request.
+        let windows = vec![win("main", Some("/a"), None), win("window-2", Some("/b"), None)];
+        let r = route_file("/b/notes.md", &Origin::External, &windows, &parent_of);
+        assert_eq!(focus_label(&r), "window-2");
+    }
+
+    #[test]
+    fn route_dispatches_on_the_target_kind() {
+        let windows = vec![win("main", Some("/proj"), None)];
+        assert_eq!(
+            route(&Target::Directory("/proj".into()), &Origin::External, &windows, &parent_of),
+            Route::Focus { label: "main".into(), load: None, reveal: None }
+        );
+        assert_eq!(
+            route(&Target::File("/proj/x.md".into()), &Origin::External, &windows, &parent_of),
+            Route::Focus {
+                label: "main".into(),
+                load: Some("/proj/x.md".into()),
+                reveal: None
+            }
+        );
     }
 }
