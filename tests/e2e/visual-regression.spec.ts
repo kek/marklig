@@ -160,7 +160,7 @@ test.describe("visual regression", () => {
 
   test("reading mode, light theme", async ({ page }) => {
     await setupMock(page, "light", corpus);
-    await page.goto(APP_URL);
+    await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/corpus.md")}`);
     await page.locator(".cm-md-heading-1").waitFor();
     await sleep(400); // let Shiki tokens land
     await expect(page).toHaveScreenshot("reading-light.png", { maxDiffPixelRatio: 0.02 });
@@ -168,7 +168,7 @@ test.describe("visual regression", () => {
 
   test("reading mode, dark theme", async ({ page }) => {
     await setupMock(page, "dark", corpus);
-    await page.goto(APP_URL);
+    await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/corpus.md")}`);
     await page.locator(".cm-md-heading-1").waitFor();
     await sleep(400); // let Shiki tokens land
     await expect(page).toHaveScreenshot("reading-dark.png", { maxDiffPixelRatio: 0.02 });
@@ -180,7 +180,7 @@ test.describe("visual regression", () => {
   // not the rendered typography.
   test("typst preview pane (mocked render)", async ({ page }) => {
     await setupTypstMock(page, "= Sample Typst document\n\nHello *world*.\n", "/virtual/sample.typ");
-    await page.goto(APP_URL);
+    await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.typ")}`);
     await page.locator(".preview-pane-body .typst-page svg").waitFor({ timeout: 10_000 });
     // Settle: first compile + 300ms debounce + the layout pass.
     await sleep(500);

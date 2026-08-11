@@ -87,7 +87,7 @@ test("renders headings and code from a sample doc", async ({ page }) => {
   const sample = `# Sample Document\n\nA paragraph with **bold**, *italic*, and \`code\`.\n\n## Lists\n\n- a\n- b\n\n## Code\n\n\`\`\`js\nconst x = 42;\n\`\`\`\n`;
   await installTauriStub(page, sample);
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
 
   // The heading should be visible with H1 typography (font-size 28px from theme).
   const h1 = page.locator(".cm-md-heading-1");
@@ -112,7 +112,7 @@ test("syntax-highlights a code fence on initial load with no interaction", async
   const sample = `# Doc\n\n\`\`\`ts\nexport const answer: number = 42;\n\`\`\`\n`;
   await installTauriStub(page, sample);
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
 
   // Body text renders first…
   await expect(

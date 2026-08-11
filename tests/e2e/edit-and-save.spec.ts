@@ -119,7 +119,7 @@ test("toggle to edit mode, type, save", async ({ page }) => {
     };
   });
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
 
   // Reading mode: the heading should be rendered with the heading class.
   await expect(page.locator(".cm-md-heading-1")).toBeVisible();

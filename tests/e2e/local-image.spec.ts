@@ -85,7 +85,7 @@ async function installTauriStub(page: Page, sample: string, png: string): Promis
 test("renders a relative-path local image as a blob in reading mode", async ({ page }) => {
   const sample = "# Future architecture\n\n![Future architecture diagram](docs/future-architecture.png)\n";
   await installTauriStub(page, sample, PNG_B64);
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/doc.md")}`);
 
   const img = page.locator("img.cm-md-reading-image");
   await expect(img).toBeVisible({ timeout: 10_000 });
@@ -102,7 +102,7 @@ test("renders a relative-path local image as a blob in reading mode", async ({ p
 test("shows a broken-image placeholder when the local file can't be read", async ({ page }) => {
   const sample = "# Doc\n\n![Gone](docs/missing.png)\n";
   await installTauriStub(page, sample, PNG_B64);
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/doc.md")}`);
 
   // No <img> should appear; the disk read fails → broken placeholder.
   const broken = page.locator(".cm-md-reading-image-broken");

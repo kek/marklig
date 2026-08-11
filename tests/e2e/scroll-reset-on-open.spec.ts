@@ -141,7 +141,7 @@ async function scrollTopOf(page: import("@playwright/test").Page): Promise<numbe
 test("opening a file with no saved position resets scroll to the top (issue #146)", async ({ page }) => {
   await page.addInitScript(installFolder(), {});
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/notes/a.md")}`);
   await expect(page.locator(".cm-md-heading-1")).toBeVisible({ timeout: 5000 });
 
   // Scroll file A down. Wait until the restore watchdog (~1.5s) has stopped
@@ -163,7 +163,7 @@ test("opening a file WITH a saved position restores to it", async ({ page }) => 
     "/virtual/notes/b.md": { scrollTop: 250, line: 1, col: 0, ts: 1 },
   });
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/notes/a.md")}`);
   await expect(page.locator(".cm-md-heading-1")).toBeVisible({ timeout: 5000 });
   await sleep(1800);
 

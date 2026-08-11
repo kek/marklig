@@ -84,7 +84,7 @@ test("clicking an external link in reading mode invokes the OS opener", async ({
     };
   });
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
 
   // Reading mode is the default. `.cm-md-link-text` — what this test used to
   // look for — is the *edit*-mode mark on the raw `[text](url)` source. Reading

@@ -236,7 +236,7 @@ async function fireMenuAction(page: Page, action: Record<string, unknown>): Prom
 
 /** Wait for the .typ to be open and its first page compiled into the pane. */
 async function openTypstDoc(page: Page): Promise<void> {
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/doc.typ")}`);
   await page.waitForSelector(".cm-editor", { state: "attached" });
   await expect(page.locator(".preview-pane-body .typst-page svg"))
     .toHaveCount(1, { timeout: 10_000 });
@@ -342,7 +342,7 @@ test("Save As on a .typ offers a .typ name and a Typst filter, not Markdown", as
 test("a .md document still exports through the markdown-it pipeline", async ({ page }) => {
   const markdown = "# Real Markdown Heading\n\nA *paragraph* of prose.\n";
   await addStubs(page, markdown, "/virtual/doc.md", "/virtual/out.html");
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/doc.md")}`);
   await page.waitForSelector(".cm-editor", { state: "visible" });
   // No preview pane for markdown — that's the .typ layout.
   await expect(page.locator(".preview-pane")).toBeHidden();

@@ -89,7 +89,7 @@ test("right-click opens the custom menu; mode toggle swaps the item set", async 
   });
   page.on("pageerror", (e) => console.log("[browser:pageerror]", e.message));
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
 
   // Wait for the editor to mount. Once mounted, the document is loaded from
   // the mocked read_text_file. Reading mode is the initial mode.

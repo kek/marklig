@@ -168,7 +168,7 @@ test("create a new file from the folder sidebar header '+'", async ({ page }) =>
     };
   });
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/notes/sample.md")}`);
 
   // Wait for the app to render — reading mode produces the initial doc's
   // heading. Once that's painted, the folder sidebar's setFolder() has

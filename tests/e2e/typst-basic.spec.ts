@@ -97,7 +97,7 @@ test("opens .typ, renders pages in the preview pane", async ({ page }) => {
   const sample = "= Sample Typst document\n\nHello *world*.\n";
   await addTauriStubs(page, sample, "/virtual/sample.typ");
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.typ")}`);
   // Reading mode for .typ hides the editor (display:none), so wait for it
   // to be attached rather than visible.
   await page.waitForSelector(".cm-editor", { state: "attached" });
@@ -116,7 +116,7 @@ test("edits in the editor trigger a re-compile", async ({ page }) => {
   const sample = "= Initial\n";
   await addTauriStubs(page, sample, "/virtual/sample.typ");
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.typ")}`);
   // Reading mode for .typ hides the editor (display:none), so wait for it
   // to be attached rather than visible.
   await page.waitForSelector(".cm-editor", { state: "attached" });

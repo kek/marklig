@@ -184,7 +184,7 @@ async function installFolderStub(page: import("@playwright/test").Page): Promise
 
 test("rename a file from the sidebar context menu", async ({ page }) => {
   await installFolderStub(page);
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/notes/sample.md")}`);
   await expect(page.locator(".cm-md-heading-1")).toBeVisible({ timeout: 5000 });
 
   // The folder sidebar lists sample.md and other.md. Right-click on
@@ -228,7 +228,7 @@ test("rename a file from the sidebar context menu", async ({ page }) => {
 
 test("delete a file via confirmation modal from the sidebar context menu", async ({ page }) => {
   await installFolderStub(page);
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/notes/sample.md")}`);
   await expect(page.locator(".cm-md-heading-1")).toBeVisible({ timeout: 5000 });
 
   // Right-click on the non-open file (other.md) so we can verify tree
@@ -263,7 +263,7 @@ test("delete a file via confirmation modal from the sidebar context menu", async
 
 test("delete confirmation Cancel does not invoke trash_file", async ({ page }) => {
   await installFolderStub(page);
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/notes/sample.md")}`);
   await expect(page.locator(".cm-md-heading-1")).toBeVisible({ timeout: 5000 });
 
   const otherRow = page.locator(".viewer-folder-file").filter({ hasText: "other.md" });

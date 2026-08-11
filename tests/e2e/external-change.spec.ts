@@ -133,7 +133,7 @@ test("clean buffer auto-reloads on external change", async ({ page }) => {
     };
   });
 
-  await page.goto(APP_URL);
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
 
   // Initial render: heading should appear in reading mode.
   await expect(page.locator(".cm-md-heading-1")).toBeVisible();
