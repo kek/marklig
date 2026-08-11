@@ -29,6 +29,12 @@ export interface FolderSidebarHandle {
    * Exposed for tests; the file context menu's "Delete…" item calls into
    * the same path. */
   beginDelete: (absolutePath: string) => void;
+  /** Expand the tree down to `absolutePath` and scroll it into view, WITHOUT
+   *  changing the root. Used when an open request names a subdirectory of a
+   *  root this window already shows — `md ~/proj/docs` on a `~/proj` window
+   *  should visibly do something, but must not move the user's project out
+   *  from under them. No-op if the path is outside the current root. */
+  revealDirectory: (absolutePath: string) => void;
   destroy: () => void;
 }
 
@@ -1055,6 +1061,37 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     render();
   }
 
+  function revealDirectory(absolutePath: string): void {
+    if (!currentRoot) return;
+    const rootSegs = splitSegments(currentRoot);
+    const targetSegs = splitSegments(absolutePath);
+    if (targetSegs.length <= rootSegs.length) return;
+    if (!rootSegs.every((s, i) => s === targetSegs[i])) return;
+
+    // Expand every ancestor between the root and the target, inclusive, so
+    // the target row exists in the DOM before we scroll to it.
+    const relSegs = targetSegs.slice(rootSegs.length);
+    for (let i = 1; i <= relSegs.length; i++) {
+      expanded.add(relSegs.slice(0, i).join("/"));
+    }
+    if (!sectionOpen) {
+      sectionOpen = true;
+      setFolderSectionOpen(true);
+      applySectionState();
+    }
+    render();
+    // Find by dataset comparison rather than a CSS attribute selector — the
+    // relative path can contain characters (quotes, etc.) that would need
+    // escaping, and `CSS.escape` isn't available in every test environment.
+    const targetRel = relSegs.join("/");
+    const row = Array.from(section.querySelectorAll<HTMLElement>("[data-dir]")).find(
+      (el) => el.dataset.dir === targetRel,
+    );
+    if (typeof row?.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }
+
   return {
     element: section,
     setFolder,
@@ -1063,6 +1100,7 @@ export function mountFolderSidebar(opts: MountFolderOptions): FolderSidebarHandl
     beginNewFile,
     beginRename,
     beginDelete: (absolutePath: string) => { void beginDelete(absolutePath); },
+    revealDirectory,
     destroy() {
       section.remove();
     },

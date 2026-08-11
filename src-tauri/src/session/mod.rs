@@ -72,6 +72,13 @@ fn window_url(planned: &PlannedWindow) -> String {
     }
     params.push(format!("scrollTop={}", e.scroll_top));
     params.push(format!("mode={}", e.mode.as_str()));
+    // Absent must stay distinguishable from false: no preference recorded
+    // means the frontend falls back to its own heuristic (shouldShowSidebar),
+    // whereas an explicit false means the user hid it and that must survive
+    // a restart.
+    if let Some(visible) = e.sidebar_visible {
+        params.push(format!("sidebar={}", visible));
+    }
     if let Some(dump) = &planned.dump {
         params.push(format!("dump={}", encode_component(dump)));
     }
@@ -308,7 +315,31 @@ mod tests {
         assert!(url.contains("file=%2Fproj%20space%2Fa%20b.md"), "got {url}");
         assert!(url.contains("scrollTop=120.5"), "got {url}");
         assert!(url.contains("mode=edit"), "got {url}");
+        assert!(url.contains("sidebar=true"), "got {url}");
         assert!(url.contains("dump=%2Fproj%20space%2Fa%20b.md"), "got {url}");
+    }
+
+    #[test]
+    fn window_url_carries_sidebar_hidden() {
+        let planned = PlannedWindow {
+            entry: WindowEntry {
+                label: "window-3".into(),
+                folder: None,
+                path: None,
+                dirty: false,
+                x: 0,
+                y: 0,
+                width: 1000,
+                height: 760,
+                scroll_top: 0.0,
+                mode: WindowMode::Reading,
+                sidebar_visible: Some(false),
+                timestamp_ms: 0,
+            },
+            dump: None,
+        };
+        let url = window_url(&planned);
+        assert!(url.contains("sidebar=false"), "got {url}");
     }
 
     #[test]
@@ -334,5 +365,6 @@ mod tests {
         assert!(!url.contains("folder="), "got {url}");
         assert!(!url.contains("file="), "got {url}");
         assert!(!url.contains("dump="), "got {url}");
+        assert!(!url.contains("sidebar="), "got {url}");
     }
 }

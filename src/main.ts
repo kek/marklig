@@ -262,12 +262,22 @@ async function bootstrap(): Promise<void> {
     view.focus();
   }
 
+  // Read the ?mode= / ?scrollTop= / ?sidebar= parameters Rust set on this
+  // window's URL up front — the sidebar's initial visibility (below) needs
+  // the sidebar param before the TOC mounts; mode/scrollTop are consumed
+  // further down once modeExtensions exists.
+  const urlRestore = restoreParamsFromUrl();
+
   const initialHeadings = countHeadings(view.state.doc.toString());
   const initialTocPath = initialDoc?.path ?? "";
   const toc: TocSidebarHandle = mountTocSidebar({
     view,
     parent: shell,
-    initiallyVisible: shouldShowSidebar(initialTocPath, initialHeadings),
+    // Absent ?sidebar= (no recorded preference) falls back to the existing
+    // heading-count heuristic; an explicit true/false from a restored
+    // session always wins, including a deliberately-hidden sidebar.
+    initiallyVisible:
+      urlRestore.sidebarVisible ?? shouldShowSidebar(initialTocPath, initialHeadings),
     initialDocumentPath: initialDoc?.path ?? null,
     onActivate: (entry: TocEntry) => jumpTo(entry.from),
   });
@@ -504,10 +514,10 @@ async function bootstrap(): Promise<void> {
   };
 
   // Restore mode + scroll position from the ?mode= / ?scrollTop= parameters
-  // Rust set on this window's URL. Every window — main included — is created
-  // by Rust, so this is the only channel; if either param is absent the
-  // defaults (reading mode, scrollTop 0) win.
-  const urlRestore = restoreParamsFromUrl();
+  // Rust set on this window's URL (parsed into `urlRestore` above, before the
+  // TOC mounted). Every window — main included — is created by Rust, so this
+  // is the only channel; if either param is absent the defaults (reading
+  // mode, scrollTop 0) win.
   // A cold launch via `md newfile.md` lands here with initialDoc.isNew true.
   // Force edit mode so the user can start typing immediately; otherwise the
   // window opens in reading mode showing a blank document.
@@ -973,6 +983,19 @@ async function bootstrap(): Promise<void> {
     },
   );
   window.addEventListener("beforeunload", () => unsubTargetedOpen());
+
+  // Rust routed a directory request to this window because our tree contains
+  // it. Reveal it in place — the root deliberately does not move. Same
+  // label-in-payload addressing as viewer:open-file (see #145 above).
+  const unsubReveal = await listen<{ label: string; path: string }>(
+    "viewer:reveal-path",
+    (e) => {
+      const { label, path } = e.payload ?? { label: "", path: "" };
+      if (label !== selfLabel || !path) return;
+      folder.revealDirectory(path);
+    },
+  );
+  window.addEventListener("beforeunload", () => unsubReveal());
 
   const unsubAdoptFolder = await listen<{ label: string; folder: string }>(
     "viewer:adopt-folder",
@@ -1864,10 +1887,17 @@ function folderFromUrlQuery(): string | null {
   }
 }
 
-/** Read the optional ?mode= and ?scrollTop= URL params Rust sets when it
- *  creates a window, so a restored window comes back in the mode and at the
- *  position it was left. Either may be absent; both are validated. */
-function restoreParamsFromUrl(): { mode: WindowMode | null; scrollTop: number | null } {
+/** Read the optional ?mode=, ?scrollTop= and ?sidebar= URL params Rust sets
+ *  when it creates a window, so a restored window comes back in the mode,
+ *  at the position, and with the sidebar visibility it was left. All three
+ *  may be absent; all are validated. `sidebarVisible` is `null` when the
+ *  param is absent — distinct from an explicit `false` — so the caller can
+ *  fall back to its own heuristic only when there's no recorded preference. */
+function restoreParamsFromUrl(): {
+  mode: WindowMode | null;
+  scrollTop: number | null;
+  sidebarVisible: boolean | null;
+} {
   try {
     const params = new URLSearchParams(window.location.search);
     const m = params.get("mode");
@@ -1878,9 +1908,12 @@ function restoreParamsFromUrl(): { mode: WindowMode | null; scrollTop: number | 
       const n = Number(sRaw);
       if (Number.isFinite(n) && n >= 0) scrollTop = n;
     }
-    return { mode, scrollTop };
+    const sidebarRaw = params.get("sidebar");
+    const sidebarVisible: boolean | null =
+      sidebarRaw === "true" ? true : sidebarRaw === "false" ? false : null;
+    return { mode, scrollTop, sidebarVisible };
   } catch {
-    return { mode: null, scrollTop: null };
+    return { mode: null, scrollTop: null, sidebarVisible: null };
   }
 }
 
