@@ -1020,7 +1020,16 @@ async function bootstrap(): Promise<void> {
     const payload = e.payload;
     if (payload?.label !== selfLabel) return;
     void (async () => {
-      await setCurrentFolder(payload.folder, { replaceBuffer: !payload.path });
+      // Adopting the folder is best-effort: it can reject on canonicalize /
+      // recents bookkeeping, and when it does the user still asked for a
+      // document. Opening it must not depend on the sidebar succeeding —
+      // before these two events were collapsed into one message they were
+      // independent listeners, and that resilience is worth keeping.
+      try {
+        await setCurrentFolder(payload.folder, { replaceBuffer: !payload.path });
+      } catch (err) {
+        console.warn("adopt folder failed", err);
+      }
       if (payload.path) await openWithDirtyPrompt(payload.path);
       await getCurrentWindow().setFocus();
     })();

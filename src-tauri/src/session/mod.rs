@@ -217,6 +217,13 @@ impl Batch {
                 if let Some(&i) = self.planned_at.get(&label) {
                     if let Some(path) = load {
                         self.plan[i].entry.path = Some(path);
+                        // The recorded scroll offset belongs to the document
+                        // this window had open last session, not to the one
+                        // the user just asked for. Carrying it over boots the
+                        // new file scrolled to a meaningless position.
+                        // `maybeRestorePositionFor` still applies a saved
+                        // position for the incoming file if one exists.
+                        self.plan[i].entry.scroll_top = 0.0;
                     }
                     if let Some(dir) = reveal {
                         self.plan[i].reveal = Some(dir);
@@ -605,6 +612,62 @@ mod tests {
         assert_eq!(batch.plan[0].entry.path.as_deref(), Some("/proj/x.md"));
         assert!(batch.deliveries.is_empty(), "must not emit at a window that does not exist");
         assert_eq!(batch.raises, vec!["main".to_string()]);
+    }
+
+    /// The restored entry carries the scroll offset of the document it had
+    /// open LAST session. Folding a different document in must clear it, or
+    /// `md /proj/other.md` boots the new file scrolled to a position that
+    /// belongs to a file the user is no longer looking at.
+    #[test]
+    fn folding_a_new_document_clears_the_previous_documents_scroll_offset() {
+        let reg = Registry::new();
+        let mut restored = win("main", Some("/proj"), Some("/proj/old.md"));
+        restored.scroll_top = 4200.0;
+        reg.upsert(restored.clone());
+        let mut batch = Batch::from_plan(vec![PlannedWindow {
+            entry: restored,
+            dump: None,
+            reveal: None,
+        }]);
+
+        batch.apply(
+            &reg,
+            Route::Focus {
+                label: "main".into(),
+                load: Some("/proj/new.md".into()),
+                reveal: None,
+            },
+        );
+
+        assert_eq!(batch.plan[0].entry.path.as_deref(), Some("/proj/new.md"));
+        assert_eq!(batch.plan[0].entry.scroll_top, 0.0);
+    }
+
+    /// The complement: a reveal changes no document, so the window's own
+    /// scroll position must survive.
+    #[test]
+    fn folding_only_a_reveal_leaves_the_scroll_offset_alone() {
+        let reg = Registry::new();
+        let mut restored = win("main", Some("/proj"), Some("/proj/old.md"));
+        restored.scroll_top = 4200.0;
+        reg.upsert(restored.clone());
+        let mut batch = Batch::from_plan(vec![PlannedWindow {
+            entry: restored,
+            dump: None,
+            reveal: None,
+        }]);
+
+        batch.apply(
+            &reg,
+            Route::Focus {
+                label: "main".into(),
+                load: None,
+                reveal: Some("/proj/docs".into()),
+            },
+        );
+
+        assert_eq!(batch.plan[0].entry.scroll_top, 4200.0);
+        assert_eq!(batch.plan[0].reveal.as_deref(), Some("/proj/docs"));
     }
 
     #[test]

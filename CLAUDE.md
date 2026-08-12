@@ -100,13 +100,22 @@ Rust creates every window at `RunEvent::Ready` and owns all routing:
   only thing standing between a corrupt `session.json` and a window-less app.
 
 `RunEvent::Opened` fires *before* `setup` on macOS cold launch, so the restore
-runs at `Ready`: buffer arguments, restore windows, then route the buffer.
+runs at `Ready` — and it **routes before it creates**: build the plan, seed a
+registry from that plan, route the buffered arguments against it, fold each
+decision back into the plan, and only then create the windows (raising them
+afterwards). The order is load-bearing. `emit_to` resolves against listeners
+registered when JS calls `listen()`, so a window that has not booted yet has
+none and the event is **silently dropped** — no queue, no replay. Anything
+aimed at a not-yet-created window must therefore travel in its URL, which is
+what folding does; only genuinely pre-existing windows are sent events. The
+same split applies warm: in `md a.md b.md`, the second path folds into the
+first's spawn rather than being emitted at a webview that is still loading.
 `spawn_window` seeds the registry **synchronously** from the entry it already
 holds rather than waiting for the webview to report — that wait was the race
 that made cold-start arguments behave differently from warm ones.
 
 The frontend decides nothing about startup. Every window reads `?folder=`,
-`?file=`, `?scrollTop=`, `?mode=`, `?dump=`, and `?sidebar=` and loads exactly
+`?file=`, `?scrollTop=`, `?mode=`, `?dump=`, `?reveal=`, and `?sidebar=` and loads exactly
 that; `src/shell/session-client.ts` only reports state back. `?sidebar=` is
 three-state — `true` / `false` / absent — and absent means "no preference
 recorded, fall back to the default heuristic," not "hidden"; don't collapse
