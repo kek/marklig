@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import MarkdownIt from "markdown-it";
 
 import { parseMarkdown } from "../../src/editor/parser";
 import { readingWidgetsProducer } from "../../src/editor/decorations/reading-widgets";
@@ -487,5 +488,108 @@ describe("table cell links", () => {
     // preventDefault fires before the facet lookup so the webview never
     // navigates, even when no handler set is installed.
     expect(ev.defaultPrevented).toBe(true);
+  });
+});
+
+describe("table cells with escaped pipes", () => {
+  function bodyCells(source: string): string[] {
+    const r = specs(source);
+    const entry = r.find(
+      (x) =>
+        (x.spec as { widget?: unknown }).widget !== undefined &&
+        (x.spec as { block?: boolean }).block === true,
+    );
+    expect(entry).toBeDefined();
+    const widget = (entry!.spec as {
+      widget: { toDOM(view: unknown): HTMLElement };
+    }).widget;
+    const dom = widget.toDOM({ state: { facet: () => null } });
+    return [...dom.querySelectorAll("tbody td")].map((td) => td.textContent ?? "");
+  }
+
+  // A `\|` is a literal pipe in a GFM cell, not a cell delimiter — the same
+  // row through markdown-it (the export path) yields two cells reading
+  // "`0xa` = NHSYNC | NVSYNC" and "`0x5` = PHSYNC | PVSYNC".
+  it("does not split a row at an escaped pipe", () => {
+    const cells = bodyCells(
+      "| A | B | C |\n|---|---|---|\n" +
+        "| Mode flags | `0xa` = NHSYNC \\| NVSYNC | `0x5` = PHSYNC \\| PVSYNC |\n",
+    );
+    expect(cells).toEqual([
+      "Mode flags",
+      "0xa = NHSYNC | NVSYNC",
+      "0x5 = PHSYNC | PVSYNC",
+    ]);
+  });
+
+  // GFM unescapes `\|` before inline parsing, so the pipe reaches the code
+  // span as a literal character rather than ending the span or the cell.
+  it("keeps an escaped pipe inside a code span", () => {
+    const cells = bodyCells("| A |\n|---|\n| `a \\| b` |\n");
+    expect(cells).toEqual(["a | b"]);
+  });
+
+  // The outer-pipe trim must not mistake a row-final `\|` for the closing
+  // delimiter and chop it off.
+  it("keeps an escaped pipe at the end of a row", () => {
+    const cells = bodyCells("| A | B |\n|---|---|\n| x | ends with \\| |\n");
+    expect(cells).toEqual(["x", "ends with |"]);
+  });
+
+  // An intentionally empty leading cell is still a cell.
+  it("preserves an empty leading cell", () => {
+    const cells = bodyCells("| | A |\n|---|---|\n| | v |\n");
+    expect(cells).toEqual(["", "v"]);
+  });
+
+  // The widget's splitter mirrors markdown-it's `escapedSplit` on purpose:
+  // markdown-it renders the export and copy-as-HTML paths, so any divergence
+  // means the same document reads differently on screen and on export. Assert
+  // the parity directly instead of trusting hand-written expectations.
+  describe("agrees with markdown-it, which renders the export path", () => {
+    const md = new MarkdownIt();
+
+    function mditGrid(source: string): string[][] {
+      const div = document.createElement("div");
+      div.innerHTML = md.render(source);
+      return [...div.querySelectorAll("tr")].map((tr) =>
+        [...tr.querySelectorAll("th,td")].map((c) => (c.textContent ?? "").trim()),
+      );
+    }
+
+    function ourGrid(source: string): string[][] {
+      const r = specs(source);
+      const entry = r.find(
+        (x) =>
+          (x.spec as { widget?: unknown }).widget !== undefined &&
+          (x.spec as { block?: boolean }).block === true,
+      );
+      expect(entry).toBeDefined();
+      const widget = (entry!.spec as {
+        widget: { toDOM(view: unknown): HTMLElement };
+      }).widget;
+      const dom = widget.toDOM({ state: { facet: () => null } });
+      return [...dom.querySelectorAll("tr")].map((tr) =>
+        [...tr.querySelectorAll("th,td")].map((c) => (c.textContent ?? "").trim()),
+      );
+    }
+
+    const CASES: Record<string, string> = {
+      "escaped pipes in two cells":
+        "| | `rg40xx-panel` | `rg40xx-v2-panel` |\n|---|---|---|\n" +
+        "| Mode flags | `0xa` = NHSYNC \\| NVSYNC | `0x5` = PHSYNC \\| PVSYNC |\n" +
+        "| `bus_flags` | `0x0000000a` | `0x00000046` |\n",
+      "escaped pipe at row end": "| A | B |\n|---|---|\n| x | ends with \\| |\n",
+      "escaped pipe in a code span": "| A |\n|---|\n| `a \\| b` |\n",
+      "escaped pipe at cell start": "| A | B |\n|---|---|\n| \\| leads | t \\| |\n",
+      "several escaped pipes in one cell": "| A | B |\n|---|---|\n| a\\|b\\|c | d |\n",
+      "no escapes at all": "| A | B |\n|---|---|\n| plain | ordinary |\n",
+    };
+
+    for (const [name, src] of Object.entries(CASES)) {
+      it(name, () => {
+        expect(ourGrid(src)).toEqual(mditGrid(src));
+      });
+    }
   });
 });

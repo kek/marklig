@@ -71,6 +71,48 @@ function renderEmphasis(s: string): string {
   return s;
 }
 
+/** Split one table row into cells on unescaped `|` only.
+ *
+ * A `\|` is a literal pipe in a GFM cell, not a delimiter, so the naive
+ * `line.split("|")` this replaced tore rows like
+ * `| flags | 0xa = NHSYNC \| NVSYNC |` into extra columns and left the
+ * backslash stranded in the text. GFM resolves `\|` to `|` at row-split
+ * time — *before* inline parsing — which is why the pipe also survives
+ * inside a code span; the backslash is dropped here for the same reason.
+ *
+ * This mirrors markdown-it's own `escapedSplit` (rules_block/table.js),
+ * deliberately: markdown-it renders the export and copy-as-HTML paths, and
+ * a second, subtly different splitter here is how reading view and export
+ * would drift apart on the same document. Outer pipes are dropped as empty
+ * first/last entries rather than sliced off the string, so a row ending in
+ * `\|` doesn't lose its final character. An entry that is empty only after
+ * trimming is a real (blank) cell and is kept. */
+function splitTableRow(line: string): string[] {
+  const row = line.trim();
+  const cells: string[] = [];
+  let current = "";
+  let lastPos = 0;
+  let isEscaped = false;
+  for (let pos = 0; pos < row.length; pos++) {
+    if (row[pos] === "|") {
+      if (isEscaped) {
+        // `\|` — keep the pipe, drop the backslash just before it.
+        current += row.slice(lastPos, pos - 1);
+        lastPos = pos;
+      } else {
+        cells.push(current + row.slice(lastPos, pos));
+        current = "";
+        lastPos = pos + 1;
+      }
+    }
+    isEscaped = row[pos] === "\\";
+  }
+  cells.push(current + row.slice(lastPos));
+  if (cells.length && cells[0] === "") cells.shift();
+  if (cells.length && cells[cells.length - 1] === "") cells.pop();
+  return cells.map((c) => c.trim());
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -112,14 +154,7 @@ class TableWidget extends WidgetType {
     const lines = this.source.split("\n").filter((l) => l.trim().length > 0);
     if (lines.length < 2) return wrap;
 
-    const cellsOf = (line: string): string[] => {
-      let trimmed = line.trim();
-      if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
-      if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
-      return trimmed.split("|").map((c) => c.trim());
-    };
-
-    const headerCells = cellsOf(lines[0]);
+    const headerCells = splitTableRow(lines[0]);
     // lines[1] is the separator like |---|---|
     const bodyLines = lines.slice(2);
 
@@ -135,7 +170,7 @@ class TableWidget extends WidgetType {
 
     const tbody = document.createElement("tbody");
     for (const bl of bodyLines) {
-      const cells = cellsOf(bl);
+      const cells = splitTableRow(bl);
       const tr = document.createElement("tr");
       for (const c of cells) {
         const td = document.createElement("td");
