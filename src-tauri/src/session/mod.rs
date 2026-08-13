@@ -95,6 +95,43 @@ fn window_url(planned: &PlannedWindow) -> String {
     format!("/?{}", params.join("&"))
 }
 
+/// Basename of a path, tolerating either separator and a trailing one.
+fn basename(path: &str) -> &str {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    match trimmed.rfind(['/', '\\']) {
+        Some(i) => &trimmed[i + 1..],
+        None => trimmed,
+    }
+}
+
+/// The OS window title for an entry: `<file-name> — <project-root>`, falling
+/// back to whichever of the two is present and to the app name for a blank
+/// window. This mirrors `buildWindowTitle` in `src/ui/titlebar.ts` — the
+/// frontend keeps the title current as the user opens files and switches
+/// projects, but it can only do that *after* its webview boots, and Mission
+/// Control, the Dock's window list, and the Window menu all read this title
+/// meanwhile. Creating every window as "Märklig" left those surfaces unable
+/// to tell one project's window from another's (issue #159).
+fn window_title(e: &WindowEntry) -> String {
+    let project = e.folder.as_deref().map(basename).unwrap_or("");
+    let base = match (e.path.as_deref().map(basename), project) {
+        // Repeating the name adds no signal — the file *is* the folder.
+        (Some(file), p) if !p.is_empty() && file != p => format!("{file} — {p}"),
+        (Some(file), _) => file.to_string(),
+        (None, p) if !p.is_empty() => p.to_string(),
+        (None, _) => APP_NAME.to_string(),
+    };
+    if e.dirty {
+        format!("• {base}")
+    } else {
+        base
+    }
+}
+
+/// Shown as the window title only when a window has neither a document nor a
+/// project open — anything else names what the window is showing.
+const APP_NAME: &str = "Märklig";
+
 /// Create one window and seed the registry with it **synchronously**, from
 /// the entry we already hold. Routing must not have to wait for the webview
 /// to boot and report — that wait is exactly the race that made cold-start
@@ -103,7 +140,7 @@ pub fn spawn_window(app: &AppHandle, planned: &PlannedWindow) -> tauri::Result<(
     let e = &planned.entry;
     let mut builder =
         WebviewWindowBuilder::new(app, &e.label, WebviewUrl::App(window_url(planned).into()))
-            .title("Märklig")
+            .title(window_title(e))
             .min_inner_size(480.0, 320.0)
             .inner_size(
                 if e.width >= 320 { e.width as f64 } else { 1000.0 },
@@ -577,6 +614,65 @@ mod tests {
         assert!(!url.contains("dump="), "got {url}");
         assert!(!url.contains("sidebar="), "got {url}");
         assert!(!url.contains("reveal="), "got {url}");
+    }
+
+    /// The OS title is what Mission Control, the Dock's window list and the
+    /// Window menu read. Setting it at creation is what keeps those surfaces
+    /// from labelling every window with the bare app name.
+    #[test]
+    fn window_title_pairs_the_document_with_its_project_root() {
+        let e = win("main", Some("/repos/viewer"), Some("/repos/viewer/README.md"));
+        assert_eq!(window_title(&e), "README.md — viewer");
+    }
+
+    #[test]
+    fn window_title_falls_back_to_the_project_root_with_no_document() {
+        let e = win("main", Some("/repos/viewer"), None);
+        assert_eq!(window_title(&e), "viewer");
+    }
+
+    #[test]
+    fn window_title_falls_back_to_the_document_with_no_project() {
+        let e = win("main", None, Some("/tmp/notes/intro.md"));
+        assert_eq!(window_title(&e), "intro.md");
+    }
+
+    #[test]
+    fn window_title_falls_back_to_the_app_name_for_a_blank_window() {
+        let e = win("main", None, None);
+        assert_eq!(window_title(&e), "Märklig");
+    }
+
+    /// Repeating the name adds no signal — the file *is* the folder.
+    #[test]
+    fn window_title_does_not_repeat_the_project_name() {
+        let e = win("main", Some("/repos/viewer"), Some("/repos/viewer"));
+        assert_eq!(window_title(&e), "viewer");
+    }
+
+    /// A window restored from a crash dump comes back dirty; the title must
+    /// say so from the first frame rather than only once the frontend boots.
+    #[test]
+    fn window_title_marks_a_dirty_restore() {
+        let e = WindowEntry {
+            dirty: true,
+            ..win("main", Some("/repos/viewer"), Some("/repos/viewer/README.md"))
+        };
+        assert_eq!(window_title(&e), "• README.md — viewer");
+    }
+
+    #[test]
+    fn window_title_handles_windows_path_separators() {
+        let e = win("main", Some("C:\\repos\\viewer"), Some("C:\\repos\\viewer\\README.md"));
+        assert_eq!(window_title(&e), "README.md — viewer");
+    }
+
+    /// Trailing separators are not a basename. A folder recorded as
+    /// `/repos/viewer/` must still be titled `viewer`, not blank.
+    #[test]
+    fn window_title_ignores_a_trailing_separator() {
+        let e = win("main", Some("/repos/viewer/"), None);
+        assert_eq!(window_title(&e), "viewer");
     }
 
     fn win(label: &str, folder: Option<&str>, path: Option<&str>) -> WindowEntry {
