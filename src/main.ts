@@ -967,7 +967,10 @@ async function bootstrap(): Promise<void> {
     currentPath = null;
     dirtyTracker.reset();
     diverged = false;
-    await setWindowTitle(null, false);
+    // `root` is non-null here (guarded above): the window still has a project
+    // open, it just has no document, so the title keeps naming the project
+    // rather than falling back to the bare app name (issue #159).
+    await setWindowTitle(null, false, root);
     toolbar.setPath(null);
     toc.setDocumentTitle(null);
     folder.setActiveFile(null);
@@ -1750,7 +1753,9 @@ async function bootstrap(): Promise<void> {
       onRemoved() {
         showOrphanNotice();
         currentPath = null;
-        void setWindowTitle(null, true);
+        // The document is gone but the project isn't — keep naming it so the
+        // window stays identifiable in Mission Control.
+        void setWindowTitle(null, true, currentFolder);
         toolbar.setPath(null);
         toc.setDocumentTitle(null);
       },

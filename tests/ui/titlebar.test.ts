@@ -145,10 +145,10 @@ describe("buildWindowTitle", () => {
     expect(buildWindowTitle(null, false, "/repos/viewer")).toBe("viewer");
   });
 
-  it("falls back to 'Viewer' when neither a file nor a folder is open", () => {
-    expect(buildWindowTitle(null, false, null)).toBe("Viewer");
-    expect(buildWindowTitle(null, true, null)).toBe("• Viewer");
-    expect(buildWindowTitle(null, false)).toBe("Viewer");
+  it("falls back to the app name when neither a file nor a folder is open", () => {
+    expect(buildWindowTitle(null, false, null)).toBe("Märklig");
+    expect(buildWindowTitle(null, true, null)).toBe("• Märklig");
+    expect(buildWindowTitle(null, false)).toBe("Märklig");
   });
 
   it("does not repeat the name when the file basename equals the project", () => {

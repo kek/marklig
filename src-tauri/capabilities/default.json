@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "App-level capability for desktop: core IPC, dialogs, file IO, store, menu, and webview-window creation. Applies to the main window plus any secondary 'window-*' windows spawned from File -> New Window. Mobile gets a slimmer surface via capabilities/mobile.json.",
+  "description": "App-level capability for desktop: core IPC, dialogs, file IO, store, menu, and webview-window creation. Applies to the main window plus any secondary 'window-*' windows spawned from File -> New Window. Mobile gets a slimmer surface via capabilities/mobile.json. Note that 'core:window:default' grants only the *getter* 'allow-title'; keeping the window title current as the user opens files needs 'allow-set-title', listed explicitly below.",
   "platforms": ["macOS", "windows", "linux"],
   "windows": ["main", "window-*"],
   "permissions": [
@@ -11,6 +11,7 @@
     "core:window:allow-destroy",
     "core:window:allow-start-dragging",
     "core:window:allow-set-focus",
+    "core:window:allow-set-title",
     "core:window:allow-unminimize",
     "core:window:allow-is-minimized",
     "core:webview:allow-create-webview-window",

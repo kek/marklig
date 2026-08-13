@@ -15,7 +15,9 @@ export type { DocStats, ToolbarHandle, ToolbarOptions } from "./toolbar";
  *  When no document is open but a project folder is (a window showing only a
  *  folder tree), fall back to the folder basename so Mission Control / the
  *  dock window list can still tell windows apart (issue #159). Falls back to
- *  the file name alone (or "Viewer" when neither file nor folder is open).
+ *  the file name alone, and to the app name when neither file nor folder is
+ *  open — which is also the title Rust creates every window with, so the two
+ *  agree (`window_title` in `src-tauri/src/session/mod.rs`).
  *
  *  Exported for unit tests. */
 export function buildWindowTitle(
@@ -29,10 +31,16 @@ export function buildWindowTitle(
   } else if (projectFolder) {
     base = basename(projectFolder);
   } else {
-    base = "Viewer";
+    base = APP_NAME;
   }
   return dirty ? `• ${base}` : base;
 }
+
+/** Shown as the window title only when a window has neither a document nor a
+ *  project open — anything else names what the window is showing. Kept in step
+ *  with `productName` in `tauri.conf.json` and with `APP_NAME` on the Rust
+ *  side, so a blank window isn't titled something the app is not called. */
+const APP_NAME = "Märklig";
 
 /** Display name for an open file: `<file-name> — <project-folder-name>` when a
  *  project folder is open, else just the file name. Used by both the OS window
@@ -50,20 +58,41 @@ export function formatDocName(
   return project && base !== project ? `${base} — ${project}` : base;
 }
 
-/** Set the OS window title (and document.title as a fallback when the Tauri
- *  API isn't reachable — e.g. in tests / vite-only `npm run dev`). When a
- *  project folder is open its basename is appended (see `buildWindowTitle`). */
+/** Set the OS window title — what Mission Control, the Dock's window list and
+ *  the Window menu read. When a project folder is open its basename is
+ *  appended (see `buildWindowTitle`).
+ *
+ *  `document.title` is always written too: it is the only title in vite-only
+ *  `npm run dev` and in tests, and it costs nothing under Tauri. A *failed*
+ *  Tauri call is reported rather than swallowed — this call needs the
+ *  `core:window:allow-set-title` capability, and while that was missing the
+ *  rejection was indistinguishable from "no Tauri here", so every window kept
+ *  the title it was created with and Mission Control labelled them all
+ *  "Märklig" (issue #159, whose first fix corrected how the title is composed
+ *  but never reached the OS). Silence here is how that survived unnoticed. */
 export async function setWindowTitle(
   path: string | null,
   dirty: boolean,
   projectFolder?: string | null,
 ): Promise<void> {
   const title = buildWindowTitle(path, dirty, projectFolder);
+  document.title = title;
+  let setTitle: ((title: string) => Promise<void>) | null = null;
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().setTitle(title);
+    const win = getCurrentWindow();
+    setTitle = (t) => win.setTitle(t);
   } catch {
-    document.title = title;
+    // No Tauri API (browser-only dev, unit tests): document.title is the title.
+    return;
+  }
+  try {
+    await setTitle(title);
+  } catch (err) {
+    console.warn(
+      "failed to set the OS window title (is core:window:allow-set-title granted?)",
+      err,
+    );
   }
 }
 
