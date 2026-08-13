@@ -491,22 +491,44 @@ describe("table cell links", () => {
   });
 });
 
-describe("table cells with escaped pipes", () => {
-  function bodyCells(source: string): string[] {
-    const r = specs(source);
-    const entry = r.find(
-      (x) =>
-        (x.spec as { widget?: unknown }).widget !== undefined &&
-        (x.spec as { block?: boolean }).block === true,
-    );
-    expect(entry).toBeDefined();
-    const widget = (entry!.spec as {
-      widget: { toDOM(view: unknown): HTMLElement };
-    }).widget;
-    const dom = widget.toDOM({ state: { facet: () => null } });
-    return [...dom.querySelectorAll("tbody td")].map((td) => td.textContent ?? "");
-  }
+/** Render `source` through the reading-mode table widget and return its DOM. */
+function tableDom(source: string): HTMLElement {
+  const r = specs(source);
+  const entry = r.find(
+    (x) =>
+      (x.spec as { widget?: unknown }).widget !== undefined &&
+      (x.spec as { block?: boolean }).block === true,
+  );
+  expect(entry).toBeDefined();
+  const widget = (entry!.spec as {
+    widget: { toDOM(view: unknown): HTMLElement };
+  }).widget;
+  return widget.toDOM({ state: { facet: () => null } });
+}
 
+function bodyCells(source: string): string[] {
+  return [...tableDom(source).querySelectorAll("tbody td")].map(
+    (td) => td.textContent ?? "",
+  );
+}
+
+/** The cell grid as the widget renders it, for comparison against markdown-it. */
+function ourGrid(source: string): string[][] {
+  return [...tableDom(source).querySelectorAll("tr")].map((tr) =>
+    [...tr.querySelectorAll("th,td")].map((c) => (c.textContent ?? "").trim()),
+  );
+}
+
+/** The same grid as markdown-it renders it — the export / copy-as-HTML path. */
+function mditGrid(source: string): string[][] {
+  const div = document.createElement("div");
+  div.innerHTML = new MarkdownIt().render(source);
+  return [...div.querySelectorAll("tr")].map((tr) =>
+    [...tr.querySelectorAll("th,td")].map((c) => (c.textContent ?? "").trim()),
+  );
+}
+
+describe("table cells with escaped pipes", () => {
   // A `\|` is a literal pipe in a GFM cell, not a cell delimiter — the same
   // row through markdown-it (the export path) yields two cells reading
   // "`0xa` = NHSYNC | NVSYNC" and "`0x5` = PHSYNC | PVSYNC".
@@ -547,33 +569,6 @@ describe("table cells with escaped pipes", () => {
   // means the same document reads differently on screen and on export. Assert
   // the parity directly instead of trusting hand-written expectations.
   describe("agrees with markdown-it, which renders the export path", () => {
-    const md = new MarkdownIt();
-
-    function mditGrid(source: string): string[][] {
-      const div = document.createElement("div");
-      div.innerHTML = md.render(source);
-      return [...div.querySelectorAll("tr")].map((tr) =>
-        [...tr.querySelectorAll("th,td")].map((c) => (c.textContent ?? "").trim()),
-      );
-    }
-
-    function ourGrid(source: string): string[][] {
-      const r = specs(source);
-      const entry = r.find(
-        (x) =>
-          (x.spec as { widget?: unknown }).widget !== undefined &&
-          (x.spec as { block?: boolean }).block === true,
-      );
-      expect(entry).toBeDefined();
-      const widget = (entry!.spec as {
-        widget: { toDOM(view: unknown): HTMLElement };
-      }).widget;
-      const dom = widget.toDOM({ state: { facet: () => null } });
-      return [...dom.querySelectorAll("tr")].map((tr) =>
-        [...tr.querySelectorAll("th,td")].map((c) => (c.textContent ?? "").trim()),
-      );
-    }
-
     const CASES: Record<string, string> = {
       "escaped pipes in two cells":
         "| | `rg40xx-panel` | `rg40xx-v2-panel` |\n|---|---|---|\n" +
@@ -584,6 +579,92 @@ describe("table cells with escaped pipes", () => {
       "escaped pipe at cell start": "| A | B |\n|---|---|\n| \\| leads | t \\| |\n",
       "several escaped pipes in one cell": "| A | B |\n|---|---|\n| a\\|b\\|c | d |\n",
       "no escapes at all": "| A | B |\n|---|---|\n| plain | ordinary |\n",
+    };
+
+    for (const [name, src] of Object.entries(CASES)) {
+      it(name, () => {
+        expect(ourGrid(src)).toEqual(mditGrid(src));
+      });
+    }
+  });
+});
+
+describe("table cells with other backslash escapes", () => {
+  // An escaped marker is literal text and must not start emphasis.
+  it("renders \\* as a literal asterisk without emphasising", () => {
+    const dom = tableDom("| A |\n|---|\n| \\*star\\* |\n");
+    const td = dom.querySelector("tbody td")!;
+    expect(td.querySelector("em")).toBeNull();
+    expect(td.textContent).toBe("*star*");
+  });
+
+  it("renders \\_ as a literal underscore without emphasising", () => {
+    const dom = tableDom("| A |\n|---|\n| \\_under\\_ |\n");
+    const td = dom.querySelector("tbody td")!;
+    expect(td.querySelector("em")).toBeNull();
+    expect(td.textContent).toBe("_under_");
+  });
+
+  // An escaped backtick can't open a code span.
+  it("does not open a code span at an escaped backtick", () => {
+    const dom = tableDom("| A |\n|---|\n| a \\`tick\\` b |\n");
+    const td = dom.querySelector("tbody td")!;
+    expect(td.querySelector("code")).toBeNull();
+    expect(td.textContent).toBe("a `tick` b");
+  });
+
+  // ...but a backslash *inside* a code span is literal content, not an escape.
+  it("leaves a backslash inside a code span alone", () => {
+    const dom = tableDom("| A |\n|---|\n| `code with \\* star` |\n");
+    expect(dom.querySelector("tbody td code")?.textContent).toBe(
+      "code with \\* star",
+    );
+  });
+
+  // A backslash before a non-punctuation character is not an escape at all.
+  it("keeps a backslash that escapes nothing", () => {
+    expect(bodyCells("| A |\n|---|\n| \\a not punct \\9 |\n")).toEqual([
+      "\\a not punct \\9",
+    ]);
+    expect(bodyCells("| A |\n|---|\n| trailing \\ |\n")).toEqual(["trailing \\"]);
+  });
+
+  it("renders \\\\ as a single literal backslash", () => {
+    expect(bodyCells("| A |\n|---|\n| back\\\\slash |\n")).toEqual(["back\\slash"]);
+  });
+
+  // Escapes are resolved in link labels and destinations too.
+  it("resolves escapes inside a link label and destination", () => {
+    const a = tableDom("| A |\n|---|\n| [lab\\*el](u\\_rl) |\n").querySelector(
+      "td a",
+    )!;
+    expect(a.textContent).toBe("lab*el");
+    expect(a.getAttribute("href")).toBe("u_rl");
+  });
+
+  // An escaped angle bracket still has to reach the DOM as text, not markup.
+  it("keeps an escaped angle bracket inert", () => {
+    const td = tableDom("| A |\n|---|\n| \\<b\\>bold\\</b\\> |\n").querySelector(
+      "tbody td",
+    )!;
+    expect(td.querySelector("b")).toBeNull();
+    expect(td.textContent).toBe("<b>bold</b>");
+  });
+
+  describe("agrees with markdown-it, which renders the export path", () => {
+    const CASES: Record<string, string> = {
+      "escaped emphasis markers": "| A |\n|---|\n| \\*star\\* and \\_under\\_ |\n",
+      "escaped backticks": "| A |\n|---|\n| a \\`tick\\` b |\n",
+      "backslash inside a code span": "| A |\n|---|\n| `code with \\* star` |\n",
+      "escaped backslash": "| A |\n|---|\n| back\\\\slash |\n",
+      "backslash before a non-punctuation char":
+        "| A |\n|---|\n| \\a not punct \\9 |\n",
+      "escapes in a link": "| A |\n|---|\n| [lab\\*el](u\\_rl) |\n",
+      "escaped html-significant chars":
+        "| A |\n|---|\n| esc amp \\& lt \\< gt \\> |\n",
+      "escaped backslash before a pipe": "| A | B |\n|---|---|\n| a\\\\|b | c |\n",
+      "trailing lone backslash": "| A |\n|---|\n| trailing \\ |\n",
+      "escaped hash and brackets": "| A |\n|---|\n| \\# hash \\[br\\] |\n",
     };
 
     for (const [name, src] of Object.entries(CASES)) {

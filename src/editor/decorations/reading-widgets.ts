@@ -17,25 +17,53 @@ import { t, tA11y } from "../../i18n/strings";
  * common inline constructs here. The output is run through sanitizeHtml
  * before injection so any user-supplied `<...>` in the cell stays escaped.
  *
- * Code spans and links are stashed as NUL-delimited placeholders before the
- * emphasis passes run, so `_`/`*` inside a URL or code text can't be mangled;
- * NUL can't appear in the source line and survives escapeHtml untouched. */
+ * Backslash escapes, code spans and links are stashed as NUL-delimited
+ * placeholders before the emphasis passes run, so `_`/`*` inside a URL, code
+ * text, or a `\*` escape can't be mangled; NUL can't appear in the source line
+ * and survives escapeHtml untouched. */
 function renderInlineMarkdown(source: string): string {
-  // 1. HTML-escape so any literal angle brackets stay literal.
-  let s = escapeHtml(source);
-  // 2. Inline code first — its content must not be re-processed for emphasis.
+  // 1. Backslash escapes and code spans, resolved in one left-to-right scan
+  // over the raw source. They have to share a pass because each can suppress
+  // the other and the winner is whichever starts first: `\`` is an escaped
+  // backtick that never opens a span, while a backslash *inside* a span is
+  // literal content (CommonMark: `` `a \* b` `` keeps its backslash). Both are
+  // stashed as placeholders — escapes so the emphasis passes below can't see
+  // the `*` in `\*`, code so its content is never reprocessed at all.
   const codeSpans: string[] = [];
-  s = s.replace(/`([^`\n]+?)`/g, (_, code: string) => {
-    const i = codeSpans.length;
-    codeSpans.push(`<code>${code}</code>`);
-    return `\x00CODE${i}\x00`;
-  });
+  const escapes: string[] = [];
+  let skeleton = "";
+  for (let i = 0; i < source.length; ) {
+    const ch = source[i];
+    // `includes("")` is true, so the end-of-input case needs its own guard —
+    // a source-final backslash escapes nothing and stays literal.
+    if (ch === "\\" && i + 1 < source.length && ASCII_PUNCTUATION.includes(source[i + 1])) {
+      skeleton += `\x00ESC${escapes.length}\x00`;
+      escapes.push(escapeHtml(source[i + 1]));
+      i += 2;
+      continue;
+    }
+    // A backslash before anything else is not an escape and stays literal.
+    if (ch === "`") {
+      const close = source.indexOf("`", i + 1);
+      if (close > i + 1) {
+        skeleton += `\x00CODE${codeSpans.length}\x00`;
+        codeSpans.push(`<code>${escapeHtml(source.slice(i + 1, close))}</code>`);
+        i = close + 1;
+        continue;
+      }
+    }
+    skeleton += ch;
+    i++;
+  }
+  // 2. HTML-escape so any literal angle brackets stay literal. Placeholders are
+  // NUL-delimited and survive this untouched.
+  let s = escapeHtml(skeleton);
   // 3. Inline links [text](url). The whole <a> is stashed as a placeholder so
   // the emphasis passes below can't mangle the href (URLs legitimately contain
   // `_` and `*`); the label still gets emphasis treatment. Images
   // (`![alt](src)`) are excluded by the lookbehind and stay literal. A quoted
   // title after the URL is dropped — the href is the first whitespace-delimited
-  // token. The href arrives already escaped by step 1 (attribute-context
+  // token. The href arrives already escaped by step 2 (attribute-context
   // escaping); sanitizeHtml then drops any javascript:/data: href smuggled in.
   const linkSpans: string[] = [];
   s = s.replace(/(?<!!)\[([^\]]*)\]\(([^)]*)\)/g, (_, label: string, dest: string) => {
@@ -46,18 +74,28 @@ function renderInlineMarkdown(source: string): string {
     );
     return `\x00LINK${i}\x00`;
   });
-  // 4. Emphasis on the remaining (non-link, non-code) text.
+  // 4. Emphasis on the remaining (non-link, non-code, non-escaped) text.
   s = renderEmphasis(s);
   // 5. Restore placeholders — links first, since a link label may itself hold
-  // a CODE placeholder that the second loop then restores.
+  // a CODE placeholder that the second loop then restores. Escapes go last, so
+  // the character they stand for is never seen by the emphasis passes; they are
+  // restored across the whole string, which covers labels and hrefs alike.
+  // Each replacement is a function so a stashed `$&` or `$'` can't be read as a
+  // replacement pattern and corrupt the output.
   for (let i = 0; i < linkSpans.length; i++) {
-    s = s.replace(`\x00LINK${i}\x00`, linkSpans[i]);
+    s = s.replace(`\x00LINK${i}\x00`, () => linkSpans[i]);
   }
   for (let i = 0; i < codeSpans.length; i++) {
-    s = s.replace(`\x00CODE${i}\x00`, codeSpans[i]);
+    s = s.replace(`\x00CODE${i}\x00`, () => codeSpans[i]);
+  }
+  for (let i = 0; i < escapes.length; i++) {
+    s = s.replace(`\x00ESC${i}\x00`, () => escapes[i]);
   }
   return s;
 }
+
+/** The ASCII punctuation set CommonMark allows a backslash to escape. */
+const ASCII_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 
 /** Bold / italic / strike-through passes, shared by cell text and link labels.
  * Bold (**...**) runs before italic (* / _) so a run of '**...**' isn't
