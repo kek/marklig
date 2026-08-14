@@ -198,6 +198,48 @@ describe("readingWidgetsProducer", () => {
     expect(inline.some((x) => x.from === 5 && x.to === 6)).toBe(true);
   });
 
+  it("elides italic markers across a soft line break", () => {
+    // Hard-wrapped prose puts a soft break inside the emphasis span.
+    // markdown-it still emits em_open/em_close around it, so the text renders
+    // italic — the markers have to go with it.
+    //          0000000000111111111122222222
+    //          0123456789012345678901234567
+    const r = specs("first *italic\nspanning* line\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 6 && x.to === 7)).toBe(true);
+    expect(inline.some((x) => x.from === 22 && x.to === 23)).toBe(true);
+  });
+
+  it("elides italic markers around text containing an underscore", () => {
+    //          0000000000111111
+    //          0123456789012345
+    const r = specs("a *snake_case* b\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 2 && x.to === 3)).toBe(true);
+    expect(inline.some((x) => x.from === 13 && x.to === 14)).toBe(true);
+  });
+
+  it("elides both marker layers of ***bold italic***", () => {
+    const src = "***bold italic***\n";
+    const r = specs(src);
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    const covered = (i: number) => inline.some((x) => i >= x.from && i < x.to);
+    for (const i of [0, 1, 2, 14, 15, 16]) {
+      expect({ offset: i, covered: covered(i) }).toEqual({ offset: i, covered: true });
+    }
+  });
+
+  it("elides underscore emphasis markers", () => {
+    //          000000000011
+    //          012345678901
+    const r = specs("a _em_ and __st__ b\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 2 && x.to === 3)).toBe(true);
+    expect(inline.some((x) => x.from === 5 && x.to === 6)).toBe(true);
+    expect(inline.some((x) => x.from === 11 && x.to === 13)).toBe(true);
+    expect(inline.some((x) => x.from === 15 && x.to === 17)).toBe(true);
+  });
+
   it("elides inline code backticks", () => {
     const r = specs("a `c` b\n");
     const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");

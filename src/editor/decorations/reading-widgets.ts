@@ -4,6 +4,7 @@ import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { scanInlineSpans } from "./emphasis";
 import { dispatchLinkClick, linkHandlersFacet } from "../link-clicks";
 import { getRemoteImagePolicy, shouldRenderImage } from "../../shell/settings";
 import { classifyImageSrc, localImageCache } from "./local-images";
@@ -379,9 +380,6 @@ const FRONT_MATTER_RE = /^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1\r?\n/;
 const HEADING_PREFIX_RE = /^(#{1,6}) /gm;
 const BLOCKQUOTE_PREFIX_RE = /^(> )+/gm;
 const BULLET_LIST_RE = /^[ \t]*([-*+]) /gm;
-const STRONG_RE = /(\*\*|__)(?=\S)([\s\S]*?\S)\1/g;
-const EM_RE = /(?<![*_])(\*|_)(?=\S)([^*_\n]+?)\1(?![*_])/g;
-const STRIKE_RE = /~~(?=\S)([\s\S]*?\S)~~/g;
 const INLINE_CODE_RE = /`([^`\n]+?)`/g;
 
 export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) => {
@@ -532,27 +530,18 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
     );
   }
 
-  // Inline emphasis markers: hide just the marker pairs, keep the text.
-  for (const match of source.matchAll(STRONG_RE)) {
-    if (match.index === undefined || inCode(match.index)) continue;
-    const open = match.index;
-    const close = match.index + match[0].length;
-    ranges.push(ELIDE_INLINE.range(open, open + 2));
-    ranges.push(ELIDE_INLINE.range(close - 2, close));
-  }
-  for (const match of source.matchAll(EM_RE)) {
-    if (match.index === undefined || inCode(match.index)) continue;
-    const open = match.index;
-    const close = match.index + match[0].length;
-    ranges.push(ELIDE_INLINE.range(open, open + 1));
-    ranges.push(ELIDE_INLINE.range(close - 1, close));
-  }
-  for (const match of source.matchAll(STRIKE_RE)) {
-    if (match.index === undefined || inCode(match.index)) continue;
-    const open = match.index;
-    const close = match.index + match[0].length;
-    ranges.push(ELIDE_INLINE.range(open, open + 2));
-    ranges.push(ELIDE_INLINE.range(close - 2, close));
+  // Inline emphasis markers: hide just the marker pairs, keep the text. Taken
+  // from markdown-it's tokens rather than matched out of the source, so what
+  // gets hidden is exactly what the parser treated as a delimiter. Source
+  // regexes could not keep up with the parser: emphasis broken by a soft line
+  // break, emphasis wrapping an `_`, and the inner layer of `***both***` all
+  // rendered italic (that mark is token-driven) with their asterisks still on
+  // screen. Code spans keep their regex below — the backtick pair is
+  // unambiguous in the source, and it also covers spans the token walk skips.
+  for (const span of scanInlineSpans(source, tokens)) {
+    if (span.kind === "code" || inCode(span.openFrom)) continue;
+    ranges.push(ELIDE_INLINE.range(span.openFrom, span.openTo));
+    ranges.push(ELIDE_INLINE.range(span.closeFrom, span.closeTo));
   }
   for (const match of source.matchAll(INLINE_CODE_RE)) {
     if (match.index === undefined || inCode(match.index)) continue;

@@ -125,3 +125,36 @@ test("syntax-highlights a code fence on initial load with no interaction", async
     page.locator('[class*="cm-md-token-"]').first(),
   ).toBeVisible({ timeout: 10_000 });
 });
+
+test("reading mode shows no emphasis asterisks, including across a wrapped line", async ({ page }) => {
+  // Reported from use: italics rendered as italics but the asterisks showed up
+  // too. It only bit hard-wrapped prose (and `_`-bearing or triple-marked
+  // spans) — the italic styling comes from markdown-it's tokens, while the
+  // marker hiding used to come from a source regex that stopped at a newline.
+  const sample = [
+    "# Doc",
+    "",
+    "A paragraph with *italic text",
+    "spanning two lines* in it.",
+    "",
+    "Also *snake_case emphasis* and ***bold italic*** here.",
+    "",
+  ].join("\n");
+  await installTauriStub(page, sample);
+
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.md")}`);
+
+  // The emphasis is styled…
+  await expect(page.locator(".cm-md-em").first()).toBeVisible();
+  await expect(
+    page.locator(".cm-line").filter({ hasText: "italic text" }),
+  ).toBeVisible();
+
+  // …and not one asterisk survives on screen. innerText skips the elided
+  // markers because .cm-md-reading-elide is display:none.
+  const shown = await page.locator(".cm-content").innerText();
+  expect(shown).toContain("italic text");
+  expect(shown).toContain("snake_case emphasis");
+  expect(shown).toContain("bold italic");
+  expect(shown).not.toContain("*");
+});

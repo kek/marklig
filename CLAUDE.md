@@ -56,6 +56,8 @@ Reading mode adds `readingWidgetsProducer`, `mathProducer`, `mermaidProducer` to
 
 One file per Markdown construct (`headings`, `inline`, `lists`, `links`, `images`, `blockquotes`, `tables`, `codeblocks`, `frontmatter`, `footnotes`, `reading-widgets`, `math`, `mermaid`). Each exports a `DecorationProducer: (ctx) => DecorationSet` that runs against the markdown-it token stream from `src/editor/parser.ts`.
 
+`decorations/emphasis.ts` is not a producer — it is the shared scan that `inline` and `reading-widgets` both read, reporting each `**` / `*` / `~~` / `` ` `` construct with its opening and closing delimiters called out separately from the span. The two surfaces have to agree on what counts as a delimiter: reading mode used to match delimiters out of the source with regexes while the styling came from the tokens, so emphasis markdown-it accepted but the regex could not (broken by a soft line break, wrapping an `_`, the inner layer of `***both***`) rendered italic with its asterisks still on screen. Locate delimiters from the token stream, never from the source text.
+
 `buildDecorationField` (`decorations/index.ts`) collects ranges from all producers, calls `Decoration.set(ranges, /* sort */ true)` — the `true` is **required for correctness**, not an optimization, because adjacent line/block-replace decorations need startSide ordering the manual sort doesn't model.
 
 Recompute triggers:
