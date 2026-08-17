@@ -241,6 +241,32 @@ describe("readingWidgetsProducer", () => {
     expect(inline.some((x) => x.from === 15 && x.to === 17)).toBe(true);
   });
 
+  it("elides underscore em markers sitting flush against strong markers", () => {
+    // markdown-it parses the _…_ span as <em> nested in <strong>, so the
+    // underscores must be elided even though they abut the ** delimiters.
+    const src = '**a _"b"_** c\n';
+    const r = specs(src);
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 4 && x.to === 5)).toBe(true);
+    expect(inline.some((x) => x.from === 8 && x.to === 9)).toBe(true);
+  });
+
+  it("elides asterisk em markers sitting flush against __strong__ markers", () => {
+    const src = "__a *b*__ c\n";
+    const r = specs(src);
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 4 && x.to === 5)).toBe(true);
+    expect(inline.some((x) => x.from === 6 && x.to === 7)).toBe(true);
+  });
+
+  it("does not em-elide the inner underscores of __strong__", () => {
+    const r = specs("a __bold__ b\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    // Only the two-char strong pairs, no stray one-char em elides inside them.
+    expect(inline.some((x) => x.from === 3 && x.to === 4)).toBe(false);
+    expect(inline.some((x) => x.from === 8 && x.to === 9)).toBe(false);
+  });
+
   it("elides inline code backticks", () => {
     const r = specs("a `c` b\n");
     const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
