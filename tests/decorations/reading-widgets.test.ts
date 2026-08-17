@@ -267,6 +267,29 @@ describe("readingWidgetsProducer", () => {
     expect(inline.some((x) => x.from === 8 && x.to === 9)).toBe(false);
   });
 
+  it("elides em markers when the span soft-wraps across lines in a paragraph", () => {
+    // markdown-it emphasis crosses softbreaks inside one paragraph, so a
+    // _…_ span wrapped over two source lines still needs its markers hidden.
+    const src = "_a b\nc **d.**_\n";
+    const r = specs(src);
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline.some((x) => x.from === 0 && x.to === 1)).toBe(true);
+    expect(inline.some((x) => x.from === 13 && x.to === 14)).toBe(true);
+  });
+
+  it("does not elide intraword underscores (snake_case)", () => {
+    // CommonMark: `_` never opens/closes emphasis inside a word.
+    const r = specs("foo_bar baz_qux\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline).toEqual([]);
+  });
+
+  it("does not pair em underscores across a blank line", () => {
+    const r = specs("a _b\n\nc_ d\n");
+    const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
+    expect(inline).toEqual([]);
+  });
+
   it("elides inline code backticks", () => {
     const r = specs("a `c` b\n");
     const inline = r.filter((x) => (x.spec as { class?: string }).class === "cm-md-reading-elide");
