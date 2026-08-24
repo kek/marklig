@@ -189,6 +189,25 @@ export const codeblocksProducer: DecorationProducer = ({ source, tokens }) => {
     }
   }
 
+  // Indented code blocks (CommonMark 4.4). markdown-it emits these as
+  // `code_block`, not `fence`: no info string, no delimiter lines, so every
+  // line in the token's map is body. Handling only `fence` left this the one
+  // code construct with no styling at all — the four-space block under a list
+  // item, which is how prose embeds a snippet without a language tag, came
+  // out as plain paragraph text. No Shiki pass: there is no language to
+  // resolve, and guessing one would colour the wrong grammar.
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== "code_block" || !t.map) continue;
+    for (let line = t.map[0]; line < t.map[1]; line++) {
+      const from = lineStarts[line];
+      if (from === undefined) break;
+      const attributes: Record<string, string> = { role: "code" };
+      if (line === t.map[0]) attributes["aria-label"] = tA11y("a11y.codeBlock");
+      ranges.push(Decoration.line({ class: "cm-md-code-body", attributes }).range(from));
+    }
+  }
+
   ranges.sort((a, b) => a.from - b.from);
   return Decoration.set(ranges, true);
 };

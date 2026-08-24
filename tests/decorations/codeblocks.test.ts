@@ -2,6 +2,9 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 import { parseMarkdown } from "../../src/editor/parser";
 import { codeblocksProducer, primeHighlighter, highlightCache } from "../../src/editor/decorations/codeblocks";
+import { readingWidgetsProducer } from "../../src/editor/decorations/reading-widgets";
+import { buildDecorationField, type DecorationSet } from "../../src/editor/decorations/index";
+import { EditorState, type StateField } from "@codemirror/state";
 
 beforeAll(async () => {
   await primeHighlighter(["javascript"]);
@@ -234,4 +237,85 @@ it("highlights a fence tagged with a language alias (ts -> typescript)", async (
     cursor.next();
   }
   expect(tokenMarks).toBeGreaterThan(0);
+});
+
+describe("indented code blocks", () => {
+  const NESTED =
+    "- You need the `scope`, ie:\n" +
+    "\n" +
+    "      scope \"/admin\", AppWeb.Admin do\n" +
+    "        pipe_through :browser\n" +
+    "\n" +
+    "        live \"/users\", UserLive, :index\n" +
+    "      end\n" +
+    "\n" +
+    "  the UserLive route points at `AppWeb.Admin.UserLive`\n";
+
+  function lineStartsOf(src: string): number[] {
+    const out = [0];
+    for (let i = 0; i < src.length; i++) if (src.charCodeAt(i) === 10) out.push(i + 1);
+    return out;
+  }
+
+  it("styles a top-level four-space block as code body", () => {
+    const src = "Intro:\n\n    code line 1\n    code line 2\n\nAfter\n";
+    const body = classes(src).filter((x) => x.class.includes("cm-md-code-body"));
+    const ls = lineStartsOf(src);
+    expect(body.map((d) => d.from)).toEqual([ls[2], ls[3]]);
+  });
+
+  it("styles a block indented under a list item, blank interior line included", () => {
+    const body = classes(NESTED).filter((x) => x.class.includes("cm-md-code-body"));
+    const ls = lineStartsOf(NESTED);
+    // Lines 2-6: the two `scope`/`pipe_through` lines, the blank line between
+    // them and `live`, then `live` and `end`. The prose lines are excluded.
+    expect(body.map((d) => d.from)).toEqual([ls[2], ls[3], ls[4], ls[5], ls[6]]);
+  });
+
+  it("labels the block for screen readers without claiming a language", () => {
+    const src = "Intro:\n\n    plain snippet\n";
+    const tokens = parseMarkdown(src);
+    const set = codeblocksProducer({ source: src, tokens });
+    const labels: string[] = [];
+    const cursor = set.iter();
+    while (cursor.value) {
+      const attrs = (cursor.value.spec as { attributes?: Record<string, string> }).attributes;
+      if (attrs?.["aria-label"]) labels.push(attrs["aria-label"]);
+      cursor.next();
+    }
+    expect(labels).toEqual(["Code block"]);
+  });
+
+  it("does not run Shiki over a block that has no language tag", () => {
+    const src = "Intro:\n\n    const x = 1;\n";
+    const r = classes(src);
+    expect(r.some((x) => x.class.includes("cm-md-token-"))).toBe(false);
+  });
+});
+
+// The indent elision is an inline replace starting exactly where the body
+// line's Decoration.line sits. That boundary has bitten before: a
+// block-replace ending at a line start makes CM silently drop the line
+// decoration there (see the ELIDE_FENCE comment in reading-widgets.ts). This
+// builds the real merged reading-mode set to prove both survive together.
+it("keeps code-body line decorations alongside the reading-mode indent elision", () => {
+  const src = "Intro:\n\n    code line 1\n    code line 2\n";
+  const field = buildDecorationField([
+    codeblocksProducer,
+    readingWidgetsProducer,
+  ]) as unknown as StateField<DecorationSet>;
+  const state = EditorState.create({ doc: src, extensions: [field] });
+
+  const bodies: number[] = [];
+  const elides: number[] = [];
+  const cursor = state.field(field).iter();
+  while (cursor.value) {
+    const cls = (cursor.value.spec as { class?: string }).class ?? "";
+    if (cls.includes("cm-md-code-body")) bodies.push(cursor.from);
+    if (cls === "cm-md-reading-elide") elides.push(cursor.from);
+    cursor.next();
+  }
+  const ls = [src.indexOf("    code line 1"), src.indexOf("    code line 2")];
+  expect(bodies).toEqual(ls);
+  expect(elides).toEqual(ls);
 });

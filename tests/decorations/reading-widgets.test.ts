@@ -765,3 +765,58 @@ describe("table cells with other backslash escapes", () => {
     }
   });
 });
+
+describe("indented code blocks in reading mode", () => {
+  const NESTED =
+    "- You need the scope, ie:\n" +
+    "\n" +
+    "      scope \"/admin\", AppWeb.Admin do\n" +
+    "        pipe_through :browser\n" +
+    "\n" +
+    "        live \"/users\", UserLive, :index\n" +
+    "      end\n" +
+    "\n" +
+    "  the UserLive route points at AppWeb.Admin.UserLive\n";
+
+  function elisions(source: string) {
+    return specs(source).filter(
+      (d) => ((d.spec as { class?: string }).class ?? "") === "cm-md-reading-elide",
+    );
+  }
+
+  it("elides the common indent only, keeping the snippet's own nesting", () => {
+    const elided = elisions(NESTED);
+    const ls = [0];
+    for (let i = 0; i < NESTED.length; i++) if (NESTED.charCodeAt(i) === 10) ls.push(i + 1);
+    // Six spaces is the shallowest line (`scope`, `end`); the eight-space
+    // `pipe_through`/`live` lines keep their extra two.
+    expect(elided.map((d) => [d.from, d.to - d.from])).toEqual([
+      [ls[2], 6],
+      [ls[3], 6],
+      [ls[5], 6],
+      [ls[6], 6],
+    ]);
+  });
+
+  it("leaves the blank interior line alone rather than dedenting the block to zero", () => {
+    const elided = elisions(NESTED);
+    const ls = [0];
+    for (let i = 0; i < NESTED.length; i++) if (NESTED.charCodeAt(i) === 10) ls.push(i + 1);
+    expect(elided.some((d) => d.from === ls[4])).toBe(false);
+    expect(elided.every((d) => d.to - d.from === 6)).toBe(true);
+  });
+
+  it("leaves emphasis and code markers inside an unfenced snippet literal", () => {
+    const src = "Intro:\n\n    int *p = &x;  /* `ptr` and *star* */\n";
+    expect(elisions(src).map((d) => d.to - d.from)).toEqual([4]);
+    // The only replacement is the four-space indent — no marker elision, no
+    // reflow, nothing reaching into the snippet's text.
+    const inside = specs(src).filter((d) => d.from > src.indexOf("int"));
+    expect(inside).toEqual([]);
+  });
+
+  it("elides a tab indent as one character", () => {
+    const src = "Intro:\n\n\ttabbed line\n";
+    expect(elisions(src).map((d) => [d.from, d.to - d.from])).toEqual([[src.indexOf("\t"), 1]]);
+  });
+});

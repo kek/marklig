@@ -543,6 +543,44 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
     codeRanges.push([blockStart, blockEnd]);
   }
 
+  // Indented code blocks (CommonMark 4.4). Two jobs. First, register the
+  // block in `codeRanges` so the inline-marker passes below skip it —
+  // otherwise a `*p` or a backtick in an unfenced snippet gets read as
+  // emphasis and elided. Second, hide the common leading indentation: those
+  // four (or more) spaces are the block's marker exactly as ``` is a fence's,
+  // and reading mode hides markers. Eliding the *common* indent (never each
+  // line's own) keeps the snippet's internal indentation intact.
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== "code_block" || !t.map) continue;
+    const blockStart = lineStarts[t.map[0]];
+    const blockEnd = lineStarts[t.map[1]] ?? source.length;
+    codeRanges.push([blockStart, blockEnd]);
+
+    const bodyLines: Array<{ from: number; indent: number }> = [];
+    let common = Infinity;
+    for (let line = t.map[0]; line < t.map[1]; line++) {
+      const from = lineStarts[line];
+      if (from === undefined) break;
+      let indent = 0;
+      while (from + indent < source.length) {
+        const c = source.charCodeAt(from + indent);
+        if (c !== 0x20 /* space */ && c !== 0x09 /* tab */) break;
+        indent++;
+      }
+      // A blank line carries no indentation to speak of and must not drag the
+      // common prefix down to zero for the whole block.
+      const next = source.charCodeAt(from + indent);
+      if (Number.isNaN(next) || next === 0x0a || next === 0x0d) continue;
+      bodyLines.push({ from, indent });
+      if (indent < common) common = indent;
+    }
+    if (!Number.isFinite(common) || common === 0) continue;
+    for (const { from } of bodyLines) {
+      ranges.push(ELIDE_INLINE.range(from, from + common));
+    }
+  }
+
   // Callouts (GitHub alerts): the `> [!WARNING]` line is scaffolding, so the
   // whole line — quote prefix included — is replaced by a title row. The
   // colour treatment and the block's own indent come from `callouts.ts`, which
@@ -563,7 +601,7 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
   }
 
   /** True for offsets whose source is already claimed wholesale by a block
-   * replacement — front matter, a code fence, a callout's marker line — and
+   * replacement — front matter, a code block, a callout's marker line — and
    * which must therefore not also collect inline marker elision. */
   const inCode = (offset: number): boolean =>
     codeRanges.some(([s, e]) => offset >= s && offset < e)
