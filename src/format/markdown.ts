@@ -4,6 +4,7 @@ import { listsProducer } from "../editor/decorations/lists";
 import { linksProducer } from "../editor/decorations/links";
 import { imagesProducer } from "../editor/decorations/images";
 import { blockquotesProducer } from "../editor/decorations/blockquotes";
+import { calloutsProducer } from "../editor/decorations/callouts";
 import { tablesProducer } from "../editor/decorations/tables";
 import { codeblocksProducer } from "../editor/decorations/codeblocks";
 import { frontmatterProducer } from "../editor/decorations/frontmatter";
@@ -23,6 +24,7 @@ export const markdownFormat = {
     linksProducer,
     imagesProducer,
     blockquotesProducer,
+    calloutsProducer,
     tablesProducer,
     codeblocksProducer,
     frontmatterProducer,
@@ -35,6 +37,7 @@ export const markdownFormat = {
     linksProducer,
     imagesProducer,
     blockquotesProducer,
+    calloutsProducer,
     tablesProducer,
     codeblocksProducer,
     frontmatterProducer,

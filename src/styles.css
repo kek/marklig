@@ -23,6 +23,16 @@
   --search-active-bg: var(--accent);
   --search-active-fg: #fff;
   --search-dim: rgba(26, 26, 26, 0.38);
+  /* Callout (GitHub alert) accents. One hue per kind, each measured against
+     --bg #fdfdfa at 5:1 or better so the title label passes WCAG AA as
+     normal-weight text; the same hue is reused at 8% for the block tint and
+     full strength for the left rule. Colour is never the only cue — every
+     callout also states its kind in words and carries a distinct glyph. */
+  --callout-note: #2c5d8a;
+  --callout-tip: #146c43;
+  --callout-important: #6f42c1;
+  --callout-warning: #8a5a00;
+  --callout-caution: #b02a37;
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
 }
@@ -49,6 +59,14 @@ html.theme-dark {
   --search-active-bg: var(--accent);
   --search-active-fg: #15161a;
   --search-dim: rgba(230, 227, 218, 0.34);
+  /* Dark mode inverts the callout accents: the same five hues lightened until
+     each clears 6:1 against --bg #15161a, since the light-mode values are far
+     too dark to read on it. */
+  --callout-note: #7fb3e8;
+  --callout-tip: #6fcf97;
+  --callout-important: #c3a6f5;
+  --callout-warning: #e3b341;
+  --callout-caution: #f2777a;
 }
 
 html, body, #root {
@@ -129,6 +147,76 @@ html[data-mode="reading"] .cm-md-link-auto { cursor: pointer; }
 /* Blockquotes */
 .cm-md-blockquote        { border-left: 3px solid var(--rule); padding-left: 12px;
                             color: var(--muted); font-style: italic; }
+
+/* Callouts — GitHub-flavored alerts (`> [!WARNING]`). Deliberately not a
+   blockquote: a quotation is someone else's voice (muted, italic, hairline
+   rule), an alert is the document raising its own, so it keeps full-strength
+   body colour and upright type and gains a tinted panel.
+
+   Vertical breathing room is padding, never margin — CodeMirror's heightmap
+   measures .cm-line via offsetHeight, which excludes vertical margins, so a
+   margin here would drift click-to-position downward by N px per callout
+   (same reasoning as the math and HR blocks below).
+
+   The `.cm-line` qualifier on the padding rules is load-bearing: CodeMirror's
+   own base theme sets `.cm-line { padding: 0 2px 0 6px }`, a single-class
+   selector like ours, and it can win on source order — the vertical padding
+   below computed to 0px until the selector outweighed it.
+
+   Every line of the block carries a little vertical padding, not just the
+   first and last, because reading mode reflows a paragraph's source lines
+   into one visual line and keeps only the *first* line's decoration: a
+   `-last`-only rule silently loses its padding on any callout whose body
+   wraps. First and last still get more, so the panel breathes at its ends. */
+.cm-md-callout {
+  --callout-color: var(--rule);
+  border-left: 4px solid var(--callout-color);
+  background: color-mix(in srgb, var(--callout-color) 8%, var(--bg));
+  color: var(--fg);
+  font-style: normal;
+}
+.cm-line.cm-md-callout {
+  padding-left: 14px;
+  padding-right: 10px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.cm-md-callout-note      { --callout-color: var(--callout-note); }
+.cm-md-callout-tip       { --callout-color: var(--callout-tip); }
+.cm-md-callout-important { --callout-color: var(--callout-important); }
+.cm-md-callout-warning   { --callout-color: var(--callout-warning); }
+.cm-md-callout-caution   { --callout-color: var(--callout-caution); }
+
+.cm-line.cm-md-callout-first {
+  padding-top: 9px;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+.cm-line.cm-md-callout-last {
+  padding-bottom: 9px;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* Reading mode: the title row that stands in for the literal `[!WARNING]`
+   line. The glyph and the word are both present, so the kind reads in
+   greyscale and reads aloud. */
+.cm-md-callout-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--callout-color);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-style: normal;
+}
+.cm-md-callout-icon  { font-size: 1.05em; line-height: 1; }
+.cm-md-callout-label { font-weight: 700; font-size: 0.82em; text-transform: uppercase;
+                        letter-spacing: 0.08em; }
+
+/* Edit mode: the marker stays on screen — it is source the user may want to
+   change — but recedes, like a code fence's own ``` line. In reading mode the
+   title widget covers this span, so the rule only bites while editing. */
+.cm-md-callout-marker    { color: var(--muted); font-family: var(--mono); font-size: 0.9em; }
 
 /* Tables — line-level only in Plan 1; richer table layout in Plan 3. */
 .cm-md-table             { font-family: var(--mono); font-size: 0.9em; }

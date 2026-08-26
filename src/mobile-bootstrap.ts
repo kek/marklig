@@ -23,6 +23,7 @@ import { listsProducer } from "./editor/decorations/lists";
 import { linksProducer } from "./editor/decorations/links";
 import { imagesProducer } from "./editor/decorations/images";
 import { blockquotesProducer } from "./editor/decorations/blockquotes";
+import { calloutsProducer } from "./editor/decorations/callouts";
 import { tablesProducer } from "./editor/decorations/tables";
 import {
   codeblocksProducer,
@@ -322,6 +323,7 @@ export async function mobileBootstrap(): Promise<void> {
       linksProducer,
       imagesProducer,
       blockquotesProducer,
+      calloutsProducer,
       tablesProducer,
       codeblocksProducer,
       frontmatterProducer,
