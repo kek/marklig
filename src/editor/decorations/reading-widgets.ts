@@ -9,6 +9,7 @@ import { dispatchLinkClick, linkHandlersFacet } from "../link-clicks";
 import { getRemoteImagePolicy, shouldRenderImage } from "../../shell/settings";
 import { classifyImageSrc, localImageCache } from "./local-images";
 import { sanitizeHtml } from "../../export/sanitize";
+import { calloutIcon, calloutLabel, scanCallouts, type CalloutKind } from "./callouts";
 import { t, tA11y } from "../../i18n/strings";
 
 /** Minimal inline-markdown renderer for table cells. Markdown-it's full
@@ -334,6 +335,30 @@ function makeBrokenImagePlaceholder(src: string, alt: string): HTMLElement {
   return wrap;
 }
 
+/** The title row of a GitHub alert. In reading mode it stands in for the
+ * literal `> [!WARNING]` line, which is scaffolding rather than prose. The
+ * kind is carried three ways — a text label, a glyph with its own silhouette,
+ * and the colour treatment on `.cm-md-callout` — so it survives greyscale and
+ * survives a screen reader; only the glyph is hidden from the a11y tree,
+ * because the label already says the same thing. */
+class CalloutTitleWidget extends WidgetType {
+  constructor(readonly kind: CalloutKind) { super(); }
+  override toDOM(): HTMLElement {
+    const wrap = document.createElement("span");
+    wrap.className = `cm-md-callout-title cm-md-callout-title-${this.kind}`;
+    const icon = document.createElement("span");
+    icon.className = "cm-md-callout-icon";
+    icon.textContent = calloutIcon(this.kind);
+    icon.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.className = "cm-md-callout-label";
+    label.textContent = calloutLabel(this.kind);
+    wrap.append(icon, label);
+    return wrap;
+  }
+  override eq(other: CalloutTitleWidget): boolean { return other.kind === this.kind; }
+}
+
 class HrWidget extends WidgetType {
   override toDOM(): HTMLElement {
     // Wrap the <hr> in a div so vertical breathing room is padding (measured
@@ -518,8 +543,31 @@ export const readingWidgetsProducer: DecorationProducer = ({ source, tokens }) =
     codeRanges.push([blockStart, blockEnd]);
   }
 
+  // Callouts (GitHub alerts): the `> [!WARNING]` line is scaffolding, so the
+  // whole line — quote prefix included — is replaced by a title row. The
+  // colour treatment and the block's own indent come from `callouts.ts`, which
+  // runs in both modes; only the marker substitution is reading-only.
+  const calloutMarkerLines: Array<[number, number]> = [];
+  for (const callout of scanCallouts(source, tokens)) {
+    ranges.push(
+      Decoration.replace({ widget: new CalloutTitleWidget(callout.kind) })
+        .range(callout.lineFrom, callout.lineTo),
+    );
+    // Claim the marker line *including* its newline. Two things must not fire
+    // inside it: the `> ` prefix elide below, which starts at the same offset
+    // and would win the dedup pass and drop this wider replace; and the
+    // paragraph-reflow soft break at the line's end — the marker line and the
+    // body are one markdown-it paragraph, so reflowing would drag the body up
+    // onto the title row.
+    calloutMarkerLines.push([callout.lineFrom, callout.lineTo + 1]);
+  }
+
+  /** True for offsets whose source is already claimed wholesale by a block
+   * replacement — front matter, a code fence, a callout's marker line — and
+   * which must therefore not also collect inline marker elision. */
   const inCode = (offset: number): boolean =>
-    codeRanges.some(([s, e]) => offset >= s && offset < e);
+    codeRanges.some(([s, e]) => offset >= s && offset < e)
+    || calloutMarkerLines.some(([s, e]) => offset >= s && offset < e);
 
   // Paragraph reflow: replace each interior `\n` of a paragraph with a
   // space-widget so the lines visually merge. CommonMark hard breaks

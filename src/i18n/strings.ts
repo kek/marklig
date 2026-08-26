@@ -197,6 +197,15 @@ export const EN = {
   "a11y.loadingImageWithAlt": "Loading image: {alt}",
   "a11y.link": "Link",
 
+  // GitHub-flavored alerts / callouts. These are the visible title of the
+  // callout in reading mode *and* the accessible name of the block, so they
+  // carry the kind for a reader who can't see the colour.
+  "callout.note": "Note",
+  "callout.tip": "Tip",
+  "callout.important": "Important",
+  "callout.warning": "Warning",
+  "callout.caution": "Caution",
+
   // Mobile companion (v2.0). Library home + back navigation. Pairing copy
   // is a placeholder for v2.1 — the CTA only shows a "coming soon" hint
   // until step 5/7 of the mobile plan lands the real flow.

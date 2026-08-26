@@ -25,6 +25,12 @@ plain Markdown.
 CommonMark + GFM tables, task lists, autolinks. KaTeX for `$inline$`
 and `$$block$$` math. Mermaid and Graphviz diagrams. Syntax-highlighted
 code via Shiki across 100+ languages. Footnotes, YAML/TOML front matter.
+GitHub alerts are typeset as callouts, not flattened into quotations.
+
+> [!TIP]
+> A blockquote that opens with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
+> `[!WARNING]` or `[!CAUTION]` gets its own colour, its own glyph and a
+> title row. Everything else stays a quotation:
 
 > What you write is what you get. What you read is what you wrote.
 

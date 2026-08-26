@@ -3,10 +3,23 @@ import type { Range } from "@codemirror/state";
 
 import type { DecorationProducer } from "./index";
 import { computeLineStarts } from "./index";
+import { scanCallouts } from "./callouts";
 
 export const blockquotesProducer: DecorationProducer = ({ source, tokens }) => {
   const ranges: Range<Decoration>[] = [];
   const lineStarts = computeLineStarts(source);
+
+  // A GitHub alert (`> [!WARNING]`) is a blockquote to markdown-it but not a
+  // quotation to the reader. `callouts.ts` owns those lines — decorating them
+  // here too would merge `role="blockquote"` with the callout's `role="note"`
+  // and paint the quotation's left rule under the callout's own.
+  const calloutLines = new Set<number>();
+  for (const callout of scanCallouts(source, tokens)) {
+    for (let line = callout.fromLine; line < callout.toLine; line++) {
+      const start = lineStarts[line];
+      if (start !== undefined) calloutLines.add(start);
+    }
+  }
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -17,7 +30,7 @@ export const blockquotesProducer: DecorationProducer = ({ source, tokens }) => {
         const lineText = source.slice(lineStart, lineEnd).trimStart();
 
         // Only mark lines that actually start with >
-        if (lineText.startsWith(">")) {
+        if (lineText.startsWith(">") && !calloutLines.has(lineStart)) {
           ranges.push(
             Decoration.line({
               class: "cm-md-blockquote",

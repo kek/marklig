@@ -23,6 +23,7 @@ import { listsProducer } from "./editor/decorations/lists";
 import { linksProducer } from "./editor/decorations/links";
 import { imagesProducer } from "./editor/decorations/images";
 import { blockquotesProducer } from "./editor/decorations/blockquotes";
+import { calloutsProducer } from "./editor/decorations/callouts";
 import { tablesProducer } from "./editor/decorations/tables";
 import { codeblocksProducer, primeHighlighter, highlightCache, highlightCacheEffect } from "./editor/decorations/codeblocks";
 import { frontmatterProducer } from "./editor/decorations/frontmatter";
@@ -242,6 +243,7 @@ async function bootstrap(): Promise<void> {
     linksProducer,
     imagesProducer,
     blockquotesProducer,
+    calloutsProducer,
     tablesProducer,
     codeblocksProducer,
     frontmatterProducer,
