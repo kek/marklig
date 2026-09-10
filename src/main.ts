@@ -63,6 +63,7 @@ import { decideExportRoute, saveAsExtension, type TypstRenderState } from "./exp
 import { createDirtyTracker } from "./shell/dirty";
 import { installCloseHandler } from "./shell/close";
 import { installWatcher, type WatcherHandle } from "./shell/watcher";
+import { installTypstDepWatcher } from "./shell/typst-dep-watcher";
 import { installFolderWatcher, type FolderWatcherHandle } from "./shell/folder-watcher";
 import { promptReconcile, showOrphanNotice, showReloadedNotice } from "./ui/reconcile";
 import { recordRecent } from "./shell/recents";
@@ -731,6 +732,25 @@ async function bootstrap(): Promise<void> {
   // the pane's `.typst-pane-stale` dimming: the newest compile produced no
   // pages, so these are a prior revision's.
   let typstRender: TypstRenderState | null = null;
+  // Watches the document's imports. A change in one means the *render* is
+  // stale while the buffer is not, so this recompiles and deliberately does
+  // not touch the editor — unlike `watcherHandle`, which owns the open file
+  // and reconciles it.
+  const typstDepWatcher = installTypstDepWatcher(() => {
+    scheduleTypstCompile();
+  });
+  /** Dependency watching is an enhancement to the preview, never a
+   *  precondition for it. A failed sync must not reject into a caller that
+   *  would otherwise have compiled, nor surface as an unhandled rejection —
+   *  the cost of losing it is that imports stop auto-recompiling, which is
+   *  exactly the behaviour that predates this watcher. */
+  const syncTypstDeps = async (paths: string[]): Promise<void> => {
+    try {
+      await typstDepWatcher.sync(paths);
+    } catch (err) {
+      console.warn("typst dependency watch failed", err);
+    }
+  };
 
   async function openTypstSessionIfNeeded(): Promise<void> {
     if (detectFormat(currentPath) !== "typst") {
@@ -739,6 +759,7 @@ async function bootstrap(): Promise<void> {
         await typstDriver.close();
         typstDriver = null;
       }
+      await typstDepWatcher.stop().catch(() => {});
       typstRender = null;
       toolbar.setStatus(null);
       return;
@@ -747,6 +768,10 @@ async function bootstrap(): Promise<void> {
     // A fresh entry file means the previous document's pages must not be
     // exportable — drop them before the first compile of the new one lands.
     typstRender = null;
+    // ...and its import graph must not outlive it either, or a document we no
+    // longer have open would keep recompiling this window. The first compile
+    // of the new entry installs the correct set.
+    await syncTypstDeps([]);
     if (typstDriver) await typstDriver.close();
     typstDriver = createTypstDriver();
     try {
@@ -817,6 +842,24 @@ async function bootstrap(): Promise<void> {
       );
     }
     view.dispatch({ effects: setTypstDiagnostics.of(result.diagnostics) });
+
+    // Watch whatever this compile read, so editing an import recompiles the
+    // preview.
+    //
+    // Last, and after the staleness guard, for two separate reasons. The guard,
+    // because an older compile's import graph must not replace a newer one's.
+    // Last, because this is an enhancement to the preview and must never be
+    // able to prevent one: an earlier revision ran it before `setPages`, and a
+    // `dependencies` field missing from the compile result threw right there —
+    // leaving the pane permanently blank, with rendering broken by the code
+    // that was only supposed to keep it fresh. Nothing below this line depends
+    // on it, and `?? []` degrades to "watch nothing" rather than throwing.
+    //
+    // The entry file is filtered out because `watcherHandle` already watches
+    // it; feeding it to both would compile twice for a single save.
+    void syncTypstDeps(
+      (result.dependencies ?? []).filter((p) => p !== currentPath),
+    );
   }
 
   /** Run any pending debounced compile *now* and wait for it. Exports call this
@@ -837,6 +880,7 @@ async function bootstrap(): Promise<void> {
 
   window.addEventListener("beforeunload", () => {
     if (typstDriver) void typstDriver.close();
+    void typstDepWatcher.stop().catch(() => {});
   });
 
   // Per-window folder root, held here so the session report tick can read it
