@@ -108,15 +108,13 @@ pub(crate) struct TargetMatcher {
 impl TargetMatcher {
     pub(crate) fn new(target: &std::path::Path) -> Self {
         let verbatim = target.to_path_buf();
-        // Resolve the target itself when it exists. When it doesn't — a path
-        // the frontend has opened but that isn't on disk yet — resolve the
-        // *parent* (which does exist, since we're about to watch it) and
-        // re-join the file name, so we still know the spelling FSEvents will
-        // use once the file appears. Previously this case fell back to the
-        // verbatim path alone and so was broken on macOS.
-        let canonical = target.canonicalize().ok().or_else(|| {
-            let resolved_parent = target.parent()?.canonicalize().ok()?;
-            Some(resolved_parent.join(target.file_name()?))
+        // Resolve the closest existing ancestor and append the missing suffix.
+        // Dependency watches can be installed before several parent directories
+        // exist. Resolving only the immediate parent would lose macOS's canonical
+        // spelling (e.g. /private/tmp) for all later events on those files.
+        let canonical = target.ancestors().find_map(|ancestor| {
+            let resolved = ancestor.canonicalize().ok()?;
+            Some(resolved.join(target.strip_prefix(ancestor).ok()?))
         });
         let canonical = canonical.filter(|c| c != &verbatim);
         Self {
@@ -127,6 +125,14 @@ impl TargetMatcher {
 
     fn matches(&self, path: &std::path::Path) -> bool {
         path == self.verbatim || self.canonical.as_deref() == Some(path)
+    }
+
+    /// Does this path name the target or one of its ancestor directories?
+    /// Dependency watchers use structural directory events to recover imports
+    /// created before a recursive watcher has armed the new subdirectory.
+    pub(crate) fn matches_ancestor(&self, path: &std::path::Path) -> bool {
+        self.verbatim.starts_with(path)
+            || self.canonical.as_ref().is_some_and(|p| p.starts_with(path))
     }
 
     /// A `notify` event carries one or more paths (two, for renames). It

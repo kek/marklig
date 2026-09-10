@@ -121,4 +121,22 @@ describe("typst dependency watcher", () => {
     await w.sync(["/cv/a.typ"]);
     expect(w.watched()).toEqual(["/cv/a.typ"]);
   });
+
+  it("keeps a working set when replacement fails and retries the same desired set", async () => {
+    const onChanged = vi.fn();
+    const w = installTypstDepWatcher(onChanged);
+    await w.sync(["/cv/old.typ"]);
+    invoke.mockRejectedValueOnce(new Error("watch installation failed"));
+    await expect(w.sync(["/cv/new/leaf.typ"])).rejects.toThrow("watch installation failed");
+    expect(w.watched()).toEqual(["/cv/old.typ"]);
+    emitToEveryWindow("/cv/old.typ");
+    expect(onChanged).toHaveBeenCalledTimes(1);
+
+    await w.sync(["/cv/new/leaf.typ"]);
+    expect(invoke).toHaveBeenCalledTimes(3);
+    expect(w.watched()).toEqual(["/cv/new/leaf.typ"]);
+    emitToEveryWindow("/cv/new/leaf.typ");
+    expect(onChanged).toHaveBeenCalledTimes(2);
+  });
+
 });
