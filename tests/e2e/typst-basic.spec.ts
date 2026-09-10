@@ -5,8 +5,15 @@ const APP_URL = "http://localhost:1420";
 /** Install a minimal Tauri stub that also handles the three Typst commands.
  *  `typst_compile` returns one mock SVG page so the pane can assert the
  *  render path wires up; the SVG round-trips through DOMPurify's svg profile. */
-async function addTauriStubs(page: import("@playwright/test").Page, sample: string, initialPath: string): Promise<void> {
-  await page.addInitScript(({ sample, initialPath }) => {
+async function addTauriStubs(
+  page: import("@playwright/test").Page,
+  sample: string,
+  initialPath: string,
+  /** What `typst_compile` reports having read. Non-empty makes the frontend
+   *  install a dependency watch, which the recompile test then triggers. */
+  dependencies: string[] = [],
+): Promise<void> {
+  await page.addInitScript(({ sample, initialPath, dependencies }) => {
     let cbId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
     function transformCallback(cb: (data: unknown) => void, once = false): number {
@@ -15,7 +22,8 @@ async function addTauriStubs(page: import("@playwright/test").Page, sample: stri
       return id;
     }
     function unregisterCallback(id: number): void { callbacks.delete(id); }
-    const eventListeners = new Map<number, (data: unknown) => void>();
+    const eventListeners = new Map<number, { event: string; cb: (data: unknown) => void }>();
+    let typstCompileCount = 0;
 
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args?: Record<string, unknown>) => {
@@ -49,7 +57,10 @@ async function addTauriStubs(page: import("@playwright/test").Page, sample: stri
         if (cmd === "clear_recovery") return null;
         if (cmd === "write_recovery") return null;
         if (cmd === "typst_open") return "session-mock";
+        if (cmd === "typst_watch_dependencies") return null;
+        if (cmd === "typst_unwatch_dependencies") return null;
         if (cmd === "typst_compile") {
+          typstCompileCount++;
           // Embed the incoming source as a data attribute so we can both
           // (a) verify a page rendered and (b) check the compile pipeline
           // saw the up-to-date source.
@@ -60,12 +71,20 @@ async function addTauriStubs(page: import("@playwright/test").Page, sample: stri
             ],
             diagnostics: [],
             elapsed_ms: 1,
+            // The real command always sends this; the mock must too, or the
+            // frontend's dependency-watch sync sees `undefined`.
+            dependencies,
           };
         }
         if (cmd === "typst_close") return null;
         if (cmd === "plugin:event|listen") {
           const handlerId = args?.handler as number | undefined;
-          if (handlerId != null) eventListeners.set(handlerId, callbacks.get(handlerId) ?? (() => {}));
+          if (handlerId != null) {
+            eventListeners.set(handlerId, {
+              event: String(args?.event ?? ""),
+              cb: callbacks.get(handlerId) ?? (() => {}),
+            });
+          }
           return handlerId ?? 0;
         }
         if (cmd === "plugin:event|unlisten") {
@@ -84,13 +103,27 @@ async function addTauriStubs(page: import("@playwright/test").Page, sample: stri
       },
     };
 
+    // Test hooks. `__emitTauriEvent` delivers to listeners registered for that
+    // event name only — the real backend filters by name, so emitting to every
+    // listener would let a test pass through a handler that would never have
+    // been reached in the app.
+    (window as unknown as Record<string, unknown>).__typstCompileCount = () => typstCompileCount;
+    (window as unknown as Record<string, unknown>).__emitTauriEvent = (
+      event: string,
+      payload: unknown,
+    ) => {
+      for (const [id, entry] of eventListeners) {
+        if (entry.event === event) entry.cb({ event, id, payload });
+      }
+    };
+
     (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
       unregisterListener: (id: number) => {
         eventListeners.delete(id);
         unregisterCallback(id);
       },
     };
-  }, { sample, initialPath });
+  }, { sample, initialPath, dependencies });
 }
 
 test("opens .typ, renders pages in the preview pane", async ({ page }) => {
@@ -146,4 +179,93 @@ test("edits in the editor trigger a re-compile", async ({ page }) => {
   await expect.poll(async () => {
     return await page.locator(".preview-pane-body svg").getAttribute("data-source-len");
   }, { timeout: 10_000 }).not.toBe(initialLen);
+});
+
+/** The feature this file's other tests cannot reach: a change to a file the
+ *  document *imports* must recompile the preview, even though the editor
+ *  buffer has not changed and the open file was not touched.
+ *
+ *  The unit and Rust suites each cover one layer — that the compiler reports
+ *  what it read, that the OS delivers events for those paths, that the
+ *  frontend filters them. Only here does the whole chain run in the app: a
+ *  real compile result carrying a dependency, a real watch sync, and the real
+ *  listener wired to the real debounced compile. */
+test("a change to an imported file recompiles the preview", async ({ page }) => {
+  const sample = '#import "template.typ": cv\n\n= Sample\n';
+  await addTauriStubs(page, sample, "/virtual/sample.typ", [
+    "/virtual/sample.typ", // the entry file — must be filtered out by main.ts
+    "/virtual/template.typ",
+  ]);
+
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.typ")}`);
+  await page.waitForSelector(".cm-editor", { state: "attached" });
+  await expect(page.locator(".preview-pane-body .typst-page svg"))
+    .toHaveCount(1, { timeout: 10_000 });
+
+  // Let the post-compile dependency sync install the listener.
+  await page.waitForFunction(
+    () => (window as unknown as { __typstCompileCount: () => number }).__typstCompileCount() > 0,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const before = await page.evaluate(() =>
+    (window as unknown as { __typstCompileCount: () => number }).__typstCompileCount(),
+  );
+
+  // The import changed on disk. Nothing about the buffer or the open file has.
+  await page.evaluate(() => {
+    (
+      window as unknown as {
+        __emitTauriEvent: (e: string, p: unknown) => void;
+      }
+    ).__emitTauriEvent("viewer://typst-dependency-changed", {
+      path: "/virtual/template.typ",
+    });
+  });
+
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          (window as unknown as { __typstCompileCount: () => number }).__typstCompileCount(),
+        ),
+      { timeout: 10_000, message: "changed import did not trigger a recompile" },
+    )
+    .toBeGreaterThan(before);
+});
+
+/** The entry file is deliberately filtered out of the dependency watch, because
+ *  `installWatcher` already covers it. Without that filter a single save would
+ *  compile twice. */
+test("a dependency event for the open file itself is ignored", async ({ page }) => {
+  const sample = '#import "template.typ": cv\n\n= Sample\n';
+  await addTauriStubs(page, sample, "/virtual/sample.typ", [
+    "/virtual/sample.typ",
+    "/virtual/template.typ",
+  ]);
+
+  await page.goto(`${APP_URL}/?file=${encodeURIComponent("/virtual/sample.typ")}`);
+  await page.waitForSelector(".cm-editor", { state: "attached" });
+  await expect(page.locator(".preview-pane-body .typst-page svg"))
+    .toHaveCount(1, { timeout: 10_000 });
+
+  const before = await page.evaluate(() =>
+    (window as unknown as { __typstCompileCount: () => number }).__typstCompileCount(),
+  );
+
+  await page.evaluate(() => {
+    (
+      window as unknown as { __emitTauriEvent: (e: string, p: unknown) => void }
+    ).__emitTauriEvent("viewer://typst-dependency-changed", {
+      path: "/virtual/sample.typ",
+    });
+  });
+
+  // Give a recompile every chance to happen before concluding it did not:
+  // comfortably longer than the 300ms compile debounce.
+  await page.waitForTimeout(1200);
+  const after = await page.evaluate(() =>
+    (window as unknown as { __typstCompileCount: () => number }).__typstCompileCount(),
+  );
+  expect(after).toBe(before);
 });

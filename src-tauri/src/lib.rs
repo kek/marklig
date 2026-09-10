@@ -104,6 +104,7 @@ pub fn run() {
         .manage(pairing::PairingState::new())
         .manage(std::sync::Arc::new(pairing_ws::WsServerState::new()))
         .manage(self::typst::TypstState::new())
+        .manage(commands::typst_dep_watcher::TypstDepWatcherState::new())
         .manage(std::sync::Arc::new(sync_watcher::SyncWatcherState::new()))
         .manage(std::sync::Arc::new(sync_session::SyncSessionRegistry::new()))
         .setup(|app| {
@@ -223,6 +224,8 @@ pub fn run() {
             self::typst::typst_open,
             self::typst::typst_compile,
             self::typst::typst_close,
+            commands::typst_dep_watcher::typst_watch_dependencies,
+            commands::typst_dep_watcher::typst_unwatch_dependencies,
             commands::mobile_sync::sync_compact,
             session::session_report,
             session::session_forget,

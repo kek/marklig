@@ -159,6 +159,9 @@ async function addStubs(page: Page, sample: string, initialPath: string, saveDes
             ],
             diagnostics: [],
             elapsed_ms: 1,
+            // The real command always sends this; the mock must too, or the
+            // frontend's dependency-watch sync sees `undefined`.
+            dependencies: [],
           };
         }
         if (cmd === "typst_close") return null;

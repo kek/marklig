@@ -12,7 +12,12 @@
 //! Sibling files / assets are resolved relative to the entry file's parent
 //! directory. Packages (`@preview/...`) are NOT resolved in Phase C — that
 //! lands in Phase F via `crate::typst::packages`.
+//!
+//! The world also records which local files a compile actually *read*, so the
+//! preview can be recompiled when an import three levels down changes — see
+//! `begin_dependency_capture` / `finish_dependency_capture`.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -56,6 +61,21 @@ pub struct ViewerWorld {
     root: PathBuf,
     main: FileId,
     main_source: RwLock<Source>,
+    /// Absolute path of the entry file. Always a dependency of every compile,
+    /// but `source()` short-circuits the main id before it reaches
+    /// `resolve_path`, so it is recorded from here instead.
+    entry: PathBuf,
+    /// Local files resolved during the compile currently in flight. Reset by
+    /// `begin_dependency_capture`.
+    pending_deps: RwLock<BTreeSet<PathBuf>>,
+    /// The set to watch. Replaced wholesale by a successful compile; a failed
+    /// one is only allowed to *add* to it. A compile that dies on a parse
+    /// error in the entry file never reaches the imports, so its `pending` set
+    /// is a near-empty subset of the truth — adopting that would unwatch every
+    /// import, and the fix the user then makes in one of them would not
+    /// retrigger. Keeping the last good set means the graph only shrinks when
+    /// a compile actually proves it smaller.
+    watched_deps: RwLock<BTreeSet<PathBuf>>,
 }
 
 impl ViewerWorld {
@@ -81,7 +101,40 @@ impl ViewerWorld {
             root,
             main,
             main_source: RwLock::new(main_source),
+            entry: entry_path.to_path_buf(),
+            pending_deps: RwLock::new(BTreeSet::new()),
+            watched_deps: RwLock::new(BTreeSet::new()),
         })
+    }
+
+    /// Record a local file the compiler asked for. Package files are excluded
+    /// by the caller: they live in the immutable shared package cache, so
+    /// watching them would be pure cost.
+    fn note_dependency(&self, path: &Path) {
+        self.pending_deps.write().insert(path.to_path_buf());
+    }
+
+    /// Start recording dependencies for one compile. Call immediately before
+    /// `typst::compile`, under the session's compile lock.
+    pub fn begin_dependency_capture(&self) {
+        let mut pending = self.pending_deps.write();
+        pending.clear();
+        pending.insert(self.entry.clone());
+    }
+
+    /// Finish recording and return the paths worth watching.
+    ///
+    /// `succeeded` selects the merge rule described on `watched_deps`: a
+    /// successful compile replaces the set, a failed one may only extend it.
+    pub fn finish_dependency_capture(&self, succeeded: bool) -> Vec<PathBuf> {
+        let pending = self.pending_deps.read();
+        let mut watched = self.watched_deps.write();
+        if succeeded {
+            *watched = pending.clone();
+        } else {
+            watched.extend(pending.iter().cloned());
+        }
+        watched.iter().cloned().collect()
     }
 
     /// Replace the in-memory main source for the next compile.
@@ -119,6 +172,12 @@ impl World for ViewerWorld {
             return Ok(self.main_source.read().clone());
         }
         let path = resolve_path(&self.root, id)?;
+        // Recorded before the read, deliberately: an import the document names
+        // but that does not exist yet is exactly the file whose *creation*
+        // should retrigger a compile.
+        if id.package().is_none() {
+            self.note_dependency(&path);
+        }
         let text =
             std::fs::read_to_string(&path).map_err(|err| FileError::from_io(err, &path))?;
         Ok(Source::new(id, text))
@@ -126,6 +185,9 @@ impl World for ViewerWorld {
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         let path = resolve_path(&self.root, id)?;
+        if id.package().is_none() {
+            self.note_dependency(&path);
+        }
         let bytes =
             std::fs::read(&path).map_err(|err| FileError::from_io(err, &path))?;
         Ok(Bytes::new(bytes))
