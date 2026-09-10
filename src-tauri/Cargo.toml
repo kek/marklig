@@ -54,7 +54,7 @@ mdns-sd = { version = "0.20", default-features = false }
 # ourselves because `libc` has no `gethostname` on the Windows target.
 hostname = "0.4"
 
-# Desktop-only filesystem watching + ignore-aware traversal. Android does
+# Desktop-only filesystem watching + bounded recursive traversal. Android does
 # not have a stable cross-OEM fs watcher, and the standalone mobile shell
 # uses Storage Access Framework tree URIs rather than path walks. See the
 # v2 mobile spec §5 (renderer reuse) for the split.

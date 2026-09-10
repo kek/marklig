@@ -38,10 +38,10 @@ impl FolderWatcherState {
 }
 
 /// True when `p` is a path the file picker / sidebar would never show — a
-/// hardcoded ignore directory (node_modules, .git, target, …) or a path
-/// excluded by the repo's `.gitignore`/`.git/info/exclude`/global excludes.
-/// Filtering events here saves the frontend from a refresh storm whenever a
-/// build tool churns through generated files.
+/// hardcoded ignore directory (node_modules, .git, target, …). Git-ignored
+/// paths are intentionally not filtered because they can contain documents
+/// shown in the sidebar. Filtering events here saves the frontend from a
+/// refresh storm whenever a build tool churns through generated files.
 fn path_is_ignored(root: &Path, p: &Path) -> bool {
     !is_path_visible(root, p)
 }

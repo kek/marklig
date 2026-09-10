@@ -327,33 +327,30 @@ pub fn list_documents(root: String) -> Result<Vec<DocumentEntry>, FileError> {
     Ok(out)
 }
 
-/// Walk `root` collecting supported documents (Markdown + Typst), honoring
-/// `.gitignore` (and friends) when the root is inside a Git repo. Uses
-/// `ignore::WalkBuilder` — same engine ripgrep uses — so nested ignores,
-/// `.git/info/exclude`, and the user's global `core.excludesFile` are all
-/// handled.
+/// Walk `root` collecting supported documents (Markdown + Typst).
 ///
-/// In addition to whatever git ignores, `is_ignored()` still applies as a
-/// `filter_entry` so non-Git projects (and Git projects that didn't bother to
-/// ignore `node_modules` etc.) stay clean. We keep `.hidden(false)` so
-/// directories like `.github` and `.claude`, which often hold real documents,
-/// remain visible — see the comment on `is_ignored`.
+/// Git-ignored files are deliberately included: an ignored directory can still
+/// contain documentation the user wants to read. `is_ignored()` applies a
+/// small, explicit list of generated/metadata directories instead, keeping
+/// the walk bounded without treating `.gitignore` as a visibility setting.
+/// `ignore::WalkBuilder` is still useful here for its bounded recursive walk.
 fn walk_for_documents(root: &std::path::Path) -> Vec<DocumentEntry> {
     use ignore::WalkBuilder;
 
     let root_for_filter = root.to_path_buf();
     let mut builder = WalkBuilder::new(root);
     builder
+        // Do not apply Git, global, or other ignore files. Visibility is
+        // controlled by the explicit performance-oriented list in `is_ignored`.
         .standard_filters(false)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .require_git(true) // only consult .gitignore when inside a Git repo
+        .ignore(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .parents(false)
         .hidden(false)
-        .parents(true)
-        // ignore::WalkBuilder depth counts the root as 0, so to keep parity
-        // with the previous hand-rolled walker (which allowed depth up to and
-        // including MAX_FOLDER_DEPTH) we pass MAX_FOLDER_DEPTH directly.
+        // WalkBuilder depth counts the root as 0, so this preserves the
+        // previous hand-rolled walk's maximum depth.
         .max_depth(Some(MAX_FOLDER_DEPTH as usize))
         .filter_entry(move |entry| {
             // Mirror the old explicit-skip list. Apply to every component;
@@ -416,9 +413,9 @@ fn walk_for_documents(root: &std::path::Path) -> Vec<DocumentEntry> {
 }
 
 /// Returns true when `path` would be surfaced by `list_documents` from
-/// the perspective of ignore filtering — i.e. it isn't in a hard-coded ignore
-/// directory and isn't excluded by `.gitignore`/`.git/info/exclude`/global
-/// excludes when `root` is inside a Git repo.
+/// the perspective of directory filtering. Git-ignore rules are intentionally
+/// not consulted: ignored directories can contain documents the user wants to
+/// read.
 ///
 /// `folder_watcher.rs` calls this to drop fs events for paths the file picker
 /// and sidebar would never show, so e.g. a `cargo build` writing into
@@ -458,40 +455,10 @@ pub(crate) fn is_path_visible(root: &std::path::Path, path: &std::path::Path) ->
             }
         }
     }
-    // Then ask the same ignore stack `list_documents` uses.
-    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
-    // Walk up from `root` looking for the enclosing .git so we know which
-    // .gitignore stack applies. ignore::Gitignore handles nested ignores
-    // automatically when fed each one.
-    let mut found_git = false;
-    let mut cursor = Some(root);
-    while let Some(dir) = cursor {
-        if dir.join(".git").exists() {
-            found_git = true;
-            break;
-        }
-        cursor = dir.parent();
-    }
-    if !found_git {
-        return true;
-    }
-    // Add .gitignore files along the relative path so nested ignores apply.
-    let mut walked = root.to_path_buf();
-    let _ = builder.add(walked.join(".gitignore"));
-    for component in rel.components() {
-        if let std::path::Component::Normal(os) = component {
-            walked.push(os);
-            if walked.is_dir() {
-                let _ = builder.add(walked.join(".gitignore"));
-            }
-        }
-    }
-    let gi = match builder.build() {
-        Ok(g) => g,
-        Err(_) => return true,
-    };
-    let is_dir = path.is_dir();
-    !gi.matched_path_or_any_parents(path, is_dir).is_ignore()
+    // Git-ignore rules do not affect document visibility. Keep this function
+    // in lockstep with the walk above by applying only the hard-coded and
+    // nested-checkout filters.
+    true
 }
 
 #[cfg(test)]
@@ -516,12 +483,9 @@ mod tests {
     }
 
     fn git_init(dir: &Path) {
-        // ignore::WalkBuilder treats a directory as a Git repo when it
-        // contains `.git` (file or dir). A bare marker file is enough.
+        // Keep the fixtures representative of a Git project. Git ignore files
+        // are intentionally inert for document discovery even in this case.
         std::fs::create_dir_all(dir.join(".git")).expect("create .git");
-        // Some `ignore` codepaths look for HEAD; create a minimal one.
-        std::fs::write(dir.join(".git/HEAD"), b"ref: refs/heads/main\n")
-            .expect("write HEAD");
     }
 
     fn relatives(entries: &[DocumentEntry]) -> Vec<String> {
@@ -531,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn gitignore_directory_pattern_excludes_subtree() {
+    fn gitignore_directory_pattern_does_not_exclude_subtree() {
         let root = unique_tempdir("gitignore-dir");
         git_init(&root);
         std::fs::write(root.join(".gitignore"), b"secret/\n").unwrap();
@@ -543,11 +507,18 @@ mod tests {
         let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
-        assert_eq!(got, vec!["notes.md".to_string(), "top.md".to_string()]);
+        assert_eq!(
+            got,
+            vec![
+                "notes.md".to_string(),
+                "secret/leaked.md".to_string(),
+                "top.md".to_string()
+            ]
+        );
     }
 
     #[test]
-    fn gitignore_glob_pattern_excludes_matching_files() {
+    fn gitignore_glob_pattern_does_not_exclude_matching_files() {
         let root = unique_tempdir("gitignore-glob");
         git_init(&root);
         std::fs::write(root.join(".gitignore"), b"*.draft.md\n").unwrap();
@@ -560,13 +531,21 @@ mod tests {
         let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
-        assert_eq!(got, vec!["ok.md".to_string(), "sub/keep.md".to_string()]);
+        assert_eq!(
+            got,
+            vec![
+                "foo.draft.md".to_string(),
+                "ok.md".to_string(),
+                "sub/bar.draft.md".to_string(),
+                "sub/keep.md".to_string()
+            ]
+        );
     }
 
     #[test]
-    fn non_git_root_ignores_gitignore_file() {
-        // .gitignore present, but no .git → ignore-crate skips it
-        // (require_git(true)). Only the hardcoded set applies.
+    fn gitignore_file_without_git_context_is_also_scanned() {
+        // A .gitignore has no effect on document visibility, whether or not
+        // this is a Git repository.
         let root = unique_tempdir("non-git");
         std::fs::write(root.join(".gitignore"), b"secret/\n").unwrap();
         std::fs::write(root.join("notes.md"), b"# notes\n").unwrap();
@@ -576,7 +555,7 @@ mod tests {
         let got = relatives(&walk_for_documents(&root));
         let _ = std::fs::remove_dir_all(&root);
 
-        // Both files surface; the .gitignore is inert without a Git context.
+        // Both files surface.
         assert_eq!(
             got,
             vec!["notes.md".to_string(), "secret/leaked.md".to_string()]
@@ -668,9 +647,9 @@ mod tests {
 
     #[test]
     fn nested_checkout_and_gitignore_combine() {
-        // Two nested checkouts: one inside a gitignored dir (gitignore wins
-        // first); one inside a non-ignored dir (the new rule wins). A
-        // sibling `.md` outside both is visible.
+        // Two nested checkouts: one inside a gitignored dir and one inside a
+        // non-ignored dir. Both nested checkouts stay hidden by the structural
+        // rule, while a sibling document outside them is visible.
         let root = unique_tempdir("nested-and-gitignore");
         git_init(&root);
         std::fs::write(root.join(".gitignore"), b"ignored/\n").unwrap();
@@ -705,7 +684,7 @@ mod tests {
             got,
             vec!["agents/sibling.md".to_string(), "top.md".to_string()]
         );
-        assert!(!v_inner1, "gitignore'd nested checkout content hidden");
+        assert!(!v_inner1, "nested checkout content hidden even in gitignored dir");
         assert!(!v_inner2, "non-ignored nested checkout content hidden");
         assert!(v_sibling, "sibling outside the nested checkout is visible");
     }
@@ -815,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn is_path_visible_respects_gitignore_and_hardcoded() {
+    fn is_path_visible_respects_hardcoded_ignores_only() {
         let root = unique_tempdir("visible");
         git_init(&root);
         std::fs::write(root.join(".gitignore"), b"secret/\n").unwrap();
@@ -834,7 +813,7 @@ mod tests {
         let v = is_path_visible(&root, &visible);
         let _ = std::fs::remove_dir_all(&root);
 
-        assert!(!h1, ".gitignore'd path should be hidden");
+        assert!(h1, ".gitignore'd path should still be visible");
         assert!(!h2, "hardcoded-ignored path should be hidden");
         assert!(v, "tracked file should be visible");
     }

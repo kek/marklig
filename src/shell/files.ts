@@ -67,9 +67,9 @@ export async function pickFolder(): Promise<string | null> {
 }
 
 /** Recursively walk `root` for supported document files (.md/.markdown/.mdx/
- * .mdown/.typ), skipping common ignored directories (node_modules, .git,
- * target, etc.). The Rust side also caps depth and entry count to prevent
- * runaway scans. */
+ * .mdown/.typ). Git-ignored files are included; the Rust side skips only
+ * common high-volume metadata/build directories and caps depth and entry
+ * count to prevent runaway scans. */
 export async function listMarkdownFiles(root: string): Promise<MarkdownFileEntry[]> {
   return await invoke<MarkdownFileEntry[]>("list_documents", { root });
 }
